@@ -1,0 +1,1 @@
+"""CodeReferee AI core."""
