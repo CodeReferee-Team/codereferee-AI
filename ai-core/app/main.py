@@ -39,6 +39,11 @@ def run_agent_critic(request: AgentCriticRequest) -> AgentCriticResponse:
     return run_agent_critic_pipeline(request)
 
 
+@app.post("/v1/ai/agent-critic", response_model=AgentCriticResponse)
+def run_agent_critic_v1(request: AgentCriticRequest) -> AgentCriticResponse:
+    return run_agent_critic_pipeline(request)
+
+
 @app.get("/jobs/{job_id}", response_model=JobResponse)
 def get_job(job_id: str) -> JobResponse:
     state = job_store.get(job_id)

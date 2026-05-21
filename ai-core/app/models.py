@@ -25,9 +25,11 @@ class AgentCriticRequest(BaseModel):
     requirement: str = Field(..., min_length=5)
     current_code: str | None = None
     refine: bool = True
+    request_id: str | None = None
 
 
 class AgentCriticResponse(BaseModel):
+    request_id: str | None = None
     requirement: str
     plan: dict[str, Any]
     initial_code: str

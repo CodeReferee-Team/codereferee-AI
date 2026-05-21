@@ -23,6 +23,7 @@ def run_agent_critic_pipeline(request: AgentCriticRequest) -> AgentCriticRespons
         state.events.append("Refiner: skipped by request")
 
     return AgentCriticResponse(
+        request_id=request.request_id,
         requirement=state.requirement,
         plan=state.plan,
         initial_code=initial_code,
