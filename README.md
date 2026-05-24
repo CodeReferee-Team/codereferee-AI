@@ -1,17 +1,17 @@
 # CodeReferee
 
-CodeReferee is an SRE-aware AI coding pipeline. It receives a natural-language request, drafts Python code, reviews it from a reliability perspective, executes it in an isolated Docker sandbox, and loops through self-healing patches until the judge accepts the result or the retry limit is reached.
+CodeReferee is an SRE-aware repository validation platform. It accepts an existing public GitHub repository URL, stores the link/commit metadata, clones the repository inside a sandbox, runs smoke validation under resource limits, and uses Judge/Critic/Refiner agents to produce a reliability report.
 
 ## MVP Scope
 
-- FastAPI AI core for request intake and job execution
-- Planner, Draft, Critic, Refiner, and Judge agent nodes
-- Shared in-memory job state for local development
-- Docker-based isolated Python sandbox
-- Redis, PostgreSQL, and Prometheus services prepared through Docker Compose
-- Korean-friendly API examples and architecture notes
+- FastAPI AI core for repository validation intake
+- GitHub URL preflight before expensive sandbox execution
+- Docker-based repository clone and smoke-test sandbox
+- Judge, Critic, and Refiner-report agent nodes
+- Prometheus metrics endpoint for validation counters/durations
+- Spring Boot API gateway integration through `/v1/validations/repository`
 
-The Spring Boot API gateway from the full architecture can be added as the next layer. This repository starts with the AI core because it is the system's highest-risk path.
+Code generation has been removed from the MVP. CodeReferee validates existing projects instead of drafting new code.
 
 ## Quick Start
 
@@ -24,59 +24,50 @@ cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
-In another terminal:
+Validate a repository:
 
 ```bash
-curl -X POST http://localhost:8000/jobs \
+curl -X POST http://localhost:8000/v1/validations/repository \
   -H "Content-Type: application/json" \
-  -d '{"requirement":"외부 API를 호출하되 2초 타임아웃과 최대 3회 재시도를 넣은 Python 코드를 작성해줘."}'
+  -d '{"repository_url":"https://github.com/CodeReferee-Team/codereferee-AI","branch":"main"}'
 ```
 
-Check the result:
+Check a saved job:
 
 ```bash
 curl http://localhost:8000/jobs/{job_id}
 ```
 
-## Agent-Critic Pipeline First
+## Runtime Flow
 
-Use this endpoint when you want to test only the coding agent and critic loop before connecting Docker sandbox, Judge, Redis, or Spring Boot.
-
-```bash
-curl -X POST http://localhost:8000/pipelines/agent-critic \
-  -H "Content-Type: application/json" \
-  -d '{"requirement":"외부 API 호출 코드를 안정적으로 작성해줘.","refine":true}'
+```text
+GitHub URL
+  -> preflight URL/ref check
+  -> validation plan
+  -> Docker sandbox clone
+  -> build/test/run smoke detection
+  -> metrics/log collection
+  -> Judge pass/fail
+  -> Critic root-cause report
+  -> Refiner remediation guidance
 ```
-
-You can also pass existing code for review:
-
-```bash
-curl -X POST http://localhost:8000/pipelines/agent-critic \
-  -H "Content-Type: application/json" \
-  -d '{"requirement":"HTTP 호출 안정성 리뷰","current_code":"import urllib.request\nprint(urllib.request.urlopen(\"https://example.com\").read())"}'
-```
-
-## Local Infrastructure
-
-```bash
-docker compose up -d redis postgres prometheus
-```
-
-The sandbox runner uses Docker, so Docker Desktop must be running before executing jobs.
 
 ## Environment
 
-`GOOGLE_API_KEY` enables Gemini-backed agents. If it is missing, the MVP falls back to deterministic local agent stubs so that the API and sandbox flow can still be tested.
+`GOOGLE_API_KEY` enables Gemini-backed Judge/Critic/Refiner reports. If it is missing, the MVP uses deterministic local fallback reports so that API and sandbox flow can still be tested.
+
+Docker Desktop must be running for sandbox execution.
 
 ## Repository Layout
 
 ```text
 ai-core/
   app/
-    agents/       # Planner, Draft, Critic, Refiner, Judge
-    sandbox/      # Docker execution layer
+    agents/       # Planner, Judge, Critic, Refiner-report nodes
+    repository/   # GitHub intake/preflight checks
+    sandbox/      # Docker repository execution layer
     storage/      # Local job state
-    workflow/     # Self-healing orchestration
+    workflow/     # Repository validation orchestration
     main.py       # FastAPI app
 docs/
   architecture.md

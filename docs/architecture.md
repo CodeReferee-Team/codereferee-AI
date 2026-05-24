@@ -2,25 +2,27 @@
 
 ## Runtime Flow
 
-1. The client sends a natural-language coding requirement to `POST /jobs`.
-2. The AI core creates a job state and runs the pipeline.
-3. Planner converts the requirement into an SRE-aware implementation plan.
-4. Draft creates initial Python code.
-5. Critic reviews the code and recent execution logs.
-6. Refiner applies a reliability patch.
-7. Sandbox executes the code inside Docker with CPU, memory, process, and timeout limits.
-8. Judge decides pass or fail from sandbox logs and metrics.
-9. On failure, the loop returns to Critic until `max_retries` is reached.
+1. The client sends a public GitHub repository URL to `POST /v1/validations/repository`.
+2. The AI core stores a validation job in local state.
+3. Preflight validates the URL shape and requested ref with `git ls-remote`.
+4. Unreachable or unsupported links fail before expensive sandbox execution and are passed to Critic/Refiner for feedback.
+5. Clone and smoke validation run inside Docker with CPU, memory, process, and timeout limits.
+6. The sandbox emits logs and Prometheus-style metrics such as exit code, timeout, and duration.
+7. Judge decides pass/fail from preflight, logs, and metrics.
+8. Critic identifies the reliability gap and root cause.
+9. Refiner returns remediation guidance, verification steps, and risk level; it does not generate replacement project code.
 
 ## Full System Mapping
 
-- Spring Boot API server: external API gateway, authentication, state manager
-- Redis: async job queue and task buffering
-- FastAPI AI core: multi-agent coding pipeline
-- LangGraph: agent state graph orchestration
-- Docker sandbox: isolated execution target
-- PostgreSQL: reports and execution history
-- Prometheus: metrics from API core and sandbox runs
+- Spring Boot API server: external API gateway and future authentication/state persistence
+- FastAPI AI core: repository-validation workflow and agent reports
+- Docker sandbox: isolated clone/build/test smoke validation
+- PostgreSQL: future durable report and execution history storage
+- Redis: future async job queue and task buffering
+- Prometheus: metrics exposure and time-series validation evidence
 - Judge agent: LLM-as-a-judge pass/fail decision
+- Critic/Refiner agents: root cause and remediation report generation
 
-The current repository implements the FastAPI AI core and sandbox path first. Redis/PostgreSQL/Prometheus are wired for local infrastructure and ready for the next integration step.
+## Removed Scope
+
+Draft/code-generation has been removed. CodeReferee now validates existing repositories and reports how to improve them.
