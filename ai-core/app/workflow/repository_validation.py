@@ -9,17 +9,20 @@ from app.models import (
     RepositoryValidationRequest,
     RepositoryValidationResponse,
 )
+from app.queue.redis_queue import redis_task_queue
 from app.repository.preflight import repository_preflight_runner
 from app.sandbox.docker_runner import sandbox_runner
 from app.storage.memory import job_store
 
 VALIDATION_COUNTER = Counter("codereferee_repository_validations_total", "Total repository validations", ["status"])
 SANDBOX_DURATION = Histogram("codereferee_repository_sandbox_duration_ms", "Repository sandbox duration in ms")
+REPOSITORY_VALIDATION_TASK = "repository_validation"
 
 
 def create_validation_state(request: RepositoryValidationRequest, job_id: str | None = None) -> AgentState:
     return AgentState(
         job_id=job_id or str(uuid4()),
+        request_id=request.request_id,
         repository_url=str(request.repository_url),
         branch=request.branch,
         requested_commit_sha=request.commit_sha,
@@ -27,10 +30,45 @@ def create_validation_state(request: RepositoryValidationRequest, job_id: str | 
     )
 
 
-def run_repository_validation(request: RepositoryValidationRequest, job_id: str | None = None) -> AgentState:
-    state = create_validation_state(request, job_id)
-    state.status = JobStatus.running
+def enqueue_repository_validation(request: RepositoryValidationRequest, queue=redis_task_queue) -> AgentState:
+    """Persist a queued validation job and push its payload to Redis."""
+    state = create_validation_state(request)
     state.events.append("Input: GitHub repository URL received")
+    state.events.append("Queue: repository validation enqueued")
+    job_store.save(state)
+    queue.enqueue(_queue_payload(state))
+    return state
+
+
+def process_next_repository_validation(queue=redis_task_queue) -> AgentState | None:
+    """Process one repository-validation task from Redis, returning None when the queue is empty."""
+    payload = queue.dequeue()
+    if payload is None:
+        return None
+    if payload.get("type") != REPOSITORY_VALIDATION_TASK:
+        raise ValueError(f"Unsupported queue task type: {payload.get('type')}")
+
+    request = RepositoryValidationRequest(
+        repository_url=payload["repository_url"],
+        branch=payload.get("branch"),
+        commit_sha=payload.get("commit_sha"),
+        request_id=payload.get("request_id"),
+    )
+    state = create_validation_state(request, job_id=payload["job_id"])
+    state.events.append("Queue: repository validation dequeued")
+    return execute_repository_validation(state)
+
+
+def run_repository_validation(request: RepositoryValidationRequest, job_id: str | None = None) -> AgentState:
+    """Run validation synchronously, bypassing Redis. Useful for local smoke tests."""
+    state = create_validation_state(request, job_id)
+    state.events.append("Input: GitHub repository URL received")
+    return execute_repository_validation(state)
+
+
+def execute_repository_validation(state: AgentState) -> AgentState:
+    state.status = JobStatus.running
+    state.events.append("Workflow: repository validation started")
     job_store.save(state)
 
     state.preflight_report = repository_preflight_runner.run(
@@ -66,7 +104,7 @@ def run_repository_validation(request: RepositoryValidationRequest, job_id: str 
 
 def to_response(state: AgentState, request_id: str | None = None) -> RepositoryValidationResponse:
     return RepositoryValidationResponse(
-        request_id=request_id,
+        request_id=request_id or state.request_id,
         job_id=state.job_id,
         status=state.status,
         repository_url=state.repository_url,
@@ -81,6 +119,17 @@ def to_response(state: AgentState, request_id: str | None = None) -> RepositoryV
         metrics=state.metrics,
         events=state.events,
     )
+
+
+def _queue_payload(state: AgentState) -> dict[str, str | None]:
+    return {
+        "type": REPOSITORY_VALIDATION_TASK,
+        "job_id": state.job_id,
+        "request_id": state.request_id,
+        "repository_url": state.repository_url,
+        "branch": state.branch,
+        "commit_sha": state.requested_commit_sha,
+    }
 
 
 def _metrics_from_execution(state: AgentState) -> dict[str, object]:

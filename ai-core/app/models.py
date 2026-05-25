@@ -62,6 +62,7 @@ class RepositoryPreflightReport(BaseModel):
 
 class AgentState(BaseModel):
     job_id: str
+    request_id: str | None = None
     repository_url: str
     branch: str | None = None
     requested_commit_sha: str | None = None

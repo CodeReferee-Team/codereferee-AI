@@ -24,12 +24,32 @@ cp .env.example .env
 uvicorn app.main:app --reload --port 8000
 ```
 
-Validate a repository:
+Run local infrastructure when using queued jobs:
+
+```bash
+docker compose up -d redis
+```
+
+Validate a repository synchronously:
 
 ```bash
 curl -X POST http://localhost:8000/v1/validations/repository \
   -H "Content-Type: application/json" \
   -d '{"repository_url":"https://github.com/CodeReferee-Team/codereferee-AI","branch":"main"}'
+```
+
+Enqueue a repository validation job through Redis:
+
+```bash
+curl -X POST http://localhost:8000/jobs \
+  -H "Content-Type: application/json" \
+  -d '{"repository_url":"https://github.com/CodeReferee-Team/codereferee-AI","branch":"main"}'
+```
+
+Run a worker once:
+
+```bash
+python -m app.worker --once
 ```
 
 Check a saved job:
@@ -42,6 +62,9 @@ curl http://localhost:8000/jobs/{job_id}
 
 ```text
 GitHub URL
+  -> queued job state
+  -> Redis queue
+  -> worker dequeues job
   -> preflight URL/ref check
   -> validation plan
   -> Docker sandbox clone

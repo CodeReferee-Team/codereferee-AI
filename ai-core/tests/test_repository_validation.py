@@ -1,9 +1,15 @@
 import unittest
+from unittest.mock import patch
 
 from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
 from app.models import AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 from app.repository.preflight import _normalize_github_url
-from app.workflow.repository_validation import to_response
+from app.workflow.repository_validation import (
+    enqueue_repository_validation,
+    process_next_repository_validation,
+    to_response,
+)
+from app.models import RepositoryValidationRequest
 
 
 class RepositoryValidationTests(unittest.TestCase):
@@ -48,6 +54,65 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(state.status, JobStatus.failed)
         self.assertIn("patch_guidance", state.refiner_report)
         self.assertIn("recommended_action", state.critic_feedback)
+
+
+    def test_enqueue_repository_validation_pushes_redis_payload(self) -> None:
+        class FakeQueue:
+            def __init__(self) -> None:
+                self.payloads = []
+
+            def enqueue(self, payload):
+                self.payloads.append(payload)
+                return len(self.payloads)
+
+        queue = FakeQueue()
+        state = enqueue_repository_validation(
+            RepositoryValidationRequest(
+                repository_url="https://github.com/CodeReferee-Team/codereferee-AI",
+                branch="main",
+                request_id="req-queue",
+            ),
+            queue=queue,
+        )
+        self.assertEqual(state.status, JobStatus.queued)
+        self.assertEqual(len(queue.payloads), 1)
+        self.assertEqual(queue.payloads[0]["type"], "repository_validation")
+        self.assertEqual(queue.payloads[0]["job_id"], state.job_id)
+        self.assertEqual(queue.payloads[0]["request_id"], "req-queue")
+
+    def test_process_next_repository_validation_dequeues_and_runs_preflight_failure(self) -> None:
+        class FakeQueue:
+            def __init__(self) -> None:
+                self.payload = {
+                    "type": "repository_validation",
+                    "job_id": "job-queue",
+                    "request_id": "req-queue",
+                    "repository_url": "https://github.com/example/missing",
+                    "branch": None,
+                    "commit_sha": None,
+                }
+
+            def dequeue(self):
+                payload = self.payload
+                self.payload = None
+                return payload
+
+        fake_report = RepositoryPreflightReport(
+            repository_url="https://github.com/example/missing.git",
+            cloneable=False,
+            executable=False,
+            reason="Repository or requested ref is not reachable.",
+            evidence=["not found"],
+        )
+        with patch("app.workflow.repository_validation.repository_preflight_runner.run", return_value=fake_report):
+            state = process_next_repository_validation(queue=FakeQueue())
+
+        self.assertIsNotNone(state)
+        assert state is not None
+        self.assertEqual(state.job_id, "job-queue")
+        self.assertEqual(state.request_id, "req-queue")
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertIn("Queue: repository validation dequeued", state.events)
 
     def test_to_response_exposes_commit_and_metrics(self) -> None:
         state = AgentState(
