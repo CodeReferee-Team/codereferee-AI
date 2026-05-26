@@ -76,23 +76,24 @@ class RepositoryValidationTests(unittest.TestCase):
         )
         self.assertEqual(state.status, JobStatus.queued)
         self.assertEqual(len(queue.payloads), 1)
-        self.assertEqual(queue.payloads[0]["type"], "repository_validation")
-        self.assertEqual(queue.payloads[0]["job_id"], state.job_id)
-        self.assertEqual(queue.payloads[0]["request_id"], "req-queue")
+        self.assertEqual(queue.payloads[0]["taskId"], state.job_id)
+        self.assertEqual(queue.payloads[0]["repositoryUrl"], "https://github.com/CodeReferee-Team/codereferee-AI")
+        self.assertEqual(queue.payloads[0]["branch"], "main")
 
     def test_process_next_repository_validation_dequeues_and_runs_preflight_failure(self) -> None:
         class FakeQueue:
             def __init__(self) -> None:
                 self.payload = {
-                    "type": "repository_validation",
-                    "job_id": "job-queue",
-                    "request_id": "req-queue",
-                    "repository_url": "https://github.com/example/missing",
+                    "taskId": "job-queue",
+                    "repositoryUrl": "https://github.com/example/missing",
                     "branch": None,
-                    "commit_sha": None,
+                    "commitSha": None,
+                    "submittedAt": "2026-05-26T10:00:00",
                 }
 
-            def dequeue(self):
+            def dequeue(self, *, block=False, timeout=0):
+                self.block = block
+                self.timeout = timeout
                 payload = self.payload
                 self.payload = None
                 return payload
@@ -104,14 +105,18 @@ class RepositoryValidationTests(unittest.TestCase):
             reason="Repository or requested ref is not reachable.",
             evidence=["not found"],
         )
+        queue = FakeQueue()
         with patch("app.workflow.repository_validation.repository_preflight_runner.run", return_value=fake_report):
-            state = process_next_repository_validation(queue=FakeQueue())
+            state = process_next_repository_validation(queue=queue, block=True, timeout=0)
 
+        self.assertTrue(queue.block)
+        self.assertEqual(queue.timeout, 0)
         self.assertIsNotNone(state)
         assert state is not None
         self.assertEqual(state.job_id, "job-queue")
-        self.assertEqual(state.request_id, "req-queue")
+        self.assertEqual(state.request_id, "job-queue")
         self.assertEqual(state.status, JobStatus.failed)
+        self.assertIn("Queue: payload schema=server", state.events)
         self.assertIn("Queue: repository validation dequeued", state.events)
 
     def test_to_response_exposes_commit_and_metrics(self) -> None:

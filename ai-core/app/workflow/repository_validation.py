@@ -40,21 +40,18 @@ def enqueue_repository_validation(request: RepositoryValidationRequest, queue=re
     return state
 
 
-def process_next_repository_validation(queue=redis_task_queue) -> AgentState | None:
-    """Process one repository-validation task from Redis, returning None when the queue is empty."""
-    payload = queue.dequeue()
+def process_next_repository_validation(
+    queue=redis_task_queue, *, block: bool = False, timeout: int = 0
+) -> AgentState | None:
+    """Process one repository-validation task from Redis.
+
+    block=True maps to Redis BLPOP and is intended for worker.py.
+    block=False maps to LPOP and is intended for non-blocking HTTP/admin checks.
+    """
+    payload = queue.dequeue(block=block, timeout=timeout)
     if payload is None:
         return None
-    if payload.get("type") != REPOSITORY_VALIDATION_TASK:
-        raise ValueError(f"Unsupported queue task type: {payload.get('type')}")
-
-    request = RepositoryValidationRequest(
-        repository_url=payload["repository_url"],
-        branch=payload.get("branch"),
-        commit_sha=payload.get("commit_sha"),
-        request_id=payload.get("request_id"),
-    )
-    state = create_validation_state(request, job_id=payload["job_id"])
+    state = _state_from_queue_payload(payload)
     state.events.append("Queue: repository validation dequeued")
     return execute_repository_validation(state)
 
@@ -122,14 +119,48 @@ def to_response(state: AgentState, request_id: str | None = None) -> RepositoryV
 
 
 def _queue_payload(state: AgentState) -> dict[str, str | None]:
+    # Match the server Redis schema so POST /jobs and server-originated tasks are interchangeable.
     return {
-        "type": REPOSITORY_VALIDATION_TASK,
-        "job_id": state.job_id,
-        "request_id": state.request_id,
-        "repository_url": state.repository_url,
+        "taskId": state.job_id,
+        "repositoryUrl": state.repository_url,
         "branch": state.branch,
-        "commit_sha": state.requested_commit_sha,
+        "commitSha": state.requested_commit_sha,
+        "submittedAt": None,
     }
+
+
+def _state_from_queue_payload(payload: dict) -> AgentState:
+    if "repositoryUrl" in payload or "taskId" in payload:
+        job_id = payload.get("taskId")
+        repository_url = payload.get("repositoryUrl")
+        branch = payload.get("branch")
+        commit_sha = payload.get("commitSha")
+        request_id = payload.get("taskId")
+        source = "server"
+    elif payload.get("type") == REPOSITORY_VALIDATION_TASK:
+        job_id = payload.get("job_id")
+        repository_url = payload.get("repository_url")
+        branch = payload.get("branch")
+        commit_sha = payload.get("commit_sha")
+        request_id = payload.get("request_id") or payload.get("job_id")
+        source = "ai"
+    else:
+        raise ValueError(f"Unsupported queue task schema: {sorted(payload.keys())}")
+
+    if not job_id or not repository_url:
+        raise ValueError("Repository validation task requires taskId/job_id and repositoryUrl/repository_url")
+
+    request = RepositoryValidationRequest(
+        repository_url=repository_url,
+        branch=branch,
+        commit_sha=commit_sha,
+        request_id=request_id,
+    )
+    state = create_validation_state(request, job_id=job_id)
+    if submitted_at := payload.get("submittedAt"):
+        state.events.append(f"Queue: submittedAt={submitted_at}")
+    state.events.append(f"Queue: payload schema={source}")
+    return state
 
 
 def _metrics_from_execution(state: AgentState) -> dict[str, object]:
