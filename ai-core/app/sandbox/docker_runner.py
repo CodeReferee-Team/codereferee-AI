@@ -1,10 +1,7 @@
-import json
 import shlex
 import tempfile
 import time
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 import docker
 from docker.errors import DockerException
@@ -18,63 +15,7 @@ class SandboxRunner:
         self.settings = get_settings()
 
     def run_repository(self, repository_url: str, branch: str | None = None, commit_sha: str | None = None) -> SandboxResult:
-        """Clone and smoke-test an existing repository.
-
-        When SANDBOX_BASE_URL is configured, delegate to the external sandbox HTTP service.
-        Otherwise, fall back to the local Docker SDK sandbox.
-        """
-        if self.settings.sandbox_base_url:
-            return self._run_repository_via_http(repository_url, branch, commit_sha)
-        return self._run_repository_via_local_docker(repository_url, branch, commit_sha)
-
-    def _run_repository_via_http(
-        self, repository_url: str, branch: str | None = None, commit_sha: str | None = None
-    ) -> SandboxResult:
-        started_at = time.monotonic()
-        endpoint = _join_url(self.settings.sandbox_base_url or "", self.settings.sandbox_repository_path)
-        payload = {
-            # Server-facing schema.
-            "repositoryUrl": repository_url,
-            "branch": branch,
-            "commitSha": commit_sha,
-            # Snake-case aliases for sandbox implementations that follow the AI Core API style.
-            "repository_url": repository_url,
-            "commit_sha": commit_sha,
-        }
-        request = Request(
-            endpoint,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urlopen(request, timeout=self.settings.sandbox_http_timeout_seconds) as response:
-                body = response.read().decode("utf-8", errors="replace")
-                return _sandbox_result_from_response(body, started_at)
-        except HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
-            return SandboxResult(
-                exit_code=None,
-                stderr=f"Sandbox HTTP error {exc.code} from {endpoint}: {body or exc.reason}",
-                duration_ms=_duration_ms(started_at),
-            )
-        except URLError as exc:
-            return SandboxResult(
-                exit_code=None,
-                stderr=f"Sandbox connection error from {endpoint}: {exc.reason}",
-                duration_ms=_duration_ms(started_at),
-            )
-        except TimeoutError:
-            return SandboxResult(
-                exit_code=None,
-                stderr=f"Sandbox HTTP request timed out after {self.settings.sandbox_http_timeout_seconds}s: {endpoint}",
-                timed_out=True,
-                duration_ms=_duration_ms(started_at),
-            )
-
-    def _run_repository_via_local_docker(
-        self, repository_url: str, branch: str | None = None, commit_sha: str | None = None
-    ) -> SandboxResult:
+        """Clone and smoke-test an existing repository inside an isolated Docker sandbox."""
         started_at = time.monotonic()
         with tempfile.TemporaryDirectory(prefix="codereferee-repo-") as tmp:
             workdir = Path(tmp)
@@ -119,59 +60,6 @@ class SandboxRunner:
                     stderr=f"Docker repository sandbox error: {exc}",
                     duration_ms=_duration_ms(started_at),
                 )
-
-
-def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult:
-    try:
-        data = json.loads(body) if body else {}
-    except json.JSONDecodeError:
-        return SandboxResult(exit_code=0, stdout=body, duration_ms=_duration_ms(started_at))
-
-    exit_code = data.get("exit_code", data.get("exitCode"))
-    timed_out = bool(data.get("timed_out", data.get("timedOut", False)))
-    duration_ms = int(data.get("duration_ms", data.get("durationMillis", _duration_ms(started_at))) or 0)
-    stdout = str(data.get("stdout", data.get("log", "")) or "")
-    stderr = str(data.get("stderr", data.get("errorMessage", "")) or "")
-    server_started = bool(data.get("server_started", data.get("serverStarted", False)))
-    server_url = data.get("server_url", data.get("serverUrl"))
-    http_status = data.get("http_status", data.get("httpStatus"))
-    browser_loaded = bool(data.get("browser_loaded", data.get("browserLoaded", False)))
-    page_title = data.get("page_title", data.get("pageTitle"))
-    run_command = data.get("run_command", data.get("runCommand"))
-    service_check_attempted = _explicit_bool(data, "service_check_attempted", "serviceCheckAttempted")
-    browser_check_attempted = _explicit_bool(data, "browser_check_attempted", "browserCheckAttempted")
-
-    if "isExecutable" in data and exit_code is None:
-        exit_code = 0 if data.get("isExecutable") else 1
-    if "executable" in data and exit_code is None:
-        exit_code = 0 if data.get("executable") else 1
-
-    if exit_code is None and not stderr:
-        exit_code = 0
-
-    return SandboxResult(
-        exit_code=exit_code,
-        stdout=stdout if exit_code == 0 else stdout,
-        stderr=stderr,
-        timed_out=timed_out,
-        duration_ms=duration_ms,
-        server_started=server_started,
-        server_url=str(server_url) if server_url else None,
-        http_status=int(http_status) if http_status is not None else None,
-        browser_loaded=browser_loaded,
-        page_title=str(page_title) if page_title else None,
-        run_command=run_command if isinstance(run_command, list) else None,
-        service_check_attempted=(
-            service_check_attempted
-            if service_check_attempted is not None
-            else _infer_service_check_attempted(server_started, server_url, http_status, run_command)
-        ),
-        browser_check_attempted=(
-            browser_check_attempted
-            if browser_check_attempted is not None
-            else _infer_browser_check_attempted(browser_loaded, page_title, http_status, server_started, server_url, run_command)
-        ),
-    )
 
 
 def _repository_validation_script(repository_url: str, branch: str | None, commit_sha: str | None) -> str:
@@ -222,39 +110,6 @@ fi
 
 echo "[CodeReferee] repository smoke validation completed"
 """
-
-
-def _join_url(base_url: str, path: str) -> str:
-    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
-
-
-def _explicit_bool(data: dict, snake_key: str, camel_key: str) -> bool | None:
-    if snake_key in data:
-        return bool(data[snake_key])
-    if camel_key in data:
-        return bool(data[camel_key])
-    return None
-
-
-def _infer_service_check_attempted(
-    server_started: bool, server_url: object, http_status: object, run_command: object
-) -> bool:
-    return bool(server_started or server_url or http_status is not None or run_command)
-
-
-def _infer_browser_check_attempted(
-    browser_loaded: bool,
-    page_title: object,
-    http_status: object,
-    server_started: bool,
-    server_url: object,
-    run_command: object,
-) -> bool:
-    return bool(
-        browser_loaded
-        or page_title
-        or (http_status is not None and _infer_service_check_attempted(server_started, server_url, http_status, run_command))
-    )
 
 
 def _duration_ms(started_at: float) -> int:
