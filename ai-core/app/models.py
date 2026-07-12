@@ -32,6 +32,14 @@ class SandboxResult(BaseModel):
     stderr: str = ""
     timed_out: bool = False
     duration_ms: int = 0
+    server_started: bool = False
+    server_url: str | None = None
+    http_status: int | None = None
+    browser_loaded: bool = False
+    page_title: str | None = None
+    run_command: list[str] | None = None
+    service_check_attempted: bool = Field(default=False, exclude=True)
+    browser_check_attempted: bool = Field(default=False, exclude=True)
 
     @property
     def log(self) -> str:
@@ -39,6 +47,11 @@ class SandboxResult(BaseModel):
             f"exit_code={self.exit_code}",
             f"timed_out={self.timed_out}",
             f"duration_ms={self.duration_ms}",
+            f"server_started={self.server_started}",
+            f"server_url={self.server_url}",
+            f"http_status={self.http_status}",
+            f"browser_loaded={self.browser_loaded}",
+            f"page_title={self.page_title}",
             "stdout:",
             self.stdout.strip(),
             "stderr:",
