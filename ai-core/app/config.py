@@ -8,6 +8,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     redis_workflow_queue: str = "codereferee:workflow:input"
     sandbox_image: str = "python:3.12-slim"
+    sandbox_base_url: str | None = None
+    sandbox_repository_path: str = "/repositories/validate"
+    sandbox_http_timeout_seconds: int = 60
     sandbox_timeout_seconds: int = 20
     sandbox_memory_limit: str = "128m"
     sandbox_nano_cpus: int = 500_000_000

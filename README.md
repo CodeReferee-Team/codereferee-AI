@@ -1,100 +1,79 @@
-# CodeReferee
+# CodeReferee Agents
 
-CodeReferee is an SRE-aware repository validation platform. It accepts an existing public GitHub repository URL, stores the link/commit metadata, clones the repository inside a sandbox, runs smoke validation under resource limits, and uses Judge/Critic/Refiner agents to produce a reliability report.
+CodeReferee의 Agent 모듈은 GitHub 레포지토리 검증 결과를 바탕으로 실행 가능성, 신뢰성, 장애 원인, 개선 방향을 판단하는 역할을 한다.
 
-## MVP Scope
+이 프로젝트는 코드를 새로 생성하는 AI가 아니라, 기존 레포지토리를 검증하고 분석하는 Agentic AI 구조를 목표로 한다.
 
-- FastAPI AI core for repository validation intake
-- GitHub URL preflight before expensive sandbox execution
-- Docker-based repository clone and smoke-test sandbox
-- Judge, Critic, and Refiner-report agent nodes
-- Prometheus metrics endpoint for validation counters/durations
-- Spring Boot API gateway integration through `/v1/validations/repository`
+---
 
-Code generation has been removed from the MVP. CodeReferee validates existing projects instead of drafting new code.
+## 1. Agent 구조 개요
 
-## Quick Start
-
-```bash
-cd ai-core
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload --port 8000
-```
-
-Run local infrastructure when using queued jobs:
-
-```bash
-docker compose up -d redis
-```
-
-Validate a repository synchronously:
-
-```bash
-curl -X POST http://localhost:8000/v1/validations/repository \
-  -H "Content-Type: application/json" \
-  -d '{"repository_url":"https://github.com/CodeReferee-Team/codereferee-AI","branch":"main"}'
-```
-
-Enqueue a repository validation job through Redis:
-
-```bash
-curl -X POST http://localhost:8000/jobs \
-  -H "Content-Type: application/json" \
-  -d '{"repository_url":"https://github.com/CodeReferee-Team/codereferee-AI","branch":"main"}'
-```
-
-Run a worker once:
-
-```bash
-python -m app.worker --once
-```
-
-Check a saved job:
-
-```bash
-curl http://localhost:8000/jobs/{job_id}
-```
-
-## Runtime Flow
+현재 Agent 흐름은 다음과 같다.
 
 ```text
-GitHub URL
-  -> queued job state
-  -> Redis queue
-  -> worker dequeues job
-  -> preflight URL/ref check
-  -> validation plan
-  -> Docker sandbox clone
-  -> build/test/run smoke detection
-  -> metrics/log collection
-  -> Judge pass/fail
-  -> Critic root-cause report
-  -> Refiner remediation guidance
+Repository URL
+→ Preflight
+→ Sandbox Execution
+→ Judge Agent
+→ Critic Agent
+→ Refiner Agent
+→ Validation Report
 ```
 
-## Environment
+## 2. 주요 Agent
 
-`GOOGLE_API_KEY` enables Gemini-backed Judge/Critic/Refiner reports. If it is missing, the MVP uses deterministic local fallback reports so that API and sandbox flow can still be tested.
+### Planner Agent
 
-Docker Desktop must be running for sandbox execution.
+Planner Agent는 레포지토리 검증 계획을 세운다.
 
-## Repository Layout
+- 검증 목적 설정
+- 검증 범위 정의
+- 필요한 메트릭 정의
+- 중단 조건 설정
 
-```text
-ai-core/
-  app/
-    agents/       # Planner, Judge, Critic, Refiner-report nodes
-    repository/   # GitHub intake/preflight checks
-    sandbox/      # Docker repository execution layer
-    storage/      # Local job state
-    workflow/     # Repository validation orchestration
-    main.py       # FastAPI app
-docs/
-  architecture.md
-infra/
-  prometheus/
-docker-compose.yml
-```
+### Judge Agent
+
+Judge Agent는 Preflight, Sandbox 실행 결과, Metrics를 바탕으로 검증 성공 여부를 판단한다.
+
+- 레포지토리 실행 가능 여부 판단
+- Sandbox 결과 분석
+- Metrics 기반 Pass/Fail 판단
+
+### Critic Agent
+
+Critic Agent는 Judge Agent가 Fail로 판단한 경우, 실패 원인과 신뢰성 문제를 분석한다.
+
+- 실패 원인 분석
+- 로그와 메트릭 기반 근거 추출
+- 개선 방향 제안
+
+### Refiner Agent
+
+Refiner Agent는 Critic Agent의 분석 결과를 바탕으로 수정 방향을 제안한다.
+
+- 개선 요약 작성
+- 수정 가이드 제안
+- 재검증 절차 제안
+- 위험도 평가
+
+## 3. 관련 파일
+
+### ai-core/app/agents/llm.py
+
+LLM 호출을 담당한다.
+
+### ai-core/app/agents/prompts.py
+
+각 Agent가 사용할 프롬프트를 정의한다.
+
+### ai-core/app/agents/nodes.py
+
+각 Agent의 실행 노드를 정의한다.
+
+### ai-core/app/workflow/repository_validation.py
+
+전체 Agent workflow를 연결한다.
+
+### ai-core/app/models.py
+
+Agent 간에 공유되는 데이터 모델을 정의한다.
