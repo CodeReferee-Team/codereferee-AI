@@ -1,100 +1,53 @@
-# CodeReferee
+# CodeReferee Redis Worker
 
-CodeReferee is an SRE-aware repository validation platform. It accepts an existing public GitHub repository URL, stores the link/commit metadata, clones the repository inside a sandbox, runs smoke validation under resource limits, and uses Judge/Critic/Refiner agents to produce a reliability report.
+CodeReferee의 Redis 모듈은 백엔드와 AI 서버 사이에서 검증 작업을 비동기로 처리하기 위한 큐 역할을 한다.
+Redis는 결과를 영구 저장하는 DB가 아니라, 처리해야 할 검증 작업을 잠시 보관하는 작업 대기열로 사용된다.
 
-## MVP Scope
+---
 
-- FastAPI AI core for repository validation intake
-- GitHub URL preflight before expensive sandbox execution
-- Docker-based repository clone and smoke-test sandbox
-- Judge, Critic, and Refiner-report agent nodes
-- Prometheus metrics endpoint for validation counters/durations
-- Spring Boot API gateway integration through `/v1/validations/repository`
+## 1. Redis 구조 개요
 
-Code generation has been removed from the MVP. CodeReferee validates existing projects instead of drafting new code.
+현재 Redis 기반 처리 흐름은 다음과 같다.
 
-## Quick Start
-
-```bash
-cd ai-core
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload --port 8000
+```text
+Backend
+→ Redis Queue
+→ AI Worker
+→ Repository Validation Workflow
+→ Sandbox / Judge / Critic / Refiner
+→ Result
 ```
 
-Run local infrastructure when using queued jobs:
+## 2. 주요 역할
+**Redis Queue**
+Redis Queue는 검증 작업을 저장하고 Worker에게 전달한다.
+- 검증 작업 enqueue
+- 검증 작업 dequeue
+- job_id 기반 작업 전달
+- 비동기 처리 지원
 
-```bash
-docker compose up -d redis
-```
+**AI Worker**
+AI Worker는 Redis Queue에서 작업을 가져와 검증 workflow를 실행한다.
+- Redis Queue 감시
+- 작업 1개 또는 반복 처리
+- Repository Validation Workflow 실행
+- 처리 결과 상태 업데이트
 
-Validate a repository synchronously:
-
-```bash
-curl -X POST http://localhost:8000/v1/validations/repository \
-  -H "Content-Type: application/json" \
-  -d '{"repository_url":"https://github.com/CodeReferee-Team/codereferee-AI","branch":"main"}'
-```
-
-Enqueue a repository validation job through Redis:
-
-```bash
-curl -X POST http://localhost:8000/jobs \
-  -H "Content-Type: application/json" \
-  -d '{"repository_url":"https://github.com/CodeReferee-Team/codereferee-AI","branch":"main"}'
-```
-
-Run a worker once:
-
-```bash
+## 3. 실행 방식
+단일 작업 처리
 python -m app.worker --once
-```
+실시간 작업 처리
+python -m app.worker
 
-Check a saved job:
+## 4. 관련 파일
+**ai-core/app/queue/redis_queue.py**
+Redis enqueue/dequeue 로직을 담당한다.
+**ai-core/app/worker.py**
+Redis Queue에서 작업을 꺼내 검증 workflow를 실행한다.
+**ai-core/app/config.py**
+Redis URL, queue name 등 실행 설정을 관리한다.
+**ai-core/app/models.py**
+Job 상태와 요청/응답 데이터 모델을 정의한다.
+**ai-core/app/workflow/repository_validation.py**
+Worker가 가져온 작업을 실제 검증 workflow로 연결한다.
 
-```bash
-curl http://localhost:8000/jobs/{job_id}
-```
-
-## Runtime Flow
-
-```text
-GitHub URL
-  -> queued job state
-  -> Redis queue
-  -> worker dequeues job
-  -> preflight URL/ref check
-  -> validation plan
-  -> Docker sandbox clone
-  -> build/test/run smoke detection
-  -> metrics/log collection
-  -> Judge pass/fail
-  -> Critic root-cause report
-  -> Refiner remediation guidance
-```
-
-## Environment
-
-`GOOGLE_API_KEY` enables Gemini-backed Judge/Critic/Refiner reports. If it is missing, the MVP uses deterministic local fallback reports so that API and sandbox flow can still be tested.
-
-Docker Desktop must be running for sandbox execution.
-
-## Repository Layout
-
-```text
-ai-core/
-  app/
-    agents/       # Planner, Judge, Critic, Refiner-report nodes
-    repository/   # GitHub intake/preflight checks
-    sandbox/      # Docker repository execution layer
-    storage/      # Local job state
-    workflow/     # Repository validation orchestration
-    main.py       # FastAPI app
-docs/
-  architecture.md
-infra/
-  prometheus/
-docker-compose.yml
-```
