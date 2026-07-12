@@ -1,26 +1,10 @@
-# CodeReferee Sandbox
+# CodeReferee AI
 
-CodeReferee Sandbox는 GitHub 레포지토리를 격리된 환경에서 clone하고, build/test/run smoke validation을 수행하는 모듈이다.
+CodeReferee AI는 GitHub 레포지토리를 검증하고, Sandbox 실행 결과와 Agent 분석을 바탕으로 실행 가능성과 신뢰성 문제를 판단하는 Agentic AI 기반 검증 서버이다.
 
-## 역할
+## Documentation
 
-- GitHub repository clone
-- branch 또는 commit checkout
-- 프로젝트 stack 감지
-- build/test/run 명령 실행
-- timeout 및 resource limit 적용
-- stdout/stderr/exit_code 수집
-- Judge Agent에 전달할 실행 결과 생성
-
-## 실행 흐름
-
-```text
-Repository URL
-→ Preflight
-→ Docker Sandbox
-→ Clone Repository
-→ Detect Stack
-→ Run Build/Test/Smoke Check
-→ Collect Logs
-→ Return SandboxResult
-```
+- [Agents](docs/agents.md)
+- [Sandbox](docs/sandbox.md)
+- [Redis Worker](docs/redis.md)
+- [Backend-AI Integration](docs/backend-ai.md)
