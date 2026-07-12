@@ -37,13 +37,41 @@ class AgentLLM:
         response = (prompt | self._llm).invoke(values)
         return _strip_fences(str(response.content))
 
+    def invoke_schema_repair(
+        self,
+        *,
+        schema_name: str,
+        schema_json: dict[str, Any],
+        original_response: str,
+        validation_error: str,
+    ) -> str:
+        return self.invoke_text(
+            "You repair invalid Agent JSON. Return only strict JSON. Do not change the intended decision, "
+            "do not add unsupported evidence, and do not include markdown fences.",
+            "Schema name: {schema_name}\nSchema JSON: {schema_json}\nValidation error: {validation_error}\n"
+            "Original response: {original_response}",
+            {
+                "schema_name": schema_name,
+                "schema_json": json.dumps(schema_json, ensure_ascii=False, sort_keys=True),
+                "validation_error": validation_error,
+                "original_response": original_response,
+            },
+        )
+
 
 def parse_json(text: str, fallback: dict[str, Any]) -> dict[str, Any]:
     try:
-        value = json.loads(_strip_fences(text))
+        value = parse_json_strict(text)
         return value if isinstance(value, dict) else fallback
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, ValueError):
         return fallback
+
+
+def parse_json_strict(text: str) -> dict[str, Any]:
+    value = json.loads(_strip_fences(text))
+    if not isinstance(value, dict):
+        raise ValueError("LLM response must be a JSON object")
+    return value
 
 
 llm = AgentLLM()
