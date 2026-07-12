@@ -1,0 +1,1082 @@
+[
+  {
+    "id": "clone_failure_missing_repo",
+    "state": {
+      "repository_url": "https://github.com/example/missing.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/missing.git",
+        "cloneable": false,
+        "executable": false,
+        "reason": "Repository or requested ref is not reachable.",
+        "evidence": [
+          "git ls-remote failed: repository not found"
+        ]
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "stop_conditions",
+        "output_aliases": [
+          "uncloneable",
+          "repository"
+        ],
+        "input_token": "not reachable"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "unreachable",
+        "not reachable",
+        "repository intake"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "url",
+        "branch",
+        "visibility",
+        "network"
+      ]
+    ],
+    "evidence_tokens": [
+      "not reachable"
+    ],
+    "forbidden_claims": [
+      "cpu pressure",
+      "litmuschaos"
+    ]
+  },
+  {
+    "id": "clone_failure_private_repo",
+    "state": {
+      "repository_url": "https://github.com/example/private.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/private.git",
+        "cloneable": false,
+        "executable": false,
+        "reason": "Authentication failed for private repository.",
+        "evidence": [
+          "git ls-remote failed: authentication required"
+        ]
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "stop_conditions",
+        "output_aliases": [
+          "uncloneable",
+          "repository"
+        ],
+        "input_token": "authentication required"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "authentication",
+        "visibility",
+        "repository intake"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "url",
+        "branch",
+        "visibility",
+        "network"
+      ]
+    ],
+    "evidence_tokens": [
+      "authentication required"
+    ],
+    "forbidden_claims": [
+      "test failure",
+      "browser"
+    ]
+  },
+  {
+    "id": "clone_failure_bad_ref",
+    "state": {
+      "repository_url": "https://github.com/example/project.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/project.git",
+        "cloneable": false,
+        "executable": false,
+        "reason": "Requested branch/ref does not exist.",
+        "evidence": [
+          "fatal: couldn't find remote ref feature/missing"
+        ]
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "stop_conditions",
+        "output_aliases": [
+          "uncloneable",
+          "repository"
+        ],
+        "input_token": "remote ref"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "ref",
+        "branch",
+        "repository intake"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "url",
+        "branch",
+        "visibility",
+        "network"
+      ]
+    ],
+    "evidence_tokens": [
+      "remote ref"
+    ],
+    "forbidden_claims": [
+      "non-zero exit code"
+    ]
+  },
+  {
+    "id": "no_entrypoint_docs_only",
+    "state": {
+      "repository_url": "https://github.com/example/docs.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/docs.git",
+        "cloneable": true,
+        "executable": false,
+        "reason": "No supported project manifest found.",
+        "evidence": [
+          "missing requirements.txt package.json pom.xml build.gradle"
+        ]
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "stop_conditions",
+        "output_aliases": [
+          "entrypoint",
+          "manifest"
+        ],
+        "input_token": "No supported project manifest"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "entrypoint",
+        "manifest",
+        "supported"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "manifest",
+        "deterministic",
+        "test"
+      ]
+    ],
+    "evidence_tokens": [
+      "No supported project manifest"
+    ],
+    "forbidden_claims": [
+      "repository not found"
+    ]
+  },
+  {
+    "id": "no_entrypoint_monorepo_unknown_path",
+    "state": {
+      "repository_url": "https://github.com/example/mono.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/mono.git",
+        "cloneable": true,
+        "executable": false,
+        "reason": "No deterministic validation command detected for selected path.",
+        "evidence": [
+          "monorepo contains packages but no root package.json test script"
+        ]
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "stop_conditions",
+        "output_aliases": [
+          "entrypoint",
+          "manifest"
+        ],
+        "input_token": "no root package.json test script"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "entrypoint",
+        "manifest",
+        "command"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "manifest",
+        "deterministic",
+        "test"
+      ]
+    ],
+    "evidence_tokens": [
+      "no root package.json test script"
+    ],
+    "forbidden_claims": [
+      "timeout"
+    ]
+  },
+  {
+    "id": "no_entrypoint_empty_repo",
+    "state": {
+      "repository_url": "https://github.com/example/empty.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/empty.git",
+        "cloneable": true,
+        "executable": false,
+        "reason": "Repository is cloneable but no executable files were detected.",
+        "evidence": [
+          "tree contains README.md only"
+        ]
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "stop_conditions",
+        "output_aliases": [
+          "entrypoint",
+          "manifest"
+        ],
+        "input_token": "README.md only"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "entrypoint",
+        "manifest",
+        "executable"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "manifest",
+        "deterministic",
+        "test"
+      ]
+    ],
+    "evidence_tokens": [
+      "README.md only"
+    ],
+    "forbidden_claims": [
+      "http_status"
+    ]
+  },
+  {
+    "id": "timeout_startup_hang",
+    "state": {
+      "repository_url": "https://github.com/example/slow.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/slow.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "reachable"
+        ]
+      },
+      "execution_result": {
+        "exit_code": null,
+        "stdout": "server booting forever",
+        "stderr": "timeout after 120s",
+        "timed_out": true,
+        "duration_ms": 120000
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "chaos_scenarios",
+        "output_aliases": [
+          "timeout"
+        ],
+        "input_token": "timeout after 120s"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "timeout",
+        "timed out",
+        "bounded execution"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "timeout",
+        "startup",
+        "re-run"
+      ]
+    ],
+    "evidence_tokens": [
+      "timeout"
+    ],
+    "forbidden_claims": [
+      "repository not found"
+    ]
+  },
+  {
+    "id": "timeout_test_hang",
+    "state": {
+      "repository_url": "https://github.com/example/hanging-tests.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/hanging-tests.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "pytest detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": null,
+        "stdout": "pytest collected 42 items",
+        "stderr": "Command exceeded sandbox timeout",
+        "timed_out": true,
+        "duration_ms": 180000
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "chaos_scenarios",
+        "output_aliases": [
+          "timeout"
+        ],
+        "input_token": "sandbox timeout"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "timeout",
+        "timed out",
+        "bounded execution"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "timeout",
+        "startup",
+        "re-run"
+      ]
+    ],
+    "evidence_tokens": [
+      "sandbox timeout"
+    ],
+    "forbidden_claims": [
+      "browser probe"
+    ]
+  },
+  {
+    "id": "timeout_install_hang",
+    "state": {
+      "repository_url": "https://github.com/example/install-slow.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/install-slow.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "npm project detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": null,
+        "stdout": "npm install still resolving dependencies",
+        "stderr": "timed out while installing dependencies",
+        "timed_out": true,
+        "duration_ms": 240000
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "chaos_scenarios",
+        "output_aliases": [
+          "timeout"
+        ],
+        "input_token": "timed out while installing"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "timeout",
+        "timed out",
+        "bounded execution"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "timeout",
+        "startup",
+        "re-run"
+      ]
+    ],
+    "evidence_tokens": [
+      "timed out while installing"
+    ],
+    "forbidden_claims": [
+      "visibility"
+    ]
+  },
+  {
+    "id": "non_zero_pytest_assertion",
+    "state": {
+      "repository_url": "https://github.com/example/failing-tests.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/failing-tests.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "pytest detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": 1,
+        "stdout": "",
+        "stderr": "pytest failed: AssertionError",
+        "timed_out": false,
+        "duration_ms": 9000
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "metrics_required",
+        "output_aliases": [
+          "exit_code",
+          "stderr"
+        ],
+        "input_token": "AssertionError"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "non-zero",
+        "exit code",
+        "failing command",
+        "pytest"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "fix",
+        "failing",
+        "exit_code=0"
+      ]
+    ],
+    "evidence_tokens": [
+      "AssertionError"
+    ],
+    "forbidden_claims": [
+      "clone"
+    ]
+  },
+  {
+    "id": "non_zero_npm_install",
+    "state": {
+      "repository_url": "https://github.com/example/npm.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/npm.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "package.json detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": 127,
+        "stdout": "",
+        "stderr": "npm ERR! missing script: test",
+        "timed_out": false,
+        "duration_ms": 4000
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "metrics_required",
+        "output_aliases": [
+          "exit_code",
+          "stderr"
+        ],
+        "input_token": "missing script"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "non-zero",
+        "exit code",
+        "failing command",
+        "npm"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "fix",
+        "failing",
+        "exit_code=0"
+      ]
+    ],
+    "evidence_tokens": [
+      "missing script"
+    ],
+    "forbidden_claims": [
+      "http_status=500"
+    ]
+  },
+  {
+    "id": "non_zero_docker_build",
+    "state": {
+      "repository_url": "https://github.com/example/docker.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/docker.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "Dockerfile detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": 2,
+        "stdout": "Step 4/8 RUN make build",
+        "stderr": "make: *** [build] Error 2",
+        "timed_out": false,
+        "duration_ms": 30000
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "metrics_required",
+        "output_aliases": [
+          "exit_code",
+          "stderr"
+        ],
+        "input_token": "Error 2"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "non-zero",
+        "exit code",
+        "failing command",
+        "build"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "fix",
+        "failing",
+        "exit_code=0"
+      ]
+    ],
+    "evidence_tokens": [
+      "Error 2"
+    ],
+    "forbidden_claims": [
+      "authentication"
+    ]
+  },
+  {
+    "id": "service_http_500",
+    "state": {
+      "repository_url": "https://github.com/example/web.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/web.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "package.json run command detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": 0,
+        "stdout": "server started but browser probe failed",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 6000,
+        "server_started": true,
+        "server_url": "http://127.0.0.1:3000",
+        "http_status": 500,
+        "browser_loaded": false,
+        "page_title": null,
+        "run_command": [
+          "npm",
+          "run",
+          "start"
+        ],
+        "service_check_attempted": true,
+        "browser_check_attempted": true
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "metrics_required",
+        "output_aliases": [
+          "http",
+          "browser"
+        ],
+        "input_token": "http_status"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "http",
+        "browser",
+        "service"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "health",
+        "endpoint",
+        "browser"
+      ]
+    ],
+    "evidence_tokens": [
+      "http_status"
+    ],
+    "forbidden_claims": [
+      "pytest"
+    ]
+  },
+  {
+    "id": "service_no_http_response",
+    "state": {
+      "repository_url": "https://github.com/example/api.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/api.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "run command detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": 0,
+        "stdout": "process exited after start",
+        "stderr": "connection refused",
+        "timed_out": false,
+        "duration_ms": 7000,
+        "server_started": false,
+        "server_url": null,
+        "http_status": null,
+        "browser_loaded": false,
+        "page_title": null,
+        "run_command": [
+          "python",
+          "app.py"
+        ],
+        "service_check_attempted": true,
+        "browser_check_attempted": false
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "metrics_required",
+        "output_aliases": [
+          "http",
+          "browser"
+        ],
+        "input_token": "connection refused"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "http",
+        "service",
+        "startup"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "health",
+        "endpoint",
+        "browser"
+      ]
+    ],
+    "evidence_tokens": [
+      "connection refused"
+    ],
+    "forbidden_claims": [
+      "clone"
+    ]
+  },
+  {
+    "id": "browser_probe_failed_after_http_200",
+    "state": {
+      "repository_url": "https://github.com/example/spa.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/spa.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "vite project detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": 0,
+        "stdout": "HTTP 200 but browser probe did not load app",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 8000,
+        "server_started": true,
+        "server_url": "http://127.0.0.1:5173",
+        "http_status": 200,
+        "browser_loaded": false,
+        "page_title": "",
+        "run_command": [
+          "npm",
+          "run",
+          "dev"
+        ],
+        "service_check_attempted": true,
+        "browser_check_attempted": true
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "metrics_required",
+        "output_aliases": [
+          "http",
+          "browser"
+        ],
+        "input_token": "browser probe"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "browser",
+        "service",
+        "load"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "health",
+        "endpoint",
+        "browser"
+      ]
+    ],
+    "evidence_tokens": [
+      "browser probe"
+    ],
+    "forbidden_claims": [
+      "repository not found"
+    ]
+  },
+  {
+    "id": "wrong_port_service_failure",
+    "state": {
+      "repository_url": "https://github.com/example/wrong-port.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/wrong-port.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "express app detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": 0,
+        "stdout": "Listening on port 8080; probe expected 3000",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5000,
+        "server_started": false,
+        "server_url": null,
+        "http_status": null,
+        "browser_loaded": false,
+        "page_title": null,
+        "run_command": [
+          "npm",
+          "start"
+        ],
+        "service_check_attempted": true,
+        "browser_check_attempted": false
+      }
+    },
+    "judge_status": "Fail",
+    "planner_grounding": [
+      {
+        "output_field": "metrics_required",
+        "output_aliases": [
+          "http",
+          "browser"
+        ],
+        "input_token": "probe expected 3000"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "http",
+        "service",
+        "startup"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "health",
+        "endpoint",
+        "browser"
+      ]
+    ],
+    "evidence_tokens": [
+      "probe expected 3000"
+    ],
+    "forbidden_claims": [
+      "authentication"
+    ]
+  },
+  {
+    "id": "success_cli_pytest",
+    "state": {
+      "repository_url": "https://github.com/example/good.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/good.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "pytest detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": 0,
+        "stdout": "repository smoke validation completed",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5000
+      }
+    },
+    "judge_status": "Pass",
+    "planner_grounding": [
+      {
+        "output_field": "metrics_required",
+        "output_aliases": [
+          "exit_code",
+          "timed_out"
+        ],
+        "input_token": "repository smoke validation completed"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "no critical",
+        "passed",
+        "reliability"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "re-run",
+        "same commit",
+        "low"
+      ]
+    ],
+    "evidence_tokens": [
+      "repository smoke validation completed"
+    ],
+    "forbidden_claims": [
+      "sandbox failed"
+    ]
+  },
+  {
+    "id": "success_service_browser",
+    "state": {
+      "repository_url": "https://github.com/example/web-ok.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/web-ok.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "package.json detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": 0,
+        "stdout": "server ok",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 4500,
+        "server_started": true,
+        "server_url": "http://127.0.0.1:3000",
+        "http_status": 200,
+        "browser_loaded": true,
+        "page_title": "Demo",
+        "run_command": [
+          "npm",
+          "start"
+        ],
+        "service_check_attempted": true,
+        "browser_check_attempted": true
+      }
+    },
+    "judge_status": "Pass",
+    "planner_grounding": [
+      {
+        "output_field": "metrics_required",
+        "output_aliases": [
+          "http",
+          "browser"
+        ],
+        "input_token": "server ok"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "no critical",
+        "passed",
+        "reliability"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "re-run",
+        "same commit",
+        "low"
+      ]
+    ],
+    "evidence_tokens": [
+      "server ok"
+    ],
+    "forbidden_claims": [
+      "failed"
+    ]
+  },
+  {
+    "id": "success_build_only",
+    "state": {
+      "repository_url": "https://github.com/example/lib.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/lib.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "maven test detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": 0,
+        "stdout": "BUILD SUCCESS",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 15000
+      }
+    },
+    "judge_status": "Pass",
+    "planner_grounding": [
+      {
+        "output_field": "metrics_required",
+        "output_aliases": [
+          "exit_code",
+          "timed_out"
+        ],
+        "input_token": "BUILD SUCCESS"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "no critical",
+        "passed",
+        "reliability"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "re-run",
+        "same commit",
+        "low"
+      ]
+    ],
+    "evidence_tokens": [
+      "BUILD SUCCESS"
+    ],
+    "forbidden_claims": [
+      "browser failed"
+    ]
+  },
+  {
+    "id": "success_with_warnings",
+    "state": {
+      "repository_url": "https://github.com/example/warn.git",
+      "preflight_report": {
+        "repository_url": "https://github.com/example/warn.git",
+        "cloneable": true,
+        "executable": true,
+        "reason": "reachable",
+        "evidence": [
+          "npm test detected"
+        ]
+      },
+      "execution_result": {
+        "exit_code": 0,
+        "stdout": "tests passed with deprecation warnings",
+        "stderr": "DeprecationWarning: legacy API",
+        "timed_out": false,
+        "duration_ms": 11000
+      }
+    },
+    "judge_status": "Pass",
+    "planner_grounding": [
+      {
+        "output_field": "metrics_required",
+        "output_aliases": [
+          "exit_code",
+          "timed_out"
+        ],
+        "input_token": "deprecation warnings"
+      }
+    ],
+    "critic_concepts": [
+      [
+        "no critical",
+        "passed",
+        "reliability"
+      ]
+    ],
+    "refiner_concepts": [
+      [
+        "re-run",
+        "same commit",
+        "low"
+      ]
+    ],
+    "evidence_tokens": [
+      "deprecation warnings"
+    ],
+    "forbidden_claims": [
+      "non-zero"
+    ]
+  }
+]
