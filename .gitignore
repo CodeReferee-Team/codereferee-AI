@@ -11,3 +11,4 @@ build/
 *.egg-info/
 node_modules/
 target/
+ai-core/.codereferee/
