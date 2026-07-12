@@ -1,79 +1,43 @@
-# CodeReferee Agents
+# CodeReferee Backend-AI Integration
 
-CodeReferee의 Agent 모듈은 GitHub 레포지토리 검증 결과를 바탕으로 실행 가능성, 신뢰성, 장애 원인, 개선 방향을 판단하는 역할을 한다.
+CodeReferee의 Backend-AI 연동 모듈은 Spring Boot 백엔드와 FastAPI AI 서버가 검증 요청과 결과를 주고받기 위한 API 계약을 담당한다.
 
-이 프로젝트는 코드를 새로 생성하는 AI가 아니라, 기존 레포지토리를 검증하고 분석하는 Agentic AI 구조를 목표로 한다.
+이 브랜치는 Agent 판단 로직이나 Sandbox 구현 자체보다, 백엔드가 AI 서버를 어떻게 호출하고 어떤 응답을 받는지 정리하는 것을 목표로 한다.
 
 ---
 
-## 1. Agent 구조 개요
+## 1. 연동 구조 개요
 
-현재 Agent 흐름은 다음과 같다.
+현재 Backend-AI 연동 흐름은 다음과 같다.
 
 ```text
-Repository URL
-→ Preflight
-→ Sandbox Execution
-→ Judge Agent
-→ Critic Agent
-→ Refiner Agent
-→ Validation Report
+Client
+→ Spring Boot Backend
+→ FastAPI AI Server
+→ Repository Validation Workflow
+→ Validation Response
+→ Spring Boot Backend
 ```
 
-## 2. 주요 Agent
+## 2. 주요 API
+**Health Check**
+GET /health
+AI 서버가 정상 실행 중인지 확인
 
-### Planner Agent
+**Repository Validation**
+POST /v1/validations/repository
+GitHub 레포지토리 검증을 요청
 
-Planner Agent는 레포지토리 검증 계획을 세운다.
-
-- 검증 목적 설정
-- 검증 범위 정의
-- 필요한 메트릭 정의
-- 중단 조건 설정
-
-### Judge Agent
-
-Judge Agent는 Preflight, Sandbox 실행 결과, Metrics를 바탕으로 검증 성공 여부를 판단한다.
-
-- 레포지토리 실행 가능 여부 판단
-- Sandbox 결과 분석
-- Metrics 기반 Pass/Fail 판단
-
-### Critic Agent
-
-Critic Agent는 Judge Agent가 Fail로 판단한 경우, 실패 원인과 신뢰성 문제를 분석한다.
-
-- 실패 원인 분석
-- 로그와 메트릭 기반 근거 추출
-- 개선 방향 제안
-
-### Refiner Agent
-
-Refiner Agent는 Critic Agent의 분석 결과를 바탕으로 수정 방향을 제안한다.
-
-- 개선 요약 작성
-- 수정 가이드 제안
-- 재검증 절차 제안
-- 위험도 평가
+**Job 조회**
+GET /jobs/{job_id}
+검증 작업의 현재 상태와 결과 조회
 
 ## 3. 관련 파일
-
-### ai-core/app/agents/llm.py
-
-LLM 호출을 담당한다.
-
-### ai-core/app/agents/prompts.py
-
-각 Agent가 사용할 프롬프트를 정의한다.
-
-### ai-core/app/agents/nodes.py
-
-각 Agent의 실행 노드를 정의한다.
-
-### ai-core/app/workflow/repository_validation.py
-
-전체 Agent workflow를 연결한다.
-
-### ai-core/app/models.py
-
-Agent 간에 공유되는 데이터 모델을 정의한다.
+**ai-core/app/main.py**
+FastAPI endpoint를 정의한다.
+**ai-core/app/models.py**
+백엔드와 AI 서버가 주고받는 요청/응답 모델을 정의한다.
+**ai-core/app/config.py**
+AI 서버 실행 설정과 외부 연동 설정을 관리한다.
+**ai-core/app/workflow/repository_validation.py**
+API 요청을 실제 레포지토리 검증 workflow로 연결한다.
