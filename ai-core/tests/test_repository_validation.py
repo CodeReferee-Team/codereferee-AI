@@ -4,6 +4,7 @@ from unittest.mock import patch
 from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
 from app.models import AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 from app.repository.preflight import _normalize_github_url
+from app.sandbox.docker_runner import _sandbox_result_from_response
 from app.workflow.repository_validation import (
     enqueue_repository_validation,
     process_next_repository_validation,
@@ -106,9 +107,12 @@ class RepositoryValidationTests(unittest.TestCase):
             evidence=["not found"],
         )
         queue = FakeQueue()
-        with patch("app.workflow.repository_validation.repository_preflight_runner.run", return_value=fake_report):
+        with patch("app.workflow.repository_validation.repository_preflight_runner.run", return_value=fake_report), patch(
+            "app.workflow.repository_validation.sandbox_runner.run_repository"
+        ) as sandbox_run:
             state = process_next_repository_validation(queue=queue, block=True, timeout=0)
 
+        sandbox_run.assert_not_called()
         self.assertTrue(queue.block)
         self.assertEqual(queue.timeout, 0)
         self.assertIsNotNone(state)
@@ -118,6 +122,41 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(state.status, JobStatus.failed)
         self.assertIn("Queue: payload schema=server", state.events)
         self.assertIn("Queue: repository validation dequeued", state.events)
+        self.assertIn("Preflight: failed", state.events)
+        self.assertFalse(state.metrics["sandbox_executed"])
+
+    def test_process_next_repository_validation_runs_sandbox_after_preflight_passes(self) -> None:
+        class FakeQueue:
+            def dequeue(self, *, block=False, timeout=0):
+                return {
+                    "taskId": "job-pass",
+                    "repositoryUrl": "https://github.com/example/project",
+                    "branch": "main",
+                    "commitSha": None,
+                    "submittedAt": "2026-05-26T10:00:00",
+                }
+
+        fake_report = RepositoryPreflightReport(
+            repository_url="https://github.com/example/project.git",
+            cloneable=True,
+            executable=True,
+            resolved_commit_sha="a" * 40,
+            reason="Repository ref is reachable.",
+            evidence=["reachable"],
+        )
+        fake_result = SandboxResult(exit_code=0, stdout="ok", duration_ms=100)
+
+        with patch("app.workflow.repository_validation.repository_preflight_runner.run", return_value=fake_report), patch(
+            "app.workflow.repository_validation.sandbox_runner.run_repository", return_value=fake_result
+        ) as sandbox_run:
+            state = process_next_repository_validation(queue=FakeQueue(), block=True, timeout=0)
+
+        self.assertIsNotNone(state)
+        assert state is not None
+        sandbox_run.assert_called_once_with("https://github.com/example/project.git", branch="main", commit_sha=None)
+        self.assertIn("Preflight: passed", state.events)
+        self.assertTrue(state.metrics["preflight_passed"])
+        self.assertTrue(state.metrics["sandbox_executed"])
 
     def test_to_response_exposes_commit_and_metrics(self) -> None:
         state = AgentState(
@@ -130,6 +169,19 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(response.request_id, "req-1")
         self.assertEqual(response.commit_sha, "a" * 40)
         self.assertEqual(response.metrics["exit_code"], 0)
+
+    def test_sandbox_http_response_exposes_server_smoke(self) -> None:
+        result = _sandbox_result_from_response(
+            '{"exitCode":0,"durationMillis":10,"serverStarted":true,"serverUrl":"http://127.0.0.1:3000/",'
+            '"httpStatus":200,"browserLoaded":true,"pageTitle":"Demo","runCommand":["npm","run","start"]}',
+            started_at=0,
+        )
+        self.assertTrue(result.server_started)
+        self.assertEqual(result.server_url, "http://127.0.0.1:3000/")
+        self.assertEqual(result.http_status, 200)
+        self.assertTrue(result.browser_loaded)
+        self.assertEqual(result.page_title, "Demo")
+        self.assertEqual(result.run_command, ["npm", "run", "start"])
 
     def test_normalize_github_url_accepts_public_https_repo(self) -> None:
         self.assertEqual(

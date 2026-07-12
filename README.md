@@ -30,6 +30,20 @@ Run local infrastructure when using queued jobs:
 docker compose up -d redis
 ```
 
+Run a fixed local sandbox pool for repository execution:
+
+```bash
+docker compose up -d --build sandbox-gateway sandbox-1 sandbox-2 sandbox-3
+```
+
+When AI Core runs on the same host, configure:
+
+```env
+SANDBOX_BASE_URL=http://localhost:8100
+SANDBOX_REPOSITORY_PATH=/repositories/validate
+SANDBOX_HTTP_TIMEOUT_SECONDS=240
+```
+
 Validate a repository synchronously:
 
 ```bash

@@ -75,9 +75,11 @@ def execute_repository_validation(state: AgentState) -> AgentState:
     )
     state.resolved_commit_sha = state.preflight_report.resolved_commit_sha
     state.events.append("Preflight: repository accessibility checked")
+    preflight_passed = _preflight_passed(state.preflight_report)
+    state.events.append(f"Preflight: {'passed' if preflight_passed else 'failed'}")
     state = planner_node(state)
 
-    if state.preflight_report.cloneable:
+    if preflight_passed:
         state.events.append("Sandbox: repository clone and smoke validation started")
         state.execution_result = sandbox_runner.run_repository(
             state.preflight_report.repository_url,
@@ -163,14 +165,31 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
     return state
 
 
+def _preflight_passed(report) -> bool:
+    return bool(report and report.cloneable and report.executable)
+
+
 def _metrics_from_execution(state: AgentState) -> dict[str, object]:
+    preflight_passed = _preflight_passed(state.preflight_report)
     result = state.execution_result
     if result is None:
-        return {"cloneable": bool(state.preflight_report and state.preflight_report.cloneable), "sandbox_executed": False}
+        return {
+            "cloneable": bool(state.preflight_report and state.preflight_report.cloneable),
+            "preflight_passed": preflight_passed,
+            "sandbox_executed": False,
+        }
     return {
         "cloneable": bool(state.preflight_report and state.preflight_report.cloneable),
+        "preflight_passed": preflight_passed,
         "sandbox_executed": True,
         "exit_code": result.exit_code,
         "timed_out": result.timed_out,
         "duration_ms": result.duration_ms,
+        "server_started": result.server_started,
+        "server_url": result.server_url,
+        "http_status": result.http_status,
+        "browser_loaded": result.browser_loaded,
+        "page_title": result.page_title,
+        "service_check_attempted": result.service_check_attempted,
+        "browser_check_attempted": result.browser_check_attempted,
     }
