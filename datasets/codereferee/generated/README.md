@@ -23,3 +23,7 @@ Total: 1,065 rows/specs.
 - `synthetic_generated_seed`: 대량 생성한 synthetic expansion case
 
 두 유형 모두 검수 전에는 최종 학습 데이터로 사용하지 않는다.
+
+## Daily Batches
+
+- `batches/batch_2026-07-19/`: 1,000 generated seed rows/specs
