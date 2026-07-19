@@ -27,3 +27,14 @@ Total: 1,065 rows/specs.
 ## Daily Batches
 
 - `batches/batch_2026-07-19/`: 1,000 generated seed rows/specs
+
+## Daily Generation
+
+Use the repository-local generator to create a new daily batch:
+
+```bash
+python3 scripts/generate_dataset_batch.py --date YYYY-MM-DD
+python3 ai-core/tests/dataset_quality.py
+```
+
+GitHub Actions also runs `.github/workflows/daily-dataset-batch.yml` every day at 03:00 Asia/Seoul. It creates a separate dataset branch and opens a pull request after validation passes.
