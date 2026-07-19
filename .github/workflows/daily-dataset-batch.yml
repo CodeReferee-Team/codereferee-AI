@@ -1,0 +1,103 @@
+name: Daily Dataset Batch
+
+on:
+  schedule:
+    # 03:00 Asia/Seoul every day.
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      batch_date:
+        description: "Batch date in YYYY-MM-DD. Empty uses today's date in Asia/Seoul."
+        required: false
+        type: string
+      base_branch:
+        description: "Pull request base branch."
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate-dataset-batch:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve batch metadata
+        id: meta
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.batch_date }}" ]; then
+            BATCH_DATE="${{ inputs.batch_date }}"
+          else
+            BATCH_DATE="$(TZ=Asia/Seoul date +%F)"
+          fi
+          BASE_BRANCH="${{ inputs.base_branch }}"
+          if [ -z "$BASE_BRANCH" ]; then
+            BASE_BRANCH="main"
+          fi
+          BRANCH_NAME="data/dataset-batch-$BATCH_DATE"
+          echo "batch_date=$BATCH_DATE" >> "$GITHUB_OUTPUT"
+          echo "batch_id=batch_$BATCH_DATE" >> "$GITHUB_OUTPUT"
+          echo "branch_name=$BRANCH_NAME" >> "$GITHUB_OUTPUT"
+          echo "base_branch=$BASE_BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Skip existing batch
+        id: existing
+        shell: bash
+        run: |
+          BATCH_DIR="datasets/codereferee/generated/batches/${{ steps.meta.outputs.batch_id }}"
+          if [ -d "$BATCH_DIR" ]; then
+            echo "Batch already exists: $BATCH_DIR"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate daily batch
+        if: steps.existing.outputs.skip != 'true'
+        run: python3 scripts/generate_dataset_batch.py --date "${{ steps.meta.outputs.batch_date }}"
+
+      - name: Validate dataset
+        if: steps.existing.outputs.skip != 'true'
+        run: python3 ai-core/tests/dataset_quality.py
+
+      - name: Run repository validation unit tests
+        if: steps.existing.outputs.skip != 'true'
+        working-directory: ai-core
+        run: python3 -m unittest tests/test_repository_validation.py
+
+      - name: Commit generated batch
+        if: steps.existing.outputs.skip != 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "${{ steps.meta.outputs.branch_name }}"
+          git add datasets/codereferee/generated/batches scripts/generate_dataset_batch.py ai-core/tests/dataset_quality.py
+          git commit -m "data: add generated dataset batch ${{ steps.meta.outputs.batch_date }}" \
+            -m "Constraint: Generated rows must remain separate from reviewed training data.\nConfidence: high\nScope-risk: narrow\nDirective: Human review is required before moving generated rows into reviewed data.\nTested: python3 ai-core/tests/dataset_quality.py; python3 -m unittest tests/test_repository_validation.py\nNot-tested: Human semantic review of generated labels."
+          git push --force-with-lease origin "${{ steps.meta.outputs.branch_name }}"
+
+      - name: Open pull request
+        if: steps.existing.outputs.skip != 'true'
+        shell: bash
+        run: |
+          gh pr create \
+            --base "${{ steps.meta.outputs.base_branch }}" \
+            --head "${{ steps.meta.outputs.branch_name }}" \
+            --title "data: daily dataset batch ${{ steps.meta.outputs.batch_date }}" \
+            --body "Adds a generated CodeReferee dataset batch for ${{ steps.meta.outputs.batch_date }}.\n\nValidation run:\n- python3 ai-core/tests/dataset_quality.py\n- python3 -m unittest tests/test_repository_validation.py\n\nReview note: generated rows are candidates only and still require human semantic review before fine-tuning."
