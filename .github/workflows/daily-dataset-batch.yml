@@ -101,8 +101,16 @@ jobs:
         if: steps.existing.outputs.skip != 'true'
         shell: bash
         run: |
-          gh pr create \
+          if gh pr view "${{ steps.meta.outputs.branch_name }}" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Pull request already exists for ${{ steps.meta.outputs.branch_name }}"
+            exit 0
+          fi
+
+          if ! gh pr create \
             --base "${{ steps.meta.outputs.base_branch }}" \
             --head "${{ steps.meta.outputs.branch_name }}" \
             --title "data: daily dataset batch ${{ steps.meta.outputs.batch_date }}" \
-            --body "Adds a generated CodeReferee dataset batch for ${{ steps.meta.outputs.batch_date }}.\n\nValidation run:\n- python3 ai-core/tests/dataset_quality.py\n- python3 -m unittest tests/test_repository_validation.py\n\nReview note: generated rows are candidates only and still require human semantic review before fine-tuning."
+            --body "Adds a generated CodeReferee dataset batch for ${{ steps.meta.outputs.batch_date }}.\n\nValidation run:\n- python3 ai-core/tests/dataset_quality.py\n- python3 -m unittest tests/test_repository_validation.py\n\nReview note: generated rows are candidates only and still require human semantic review before fine-tuning."; then
+            echo "::warning::Dataset branch was pushed, but this repository does not allow GitHub Actions to create pull requests. Enable Settings > Actions > General > Workflow permissions > Allow GitHub Actions to create and approve pull requests, or open the PR manually."
+            echo "Branch: ${{ steps.meta.outputs.branch_name }}"
+          fi
