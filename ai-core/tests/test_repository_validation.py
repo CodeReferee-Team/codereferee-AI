@@ -183,6 +183,21 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(result.page_title, "Demo")
         self.assertEqual(result.run_command, ["npm", "run", "start"])
 
+    def test_sandbox_http_response_preserves_chaos_evidence(self) -> None:
+        result = _sandbox_result_from_response(
+            '{"exitCode":0,"schemaVersion":"chaos-v1","probeTransport":"kubectl_port_forward",'
+            '"baseline":{"metrics":{"availability":1.0}},'
+            '"metrics":{"availability":0.75,"recovery_seconds":3.2},'
+            '"chaos_observation":{"type":"pod_kill","recovered":true},'
+            '"source":{"real_execution_observed":true,"fixture":"fixture-api"}}',
+            started_at=0,
+        )
+        self.assertEqual(result.schema_version, "chaos-v1")
+        self.assertEqual(result.probe_transport, "kubectl_port_forward")
+        self.assertEqual(result.metrics["recovery_seconds"], 3.2)
+        self.assertEqual(result.chaos_observation["type"], "pod_kill")
+        self.assertTrue(result.source["real_execution_observed"])
+
     def test_normalize_github_url_accepts_public_https_repo(self) -> None:
         self.assertEqual(
             _normalize_github_url("https://github.com/CodeReferee-Team/codereferee-AI"),
