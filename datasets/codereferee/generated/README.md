@@ -4,13 +4,13 @@
 
 ## Files
 
-- `preflight_failures.jsonl`: 210 cases
-- `sandbox_failures.jsonl`: 210 cases
-- `metrics_judge_cases.jsonl`: 220 cases
-- `critic_refiner_cases.jsonl`: 220 cases
-- `local_sample_repo_specs.jsonl`: 205 specs
+- `preflight_failures.jsonl`: 408 cases
+- `sandbox_failures.jsonl`: 610 cases
+- `metrics_judge_cases.jsonl`: 392 cases
+- `critic_refiner_cases.jsonl`: 256 cases
+- `local_sample_repo_specs.jsonl`: 601 specs
 
-Total: 1,065 rows/specs.
+Total: 2,267 rows/specs. 68개 일일 배치와 기존 배치 폴더를 내용 기준으로 중복 제거해 통합한 결과다.
 
 ## Safety Note
 
@@ -26,7 +26,6 @@ Total: 1,065 rows/specs.
 
 ## Daily Batches
 
-- `batches/batch_2026-07-19/`: 1,000 generated seed rows/specs
 
 ## Daily Generation
 

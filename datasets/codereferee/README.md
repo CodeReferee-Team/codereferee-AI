@@ -22,12 +22,12 @@ datasets/codereferee/
 
 ## Generated Counts
 
-- `generated/preflight_failures.jsonl`: 210개
-- `generated/sandbox_failures.jsonl`: 210개
-- `generated/metrics_judge_cases.jsonl`: 220개
-- `generated/critic_refiner_cases.jsonl`: 220개
-- `generated/local_sample_repo_specs.jsonl`: 205개
-- Total: 1,065개
+- `generated/preflight_failures.jsonl`: 408개
+- `generated/sandbox_failures.jsonl`: 610개
+- `generated/metrics_judge_cases.jsonl`: 392개
+- `generated/critic_refiner_cases.jsonl`: 256개
+- `generated/local_sample_repo_specs.jsonl`: 601개
+- Total: 2,267개
 
 ## Fine-tuning Policy
 

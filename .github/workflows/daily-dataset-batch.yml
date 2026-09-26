@@ -1,9 +1,11 @@
 name: Daily Dataset Batch
 
 on:
-  schedule:
-    # 03:00 Asia/Seoul every day.
-    - cron: "0 18 * * *"
+  # 자동 스케줄 중단(2026-09-26). 생성기가 매일 같은 행을 만들어 68개 배치의 중복률이 96.8%였다.
+  # 생성기에 다양성을 넣거나 실제 실행 로그 수집으로 전환한 뒤 아래 주석을 되살린다.
+  # schedule:
+  #   # 03:00 Asia/Seoul every day.
+  #   - cron: "0 18 * * *"
   workflow_dispatch:
     inputs:
       batch_date:
