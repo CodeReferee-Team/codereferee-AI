@@ -9,6 +9,7 @@ from app.repository.preflight import _normalize_github_url
 from app.storage.sqlite_store import SQLitePatchStore
 from app.sandbox.docker_runner import _sandbox_result_from_response
 from app.workflow.repository_validation import (
+    _sre_metrics_from_execution,
     enqueue_repository_validation,
     process_next_repository_validation,
     to_response,
@@ -211,6 +212,46 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertTrue(result.browser_loaded)
         self.assertEqual(result.page_title, "Demo")
         self.assertEqual(result.run_command, ["npm", "run", "start"])
+
+    def test_sre_metrics_prefer_measured_chaos_values_over_estimates(self) -> None:
+        state = AgentState(
+            job_id="chaos-measured",
+            repository_url="https://github.com/example/project.git",
+            execution_result=SandboxResult(
+                exit_code=0,
+                duration_ms=5000,
+                metrics={
+                    "availability": 0.75,
+                    "error_rate": 0.25,
+                    "p95_latency_ms": 2009,
+                    "recovery_seconds": 3.42,
+                },
+                chaos_observation={"type": "pod_kill", "recovered": True},
+                source={"fixture": "fixture-api", "real_execution_observed": True},
+            ),
+        )
+        sre = _sre_metrics_from_execution(state)
+        self.assertEqual(sre.sli.availability_percent, 75.0)
+        self.assertEqual(sre.sli.error_rate, 0.25)
+        self.assertEqual(sre.sli.p95_latency_ms, 2009.0)
+        self.assertEqual(sre.error_budget.observed_error_rate, 0.25)
+        self.assertEqual(sre.chaos.scenario, "pod_kill")
+        self.assertEqual(sre.chaos.target, "fixture-api")
+        self.assertTrue(sre.chaos.recovered)
+        self.assertEqual(sre.chaos.recovery_time_sec, 3.42)
+
+    def test_sre_metrics_fall_back_to_estimates_without_measurements(self) -> None:
+        state = AgentState(
+            job_id="chaos-estimated",
+            repository_url="https://github.com/example/project.git",
+            execution_result=SandboxResult(exit_code=0, duration_ms=5000),
+        )
+        sre = _sre_metrics_from_execution(state)
+        self.assertEqual(sre.sli.availability_percent, 100.0)
+        self.assertEqual(sre.sli.error_rate, 0.0)
+        self.assertEqual(sre.sli.p95_latency_ms, 5000.0)
+        self.assertEqual(sre.chaos.scenario, "smoke_validation")
+        self.assertEqual(sre.chaos.target, "repository_sandbox")
 
     def test_sandbox_http_response_preserves_chaos_evidence(self) -> None:
         result = _sandbox_result_from_response(

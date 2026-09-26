@@ -235,20 +235,37 @@ def _sre_metrics_from_execution(state: AgentState) -> SREMetrics:
         and (not result.service_check_attempted or 200 <= (result.http_status or 0) < 400)
         and (not result.browser_check_attempted or result.browser_loaded)
     )
-    observed_error_rate = 0.0 if successful else 1.0
+    # Sandbox가 실측한 값이 있으면 그것을 쓰고, 없을 때만 exit code 기반 추정값으로 채운다.
+    measured = result.metrics
+    observed_error_rate = _measured_float(measured, "error_rate")
+    if observed_error_rate is None:
+        observed_error_rate = 0.0 if successful else 1.0
     budget_remaining = max(0.0, (0.01 - observed_error_rate) / 0.01 * 100)
+
+    measured_availability = _measured_float(measured, "availability")
+    availability_percent = (
+        measured_availability * 100 if measured_availability is not None else (100.0 if successful else 0.0)
+    )
+    p95 = _measured_float(measured, "p95_latency_ms")
+    p99 = _measured_float(measured, "p99_latency_ms")
+    recovery_seconds = _measured_float(measured, "recovery_seconds")
+    observation = result.chaos_observation
+    recovered = observation.get("recovered") if "recovered" in observation else successful
+
     return SREMetrics(
         chaos={
-            "scenario": "smoke_validation",
-            "target": "repository_sandbox",
+            "scenario": observation.get("type") or "smoke_validation",
+            "target": result.source.get("fixture") or "repository_sandbox",
             "duration_sec": max(1, round(result.duration_ms / 1000)),
-            "recovered": successful,
-            "recovery_time_sec": round(result.duration_ms / 1000, 3),
+            "recovered": recovered,
+            "recovery_time_sec": recovery_seconds
+            if recovery_seconds is not None
+            else round(result.duration_ms / 1000, 3),
         },
         sli={
-            "availability_percent": 100.0 if successful else 0.0,
-            "p95_latency_ms": float(result.duration_ms),
-            "p99_latency_ms": float(result.duration_ms),
+            "availability_percent": availability_percent,
+            "p95_latency_ms": p95 if p95 is not None else float(result.duration_ms),
+            "p99_latency_ms": p99 if p99 is not None else float(result.duration_ms),
             "error_rate": observed_error_rate,
             "throughput_rps": 1.0 if result.duration_ms <= 0 else round(1000 / result.duration_ms, 3),
         },
@@ -259,6 +276,14 @@ def _sre_metrics_from_execution(state: AgentState) -> SREMetrics:
             "budget_remaining_percent": budget_remaining,
         },
     )
+
+
+def _measured_float(metrics: dict[str, object], key: str) -> float | None:
+    """Sandbox가 실제로 관측해 보낸 수치만 반환한다. 없거나 숫자가 아니면 None."""
+    value = metrics.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
 
 
 def _default_slo() -> dict[str, float]:
