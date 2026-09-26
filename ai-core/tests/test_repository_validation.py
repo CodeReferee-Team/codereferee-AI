@@ -550,6 +550,35 @@ class RepositoryValidationTests(unittest.TestCase):
         )
         self.assertIsNone(_normalize_github_url("git@github.com:CodeReferee-Team/codereferee-AI.git"))
 
+    def test_normalize_github_url_accepts_repo_root_variants(self) -> None:
+        expected = "https://github.com/owner/repo.git"
+        for url in (
+            "https://github.com/owner/repo",
+            "https://github.com/owner/repo/",
+            "https://github.com/owner/repo.git",
+            "https://www.github.com/owner/repo",
+        ):
+            with self.subTest(url=url):
+                self.assertEqual(_normalize_github_url(url), expected)
+
+    def test_normalize_github_url_rejects_non_repository_paths(self) -> None:
+        # 지금까지는 경로 앞 두 조각만 보고 나머지를 버려서, 파일 URL이나 서브디렉터리 URL이
+        # 레포 루트로 조용히 통과됐다. 데이터셋은 이 경우들을 전부 Fail로 라벨링하고 있다.
+        for url in (
+            "https://github.com/owner/repo/blob/main/README.md",
+            "https://github.com/owner/repo/tree/main",
+            "https://github.com/owner/repo/tree/main/services/api",
+            "https://github.com/owner/repo/pull/12",
+        ):
+            with self.subTest(url=url):
+                self.assertIsNone(_normalize_github_url(url))
+
+    def test_normalize_github_url_rejects_malformed_input(self) -> None:
+        for url in ("", "github.com/owner/repo", "ftp://github.com/owner/repo",
+                    "https://gitlab.com/owner/repo", "https://github.com/owner"):
+            with self.subTest(url=url):
+                self.assertIsNone(_normalize_github_url(url))
+
 
 if __name__ == "__main__":
     unittest.main()
