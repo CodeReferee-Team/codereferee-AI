@@ -17,11 +17,11 @@ from typing import Any
 
 ROWS_PER_FILE = 200
 FILES = {
-    "preflight_failures.jsonl": "preflight.expected_reason_category",
-    "sandbox_failures.jsonl": "sandbox.expected_failure_type",
-    "metrics_judge_cases.jsonl": "metrics.expected_reason_category",
-    "critic_refiner_cases.jsonl": "critic.failure_type",
-    "local_sample_repo_specs.jsonl": "local_repo.stack",
+    "preflight_failures.jsonl": "preflight.expected.reason_category",
+    "sandbox_failures.jsonl": "sandbox.expected.failure_type",
+    "metrics_judge_cases.jsonl": "sre.expected.reason_category",
+    "critic_refiner_cases.jsonl": "critic.input.failure_type",
+    "local_sample_repo_specs.jsonl": "local_repo.input.stack",
 }
 
 PREFLIGHT_REASONS = [
@@ -202,6 +202,16 @@ def training_usage() -> dict[str, Any]:
     }
 
 
+def _base_row(ctx: BatchContext, prefix: str, index: int, agent_target: str) -> dict[str, Any]:
+    return {
+        "case_id": f"{prefix}-{ctx.compact_date}-{index:03d}",
+        "batch_id": ctx.batch_id,
+        "dataset_version": ctx.dataset_version,
+        "agent_target": agent_target,
+        "source": common_source(),
+        "training_usage": training_usage(),
+    }
+
 def spaced(value: str) -> str:
     return value.replace("_", " ")
 
@@ -217,24 +227,25 @@ def preflight_row(ctx: BatchContext, index: int, reason: str) -> dict[str, Any]:
         branch = f"missing-{index:03d}"
     if reason == "commit_not_found":
         commit_sha = "f" * 40
-    return {
-        "case_id": f"PREFLIGHT-{ctx.compact_date}-{index:03d}",
-        "batch_id": ctx.batch_id,
-        "dataset_version": ctx.dataset_version,
-        "agent_target": "preflight",
-        "repo_url": f"https://github.com/CodeReferee-Dataset/{reason}-{index:03d}",
-        "branch": branch,
-        "commit_sha": commit_sha,
-        "input_type": reason,
-        "expected_stage": "preflight",
-        "expected_status": "Fail",
-        "expected_reason_category": reason,
-        "expected_cloneable": False,
-        "expected_evidence_contains": [spaced(reason)],
-        "source": common_source(),
-        "training_usage": training_usage(),
-    }
-
+    row = _base_row(ctx, "PREFLIGHT", index, "preflight")
+    row.update(
+        {
+            "input": {
+                "repo_url": f"https://github.com/CodeReferee-Dataset/{reason}-{index:03d}",
+                "branch": branch,
+                "commit_sha": commit_sha,
+                "input_type": reason,
+            },
+            "expected": {
+                "stage": "preflight",
+                "status": "Fail",
+                "reason_category": reason,
+                "cloneable": False,
+                "evidence_contains": [spaced(reason)],
+            },
+        }
+    )
+    return row
 
 def sandbox_execution_for(failure: str, index: int) -> dict[str, Any]:
     stderr = spaced(failure)
@@ -269,163 +280,181 @@ def sandbox_execution_for(failure: str, index: int) -> dict[str, Any]:
 
 
 def sandbox_row(ctx: BatchContext, index: int, failure: str) -> dict[str, Any]:
-    return {
-        "case_id": f"SANDBOX-{ctx.compact_date}-{index:03d}",
-        "batch_id": ctx.batch_id,
-        "dataset_version": ctx.dataset_version,
-        "agent_target": "sandbox_judge",
-        "repo_url": f"https://github.com/CodeReferee-Dataset/sandbox-{failure}-{index:03d}",
-        "branch": "main",
-        "preflight_report": {
-            "cloneable": True,
-            "executable": True,
-            "detected_stack": "unknown until sandbox clone",
-            "reason": "Repository ref is reachable; sandbox will clone and detect executable commands.",
-        },
-        "execution_result": sandbox_execution_for(failure, index),
-        "expected_judge_status": "Fail",
-        "expected_failure_type": failure,
-        "expected_critic_focus": spaced(failure),
-        "source": common_source(),
-        "training_usage": training_usage(),
-    }
-
+    row = _base_row(ctx, "SANDBOX", index, "sandbox_judge")
+    row.update(
+        {
+            "input": {
+                "repo_url": f"https://github.com/CodeReferee-Dataset/sandbox-{failure}-{index:03d}",
+                "branch": "main",
+                "preflight_report": {
+                    "cloneable": True,
+                    "executable": True,
+                    "detected_stack": "unknown until sandbox clone",
+                    "reason": "Repository ref is reachable; sandbox will clone and detect executable commands.",
+                },
+                "execution_result": sandbox_execution_for(failure, index),
+            },
+            "expected": {
+                "judge_status": "Fail",
+                "failure_type": failure,
+                "critic_focus": spaced(failure),
+            },
+        }
+    )
+    return row
 
 def metrics_for(reason: str, index: int) -> tuple[dict[str, Any], str]:
-    metrics = {
+    sli = {
+        "availability_percent": 99.9,
         "p95_latency_ms": 180,
+        "p99_latency_ms": 260,
         "error_rate": 0.0,
-        "cpu_usage_percent": 42,
-        "memory_usage_mb": 250,
-        "memory_limit_mb": 1024,
-        "restart_count": 0,
-        "availability": 0.999,
-        "request_count": 120 + index,
+        "throughput_rps": 120 + index,
     }
     status = "Fail"
     if reason in {"all_slo_passed", "boundary_pass", "stable_under_load", "near_limit_pass"}:
         status = "Pass"
     if reason == "latency_slo_violation":
-        metrics["p95_latency_ms"] = 900
+        sli.update({"p95_latency_ms": 900, "p99_latency_ms": 1400})
     elif reason == "error_rate_slo_violation":
-        metrics["error_rate"] = 0.08
+        sli["error_rate"] = 0.08
     elif reason == "cpu_saturation":
-        metrics["cpu_usage_percent"] = 94
+        sli.update({"error_rate": 0.02, "throughput_rps": 30})
     elif reason == "memory_pressure":
-        metrics["memory_usage_mb"] = 950
+        sli.update({"error_rate": 0.02, "p95_latency_ms": 520})
     elif reason == "unexpected_restart":
-        metrics["restart_count"] = 2
+        sli.update({"availability_percent": 98.5, "error_rate": 0.03})
     elif reason == "availability_slo_violation":
-        metrics["availability"] = 0.97
+        sli["availability_percent"] = 97.0
     elif reason == "multiple_slo_violations":
-        metrics.update({"p95_latency_ms": 1200, "error_rate": 0.2, "cpu_usage_percent": 93, "memory_usage_mb": 990, "restart_count": 3, "availability": 0.93})
-    elif reason == "redis_connection_errors":
-        metrics.update({"error_rate": 0.02, "redis_connection_errors": 5, "availability": 0.99})
-    elif reason == "database_connection_errors":
-        metrics.update({"error_rate": 0.03, "db_connection_errors": 4, "availability": 0.985})
+        sli.update({"availability_percent": 93.0, "p95_latency_ms": 1200, "p99_latency_ms": 2500, "error_rate": 0.2, "throughput_rps": 20})
+    elif reason in {"redis_connection_errors", "database_connection_errors"}:
+        sli.update({"availability_percent": 99.0, "error_rate": 0.03})
     elif reason == "no_traffic_observed":
-        metrics.update({"p95_latency_ms": None, "error_rate": None, "request_count": 0})
+        sli.update({"p95_latency_ms": None, "p99_latency_ms": None, "error_rate": None, "throughput_rps": 0})
     elif reason == "missing_metrics":
-        metrics.update({"p95_latency_ms": None, "error_rate": None, "cpu_usage_percent": None, "availability": None})
+        sli.update({"availability_percent": None, "p95_latency_ms": None, "p99_latency_ms": None, "error_rate": None, "throughput_rps": None})
     elif reason == "boundary_pass":
-        metrics.update({"p95_latency_ms": 299, "error_rate": 0.01, "cpu_usage_percent": 80, "availability": 0.996})
+        sli.update({"availability_percent": 99.9, "p95_latency_ms": 300, "p99_latency_ms": 1000, "error_rate": 0.01, "throughput_rps": 50})
     elif reason == "latency_boundary_fail":
-        metrics["p95_latency_ms"] = 301
+        sli["p95_latency_ms"] = 301
     elif reason == "error_boundary_fail":
-        metrics["error_rate"] = 0.011
+        sli["error_rate"] = 0.011
     elif reason == "cpu_boundary_fail":
-        metrics["cpu_usage_percent"] = 81
+        sli.update({"p95_latency_ms": 320, "throughput_rps": 45})
     elif reason == "request_spike_degradation":
-        metrics.update({"p95_latency_ms": 650, "error_rate": 0.04, "availability": 0.99})
+        sli.update({"availability_percent": 99.0, "p95_latency_ms": 650, "p99_latency_ms": 1300, "error_rate": 0.04})
     elif reason == "cold_start_latency":
-        metrics["p95_latency_ms"] = 1100
+        sli.update({"p95_latency_ms": 1100, "p99_latency_ms": 1800})
     elif reason == "stable_under_load":
-        metrics.update({"p95_latency_ms": 260, "error_rate": 0.004, "cpu_usage_percent": 72, "memory_usage_mb": 640, "availability": 0.998})
+        sli.update({"availability_percent": 99.95, "p95_latency_ms": 260, "p99_latency_ms": 700, "error_rate": 0.004, "throughput_rps": 160})
     elif reason == "near_limit_pass":
-        metrics.update({"p95_latency_ms": 280, "error_rate": 0.005, "cpu_usage_percent": 78, "memory_usage_mb": 780, "availability": 0.997})
-    return metrics, status
-
+        sli.update({"availability_percent": 99.91, "p95_latency_ms": 280, "p99_latency_ms": 900, "error_rate": 0.005, "throughput_rps": 70})
+    return sli, status
 
 def metric_row(ctx: BatchContext, index: int, reason: str) -> dict[str, Any]:
-    metrics, status = metrics_for(reason, index)
-    return {
-        "case_id": f"METRIC-{ctx.compact_date}-{index:03d}",
-        "batch_id": ctx.batch_id,
-        "dataset_version": ctx.dataset_version,
-        "agent_target": "judge",
-        "sandbox": {"exit_code": 0, "timed_out": False},
-        "metrics": metrics,
-        "slo": {
-            "p95_latency_ms_max": 300,
-            "error_rate_max": 0.01,
-            "cpu_usage_percent_max": 80,
-            "restart_count_max": 0,
-            "availability_min": 0.995,
-            "memory_usage_ratio_max": 0.8,
-            "db_connection_errors_max": 0,
-            "redis_connection_errors_max": 0,
-            "request_count_min": 1,
-        },
-        "expected_judge_status": status,
-        "expected_reason_category": reason,
-        "expected_evidence_fields": ["exit_code", "timed_out", "p95_latency_ms", "error_rate", "cpu_usage_percent", "restart_count"],
-        "source": common_source(),
-        "training_usage": training_usage(),
-    }
-
+    sli, status = metrics_for(reason, index)
+    allowed_error_rate = 0.01
+    observed_error_rate = sli.get("error_rate")
+    budget_remaining = None
+    if isinstance(observed_error_rate, (int, float)):
+        budget_remaining = round(max(0.0, (allowed_error_rate - observed_error_rate) / allowed_error_rate * 100), 2)
+    row = _base_row(ctx, "METRIC", index, "judge")
+    row.update(
+        {
+            "input": {
+                "sandbox": {"exit_code": 0, "timed_out": False, "duration_ms": 4200 + index},
+                "chaos": {
+                    "scenario": "network_latency" if index % 2 else "resource_pressure",
+                    "target": "app_container",
+                    "duration_sec": 60,
+                    "recovered": status == "Pass",
+                    "recovery_time_sec": 12 if status == "Pass" else None,
+                },
+                "sli": sli,
+                "slo": {
+                    "availability_percent_min": 99.9,
+                    "p95_latency_ms_max": 300,
+                    "p99_latency_ms_max": 1000,
+                    "error_rate_max": allowed_error_rate,
+                    "throughput_rps_min": 50,
+                },
+                "error_budget": {
+                    "allowed_error_rate": allowed_error_rate,
+                    "observed_error_rate": observed_error_rate,
+                    "budget_remaining_percent": budget_remaining,
+                },
+            },
+            "expected": {
+                "judge_status": status,
+                "reason_category": reason,
+                "evidence_keys": [
+                    "availability_percent",
+                    "p95_latency_ms",
+                    "p99_latency_ms",
+                    "error_rate",
+                    "budget_remaining_percent",
+                ],
+            },
+        }
+    )
+    return row
 
 def critic_row(ctx: BatchContext, index: int, failure: str) -> dict[str, Any]:
     log, root_cause, action, risk = CRITIC_LIBRARY[failure]
-    return {
-        "case_id": f"CRITIC-{ctx.compact_date}-{index:03d}",
-        "batch_id": ctx.batch_id,
-        "dataset_version": ctx.dataset_version,
-        "agent_target": "critic_refiner",
-        "failure_type": failure,
-        "logs": log,
-        "metrics": {"error_rate": round(min(0.01 + index * 0.025, 0.5), 3)},
-        "judge_report": {"status": "Fail", "reason_category": failure},
-        "expected_critic": {
-            "issue": f"Repository failed validation due to {failure}.",
-            "root_cause": root_cause,
-            "evidence": [log],
-            "recommended_action": action,
-        },
-        "expected_refiner": {
-            "summary": root_cause,
-            "patch_guidance": [action, "Add regression coverage for this failure mode."],
-            "verification_steps": [
-                "Re-run validation from the same commit SHA.",
-                "Confirm the failing signal is resolved.",
-                "Confirm no new SLO violation appears.",
-            ],
-            "risk": risk,
-        },
-        "source": common_source(),
-        "training_usage": training_usage(),
-    }
-
+    error_rate = round(min(0.01 + index * 0.025, 0.5), 3)
+    row = _base_row(ctx, "CRITIC", index, "critic_refiner")
+    row.update(
+        {
+            "input": {
+                "failure_type": failure,
+                "logs": log,
+                "sli": {"error_rate": error_rate},
+                "judge_report": {"status": "Fail", "reason_category": failure},
+            },
+            "expected": {
+                "critic": {
+                    "issue": f"Repository failed validation due to {failure}.",
+                    "root_cause": root_cause,
+                    "evidence": [log],
+                    "recommended_action": action,
+                },
+                "refiner": {
+                    "summary": root_cause,
+                    "patch_guidance": [action, "Add regression coverage for this failure mode."],
+                    "verification_steps": [
+                        "Re-run validation from the same commit SHA.",
+                        "Confirm the failing signal is resolved.",
+                        "Confirm no new SLO violation appears.",
+                    ],
+                    "risk": risk,
+                },
+            },
+        }
+    )
+    return row
 
 def local_repo_row(ctx: BatchContext, index: int, stack: str) -> dict[str, Any]:
     should_pass = index % 4 != 0
     failure_type = None if should_pass else "fixture_expected_failure"
-    return {
-        "case_id": f"LOCAL-REPO-{ctx.compact_date}-{index:03d}",
-        "batch_id": ctx.batch_id,
-        "dataset_version": ctx.dataset_version,
-        "agent_target": "fixture_repo",
-        "repo_name": f"sample-{stack}-{'pass' if should_pass else 'fail'}-{index:03d}",
-        "stack": stack,
-        "purpose": f"{stack} fixture for {'pass' if should_pass else 'fail'} validation behavior.",
-        "files": STACK_FILES[stack],
-        "expected_sandbox": {"exit_code": 0 if should_pass else 1, "timed_out": False},
-        "expected_judge_status": "Pass" if should_pass else "Fail",
-        "expected_failure_type": failure_type,
-        "implementation_priority": "high" if should_pass else "medium",
-        "source": common_source(),
-        "training_usage": training_usage(),
-    }
-
+    row = _base_row(ctx, "LOCAL-REPO", index, "fixture_repo")
+    row.update(
+        {
+            "input": {
+                "repo_name": f"sample-{stack}-{'pass' if should_pass else 'fail'}-{index:03d}",
+                "stack": stack,
+                "purpose": f"{stack} fixture for {'pass' if should_pass else 'fail'} validation behavior.",
+                "files": STACK_FILES[stack],
+            },
+            "expected": {
+                "sandbox": {"exit_code": 0 if should_pass else 1, "timed_out": False},
+                "judge_status": "Pass" if should_pass else "Fail",
+                "failure_type": failure_type,
+                "implementation_priority": "high" if should_pass else "medium",
+            },
+        }
+    )
+    return row
 
 def write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     path.write_text("".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in rows), encoding="utf-8")
@@ -490,15 +519,15 @@ def generate_batch(dataset_dir: Path, batch_date: str, force: bool = False) -> P
         write_jsonl(batch_dir / filename, rows)
         label = FILES[filename]
         if filename == "preflight_failures.jsonl":
-            values = [row["expected_reason_category"] for row in rows]
+            values = [row["expected"]["reason_category"] for row in rows]
         elif filename == "sandbox_failures.jsonl":
-            values = [row["expected_failure_type"] for row in rows]
+            values = [row["expected"]["failure_type"] for row in rows]
         elif filename == "metrics_judge_cases.jsonl":
-            values = [row["expected_reason_category"] for row in rows]
+            values = [row["expected"]["reason_category"] for row in rows]
         elif filename == "critic_refiner_cases.jsonl":
-            values = [row["failure_type"] for row in rows]
+            values = [row["input"]["failure_type"] for row in rows]
         else:
-            values = [row["stack"] for row in rows]
+            values = [row["input"]["stack"] for row in rows]
         distributions[label] = dict(Counter(values))
 
     distribution = {
