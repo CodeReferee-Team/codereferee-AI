@@ -6,7 +6,12 @@ from app.agents.evidence import build_evidence_packet, classify_failure_category
 from app.agents.llm import llm, parse_json_strict
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
-from app.models import AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
+from app.models import DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
+
+
+# 카오스 구간 p95가 baseline의 몇 배를 넘으면 경고할지. 출처 있는 값이 아니라 우리 관례다
+# (docs/judge-policy.md 6.3). Sandbox가 p99를 보내기 시작하면 임계값을 다시 정한다.
+LATENCY_DEGRADATION_FACTOR = 10
 
 
 def planner_node(state: AgentState) -> AgentState:
@@ -162,7 +167,93 @@ def _fallback_judge(state: AgentState) -> dict[str, object]:
         return {"status": "Fail", "reason": "Service smoke check failed after sandbox execution.", "evidence": [result.log]}
     if result.browser_check_attempted and not result.browser_loaded:
         return {"status": "Fail", "reason": "Browser smoke check failed after service startup.", "evidence": [result.log]}
+
+    failure, warnings = _measured_policy_findings(state, result)
+    state.metrics["policy_warnings"] = warnings
+    for warning in warnings:
+        state.events.append(f"Judge: warning {warning}")
+    if failure:
+        return {"status": "Fail", "reason": failure, "evidence": [result.log]}
     return {"status": "Pass", "reason": "Repository passed preflight and sandbox smoke validation.", "evidence": [result.log]}
+
+
+def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple[str | None, list[str]]:
+    """docs/judge-policy.md 6절 기준으로 실측 지표를 판정한다.
+
+    실측값이 없으면 아무것도 판정하지 않는다. duration_ms를 p95 대용으로 쓰는 추정값에
+    SLO를 걸면 느린 빌드가 전부 Fail이 되기 때문이다.
+    chaos_evidence_missing과 chaos_experiment_aborted는 Error 상태가 필요해 아직 다루지 않는다.
+    """
+    measured = result.metrics
+    if not measured:
+        return None, []
+
+    warnings: list[str] = []
+    slo = state.sre_metrics.slo
+    if slo.availability_percent_min is None and slo.error_rate_max is None:
+        slo = DEFAULT_SLO  # 워크플로를 거치지 않고 judge만 호출한 경우
+    observation = result.chaos_observation
+
+    if observation:
+        if observation.get("recovered") is False:
+            return "chaos_not_recovered: chaos experiment never recovered to a serving state.", warnings
+
+        recovery = _as_float(measured.get("recovery_seconds"))
+        allowance = _monthly_unavailability_budget_seconds(slo.availability_percent_min)
+        if recovery is not None and allowance:
+            if recovery >= allowance:
+                return (
+                    f"chaos_error_budget_exhausted: recovery {recovery}s consumed the monthly "
+                    f"error budget of {allowance}s.",
+                    warnings,
+                )
+            if recovery >= allowance * 0.2:
+                warnings.append("chaos_error_budget_significant_burn")
+
+        baseline_p95 = _as_float((result.baseline.get("metrics") or {}).get("p95_latency_ms"))
+        observed_p95 = _as_float(measured.get("p95_latency_ms"))
+        if baseline_p95 and observed_p95 and observed_p95 > baseline_p95 * LATENCY_DEGRADATION_FACTOR:
+            warnings.append("chaos_latency_degraded")
+        return None, warnings
+
+    # 카오스 실험이 아닌 실측 구간에는 SLO를 그대로 적용한다.
+    error_rate = _as_float(measured.get("error_rate"))
+    if error_rate is not None and slo.error_rate_max is not None and error_rate > slo.error_rate_max:
+        return f"error_rate_slo_violation: error_rate {error_rate} exceeds {slo.error_rate_max}.", warnings
+
+    availability = _as_float(measured.get("availability"))
+    if (
+        availability is not None
+        and slo.availability_percent_min is not None
+        and availability * 100 < slo.availability_percent_min
+    ):
+        return (
+            f"availability_slo_violation: availability {availability * 100}% is below "
+            f"{slo.availability_percent_min}%.",
+            warnings,
+        )
+
+    p95 = _as_float(measured.get("p95_latency_ms"))
+    if p95 is not None and slo.p95_latency_ms_max is not None and p95 > slo.p95_latency_ms_max:
+        return f"latency_slo_violation: p95 {p95}ms exceeds {slo.p95_latency_ms_max}ms.", warnings
+
+    return None, warnings
+
+
+def _monthly_unavailability_budget_seconds(availability_percent_min: float | None) -> float | None:
+    """가용성 목표에서 월간 허용 불가용 시간을 구한다. 99.9%면 2,592초.
+
+    출처: https://sre.google/sre-book/availability-table/
+    """
+    if availability_percent_min is None:
+        return None
+    return round((1 - availability_percent_min / 100) * 30 * 24 * 3600, 3)
+
+
+def _as_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
 
 
 def _fallback_critic(state: AgentState) -> dict[str, object]:

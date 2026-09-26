@@ -33,12 +33,14 @@ class RepositoryPreflightRunner:
             return RepositoryPreflightReport(
                 repository_url=normalized_url,
                 reason="git is not installed on the AI core host, so repository intake cannot be verified.",
+                infra_error="git_not_installed",
                 evidence=["missing executable: git"],
             )
         except subprocess.TimeoutExpired:
             return RepositoryPreflightReport(
                 repository_url=normalized_url,
                 reason="git ls-remote timed out while checking repository accessibility.",
+                infra_error="preflight_timeout",
                 evidence=[f"ref={remote_ref}"],
             )
 

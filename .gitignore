@@ -12,3 +12,4 @@ build/
 node_modules/
 target/
 ai-core/.codereferee/
+.codereferee/

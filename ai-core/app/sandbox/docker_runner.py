@@ -56,18 +56,21 @@ class SandboxRunner:
             return SandboxResult(
                 exit_code=None,
                 stderr=f"Sandbox HTTP error {exc.code} from {endpoint}: {body or exc.reason}",
+                infra_error="sandbox_http_error",
                 duration_ms=_duration_ms(started_at),
             )
         except URLError as exc:
             return SandboxResult(
                 exit_code=None,
                 stderr=f"Sandbox connection error from {endpoint}: {exc.reason}",
+                infra_error="sandbox_unreachable",
                 duration_ms=_duration_ms(started_at),
             )
         except TimeoutError:
             return SandboxResult(
                 exit_code=None,
                 stderr=f"Sandbox HTTP request timed out after {self.settings.sandbox_http_timeout_seconds}s: {endpoint}",
+                infra_error="sandbox_request_timeout",
                 timed_out=True,
                 duration_ms=_duration_ms(started_at),
             )
@@ -117,6 +120,7 @@ class SandboxRunner:
                 return SandboxResult(
                     exit_code=None,
                     stderr=f"Docker repository sandbox error: {exc}",
+                    infra_error="docker_daemon_unreachable",
                     duration_ms=_duration_ms(started_at),
                 )
 
@@ -140,6 +144,8 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
     run_command = data.get("run_command", data.get("runCommand"))
     service_check_attempted = _explicit_bool(data, "service_check_attempted", "serviceCheckAttempted")
     browser_check_attempted = _explicit_bool(data, "browser_check_attempted", "browserCheckAttempted")
+    schema_version = data.get("schema_version", data.get("schemaVersion"))
+    probe_transport = data.get("probe_transport", data.get("probeTransport"))
 
     if "isExecutable" in data and exit_code is None:
         exit_code = 0 if data.get("isExecutable") else 1
@@ -171,6 +177,12 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
             if browser_check_attempted is not None
             else _infer_browser_check_attempted(browser_loaded, page_title, http_status, server_started, server_url, run_command)
         ),
+        schema_version=str(schema_version) if schema_version else None,
+        probe_transport=str(probe_transport) if probe_transport else None,
+        baseline=_json_object(data.get("baseline")),
+        metrics=_json_object(data.get("metrics")),
+        chaos_observation=_json_object(data.get("chaos_observation", data.get("chaosObservation"))),
+        source=_json_object(data.get("source")),
     )
 
 
@@ -255,6 +267,10 @@ def _infer_browser_check_attempted(
         or page_title
         or (http_status is not None and _infer_service_check_attempted(server_started, server_url, http_status, run_command))
     )
+
+
+def _json_object(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
 
 
 def _duration_ms(started_at: float) -> int:
