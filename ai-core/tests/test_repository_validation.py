@@ -1,9 +1,12 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
 from app.models import AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 from app.repository.preflight import _normalize_github_url
+from app.storage.sqlite_store import SQLitePatchStore
 from app.sandbox.docker_runner import _sandbox_result_from_response
 from app.workflow.repository_validation import (
     enqueue_repository_validation,
@@ -171,6 +174,30 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(response.commit_sha, "a" * 40)
         self.assertEqual(response.metrics["exit_code"], 0)
         self.assertEqual(response.sre_metrics.sli.availability_percent, 100.0)
+
+    def test_sqlite_patch_store_records_validation_and_patch_suggestion(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLitePatchStore(Path(tmpdir) / "codereferee.sqlite3")
+            state = AgentState(
+                job_id="sqlite-job",
+                repository_url="https://github.com/example/project.git",
+                branch="main",
+                resolved_commit_sha="b" * 40,
+                status=JobStatus.failed,
+                judge_report={"status": "Fail", "reason_category": "latency_slo_violation"},
+                critic_feedback={
+                    "issue": "Repository failed SLO validation.",
+                    "root_cause": "p95 latency exceeded SLO.",
+                },
+                refiner_report={
+                    "patch_guidance": ["Add timeout budgets."],
+                    "risk": "medium",
+                },
+            )
+            run_id = store.save_validation_run(state)
+            patch_id = store.save_patch_suggestion(run_id=run_id, state=state)
+            self.assertGreater(run_id, 0)
+            self.assertGreater(patch_id, 0)
 
     def test_sandbox_http_response_exposes_server_smoke(self) -> None:
         result = _sandbox_result_from_response(

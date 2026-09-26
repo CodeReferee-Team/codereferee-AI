@@ -14,6 +14,7 @@ from app.queue.redis_queue import redis_task_queue
 from app.repository.preflight import repository_preflight_runner
 from app.sandbox.docker_runner import sandbox_runner
 from app.storage.memory import job_store
+from app.storage.sqlite_store import record_validation_artifacts
 
 VALIDATION_COUNTER = Counter("codereferee_repository_validations_total", "Total repository validations", ["status"])
 SANDBOX_DURATION = Histogram("codereferee_repository_sandbox_duration_ms", "Repository sandbox duration in ms")
@@ -100,6 +101,7 @@ def execute_repository_validation(state: AgentState) -> AgentState:
     state = critic_node(state)
     state = refiner_node(state)
     VALIDATION_COUNTER.labels(status=state.status).inc()
+    _record_sqlite_artifacts(state)
     job_store.save(state)
     return state
 
@@ -256,3 +258,11 @@ def _default_slo() -> dict[str, float]:
         "error_rate_max": 0.01,
         "throughput_rps_min": 0.01,
     }
+
+
+def _record_sqlite_artifacts(state: AgentState) -> None:
+    try:
+        record_validation_artifacts(state)
+        state.events.append("SQLite: validation and patch suggestion artifacts recorded")
+    except Exception as exc:  # pragma: no cover - storage failure should not mask validation result
+        state.events.append(f"SQLite: artifact recording skipped: {exc.__class__.__name__}")

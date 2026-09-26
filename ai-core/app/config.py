@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     sandbox_nano_cpus: int = 500_000_000
     repository_clone_timeout_seconds: int = 30
     max_self_healing_retries: int = 3
+    sqlite_patch_db_path: str = ".codereferee/codereferee.sqlite3"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
