@@ -16,11 +16,11 @@ from typing import Any, Callable
 
 
 CANONICAL_EXPECTED_COUNTS = {
-    "generated/preflight_failures.jsonl": 210,
-    "generated/sandbox_failures.jsonl": 210,
-    "generated/metrics_judge_cases.jsonl": 220,
-    "generated/critic_refiner_cases.jsonl": 220,
-    "generated/local_sample_repo_specs.jsonl": 205,
+    "generated/preflight_failures.jsonl": 408,
+    "generated/sandbox_failures.jsonl": 610,
+    "generated/metrics_judge_cases.jsonl": 392,
+    "generated/critic_refiner_cases.jsonl": 256,
+    "generated/local_sample_repo_specs.jsonl": 601,
 }
 
 BATCH_EXPECTED_COUNTS = {
