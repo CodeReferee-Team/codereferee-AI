@@ -184,7 +184,7 @@ def _metrics_from_execution(state: AgentState) -> dict[str, object]:
             "preflight_passed": preflight_passed,
             "sandbox_executed": False,
         }
-    return {
+    metrics = {
         "cloneable": bool(state.preflight_report and state.preflight_report.cloneable),
         "preflight_passed": preflight_passed,
         "sandbox_executed": True,
@@ -199,7 +199,18 @@ def _metrics_from_execution(state: AgentState) -> dict[str, object]:
         "service_check_attempted": result.service_check_attempted,
         "browser_check_attempted": result.browser_check_attempted,
     }
-
+    metrics.update(result.metrics)
+    if result.schema_version:
+        metrics["schema_version"] = result.schema_version
+    if result.probe_transport:
+        metrics["probe_transport"] = result.probe_transport
+    if result.baseline:
+        metrics["baseline"] = result.baseline
+    if result.chaos_observation:
+        metrics["chaos_observation"] = result.chaos_observation
+    if result.source:
+        metrics["source"] = result.source
+    return metrics
 
 def _sre_metrics_from_execution(state: AgentState) -> SREMetrics:
     result = state.execution_result

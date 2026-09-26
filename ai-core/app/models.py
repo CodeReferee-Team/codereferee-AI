@@ -40,6 +40,12 @@ class SandboxResult(BaseModel):
     run_command: list[str] | None = None
     service_check_attempted: bool = Field(default=False, exclude=True)
     browser_check_attempted: bool = Field(default=False, exclude=True)
+    schema_version: str | None = None
+    probe_transport: str | None = None
+    baseline: dict[str, Any] = Field(default_factory=dict)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    chaos_observation: dict[str, Any] = Field(default_factory=dict)
+    source: dict[str, Any] = Field(default_factory=dict)
 
     @property
     def log(self) -> str:
@@ -52,6 +58,12 @@ class SandboxResult(BaseModel):
             f"http_status={self.http_status}",
             f"browser_loaded={self.browser_loaded}",
             f"page_title={self.page_title}",
+            f"schema_version={self.schema_version}",
+            f"probe_transport={self.probe_transport}",
+            f"baseline={self.baseline}",
+            f"metrics={self.metrics}",
+            f"chaos_observation={self.chaos_observation}",
+            f"source={self.source}",
             "stdout:",
             self.stdout.strip(),
             "stderr:",
