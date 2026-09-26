@@ -4,6 +4,7 @@ from prometheus_client import Counter, Histogram
 
 from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
 from app.models import (
+    DEFAULT_SLO,
     AgentState,
     JobStatus,
     RepositoryValidationRequest,
@@ -287,13 +288,7 @@ def _measured_float(metrics: dict[str, object], key: str) -> float | None:
 
 
 def _default_slo() -> dict[str, float]:
-    return {
-        "availability_percent_min": 99.9,
-        "p95_latency_ms_max": 30000.0,
-        "p99_latency_ms_max": 60000.0,
-        "error_rate_max": 0.01,
-        "throughput_rps_min": 0.01,
-    }
+    return DEFAULT_SLO.model_dump()
 
 
 def _record_sqlite_artifacts(state: AgentState) -> None:

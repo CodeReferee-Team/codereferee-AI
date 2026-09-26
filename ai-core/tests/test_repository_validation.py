@@ -213,6 +213,81 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(result.page_title, "Demo")
         self.assertEqual(result.run_command, ["npm", "run", "start"])
 
+    @staticmethod
+    def _chaos_state(job_id: str, **metrics_overrides) -> AgentState:
+        metrics = {"availability": 0.99, "error_rate": 0.01, "p95_latency_ms": 20.0, "recovery_seconds": 3.42}
+        metrics.update(metrics_overrides.pop("metrics", {}))
+        observation = {"type": "pod_kill", "recovered": True}
+        observation.update(metrics_overrides.pop("chaos_observation", {}))
+        return AgentState(
+            job_id=job_id,
+            repository_url="https://github.com/example/project.git",
+            preflight_report=RepositoryPreflightReport(
+                repository_url="https://github.com/example/project.git",
+                cloneable=True,
+                executable=True,
+                reason="reachable",
+            ),
+            execution_result=SandboxResult(
+                exit_code=0,
+                duration_ms=5000,
+                metrics=metrics,
+                chaos_observation=observation,
+                baseline={"metrics": {"p95_latency_ms": 12.0}},
+                source={"fixture": "fixture-api", "real_execution_observed": True},
+            ),
+        )
+
+    def test_judge_fails_when_chaos_experiment_never_recovered(self) -> None:
+        state = judge_node(self._chaos_state("not-recovered", chaos_observation={"recovered": False}))
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertIn("chaos_not_recovered", state.judge_report["reason"])
+
+    def test_judge_fails_when_chaos_downtime_exhausts_error_budget(self) -> None:
+        # 99.9% 목표의 월간 허용 불가용 시간은 2,592초다. 그보다 긴 복구는 버짓 소진이다.
+        state = judge_node(self._chaos_state("budget-out", metrics={"recovery_seconds": 3000.0}))
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertIn("chaos_error_budget_exhausted", state.judge_report["reason"])
+
+    def test_judge_passes_with_warning_when_chaos_burns_significant_budget(self) -> None:
+        # 버짓의 20%(518.4초)를 넘지만 소진은 아니다. 판정은 Pass, 경고만 남긴다.
+        state = judge_node(self._chaos_state("budget-warn", metrics={"recovery_seconds": 900.0}))
+        self.assertEqual(state.status, JobStatus.success)
+        self.assertIn("chaos_error_budget_significant_burn", state.metrics["policy_warnings"])
+
+    def test_judge_passes_with_warning_when_latency_degrades_against_baseline(self) -> None:
+        state = judge_node(self._chaos_state("latency-warn", metrics={"p95_latency_ms": 2009.0}))
+        self.assertEqual(state.status, JobStatus.success)
+        self.assertIn("chaos_latency_degraded", state.metrics["policy_warnings"])
+
+    def test_judge_passes_clean_chaos_run_without_warnings(self) -> None:
+        state = judge_node(self._chaos_state("clean"))
+        self.assertEqual(state.status, JobStatus.success)
+        self.assertEqual(state.metrics.get("policy_warnings", []), [])
+
+    def test_judge_fails_measured_slo_violation_without_chaos(self) -> None:
+        state = self._chaos_state("slo-violation", metrics={"error_rate": 0.05})
+        state.execution_result.chaos_observation = {}
+        state = judge_node(state)
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertIn("error_rate_slo_violation", state.judge_report["reason"])
+
+    def test_judge_does_not_apply_slo_to_estimated_metrics(self) -> None:
+        # 실측값이 없으면 duration_ms가 p95 대용으로 쓰인다. 여기에 SLO를 걸면 느린 빌드가 전부 Fail이 된다.
+        state = AgentState(
+            job_id="slow-build",
+            repository_url="https://github.com/example/project.git",
+            preflight_report=RepositoryPreflightReport(
+                repository_url="https://github.com/example/project.git",
+                cloneable=True,
+                executable=True,
+                reason="reachable",
+            ),
+            execution_result=SandboxResult(exit_code=0, duration_ms=60000),
+        )
+        state = judge_node(state)
+        self.assertEqual(state.status, JobStatus.success)
+
     def test_sre_metrics_prefer_measured_chaos_values_over_estimates(self) -> None:
         state = AgentState(
             job_id="chaos-measured",

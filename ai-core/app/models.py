@@ -101,6 +101,17 @@ class SLO(BaseModel):
     throughput_rps_min: float | None = None
 
 
+# 기본 SLO 목표값. 관측값이 아니라 설정이며 운영자가 바꾸는 것을 전제로 한다.
+# docs/judge-policy.md 6.4 참고: 이 값과 정책 문서 3절 표가 서로 달라 통합이 필요하다.
+DEFAULT_SLO = SLO(
+    availability_percent_min=99.9,
+    p95_latency_ms_max=30000.0,
+    p99_latency_ms_max=60000.0,
+    error_rate_max=0.01,
+    throughput_rps_min=0.01,
+)
+
+
 class ErrorBudget(BaseModel):
     allowed_error_rate: float | None = None
     observed_error_rate: float | None = None
