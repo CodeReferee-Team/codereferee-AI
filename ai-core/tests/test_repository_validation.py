@@ -6,7 +6,7 @@ from unittest.mock import patch
 from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
 from app.models import AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 from app.repository.preflight import _normalize_github_url
-from app.storage.sqlite_store import SQLitePatchStore
+from app.storage.sqlite_store import SQLiteJobStore, SQLitePatchStore
 from app.sandbox.docker_runner import _sandbox_result_from_response
 from app.workflow.repository_validation import (
     _sre_metrics_from_execution,
@@ -213,6 +213,43 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertTrue(result.browser_loaded)
         self.assertEqual(result.page_title, "Demo")
         self.assertEqual(result.run_command, ["npm", "run", "start"])
+
+    def test_job_survives_across_store_instances(self) -> None:
+        # API와 worker는 별도 프로세스다. 한쪽이 저장한 job을 다른 쪽이 읽을 수 있어야 한다.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = Path(tmpdir) / "codereferee.sqlite3"
+            writer = SQLiteJobStore(db)
+            writer.save(
+                AgentState(
+                    job_id="cross-process",
+                    request_id="req-1",
+                    repository_url="https://github.com/example/project.git",
+                    status=JobStatus.success,
+                    events=["Workflow: repository validation started"],
+                )
+            )
+            reader = SQLiteJobStore(db)
+            loaded = reader.get("cross-process")
+            self.assertIsNotNone(loaded)
+            assert loaded is not None
+            self.assertEqual(loaded.status, JobStatus.success)
+            self.assertEqual(loaded.request_id, "req-1")
+            self.assertEqual(loaded.events, ["Workflow: repository validation started"])
+
+    def test_job_store_returns_none_for_unknown_job(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.assertIsNone(SQLiteJobStore(Path(tmpdir) / "db.sqlite3").get("missing"))
+
+    def test_job_store_overwrites_previous_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteJobStore(Path(tmpdir) / "db.sqlite3")
+            state = AgentState(job_id="j", repository_url="https://github.com/example/p.git")
+            store.save(state)
+            state.status = JobStatus.error
+            store.save(state)
+            loaded = store.get("j")
+            assert loaded is not None
+            self.assertEqual(loaded.status, JobStatus.error)
 
     @staticmethod
     def _run_workflow(preflight: RepositoryPreflightReport, sandbox_result: SandboxResult | None) -> AgentState:

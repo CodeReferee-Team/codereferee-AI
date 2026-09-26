@@ -22,6 +22,8 @@ class SQLitePatchStore:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        # API와 worker가 다른 프로세스에서 동시에 접근하므로 WAL로 읽기-쓰기 충돌을 줄인다.
+        conn.execute("PRAGMA journal_mode=WAL")
         return conn
 
     def _init_schema(self) -> None:
@@ -120,6 +122,40 @@ class SQLitePatchStore:
                 ),
             )
             return int(cursor.lastrowid)
+
+
+class SQLiteJobStore(SQLitePatchStore):
+    """검증 job 상태 저장소.
+
+    API 프로세스와 worker 프로세스가 분리돼 있어 메모리 dict로는 서로의 job을 볼 수 없다.
+    같은 SQLite 파일을 공유해 worker가 처리한 job도 GET /jobs/{job_id}로 조회된다.
+    """
+
+    def save(self, state: AgentState) -> AgentState:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO validation_jobs (job_id, request_id, status, updated_at, state_json)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(job_id) DO UPDATE SET
+                    request_id = excluded.request_id,
+                    status = excluded.status,
+                    updated_at = excluded.updated_at,
+                    state_json = excluded.state_json
+                """,
+                (state.job_id, state.request_id, str(state.status), _utc_now(), state.model_dump_json()),
+            )
+        return state
+
+    def get(self, job_id: str) -> AgentState | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT state_json FROM validation_jobs WHERE job_id = ?", (job_id,)
+            ).fetchone()
+        return AgentState.model_validate_json(row["state_json"]) if row else None
+
+
+job_store = SQLiteJobStore()
 
 
 def record_validation_artifacts(state: AgentState) -> None:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 from typing import Any
 
 from app.models import AgentState
@@ -18,14 +17,7 @@ def main() -> None:
         default=0,
         help="BLPOP timeout in seconds. 0 waits forever until a task arrives.",
     )
-    parser.add_argument(
-        "--results-dir",
-        default=".codereferee/jobs",
-        help="Directory where processed job JSON snapshots are written.",
-    )
     args = parser.parse_args()
-
-    results_dir = Path(args.results_dir)
 
     while True:
         state = process_next_repository_validation(block=True, timeout=args.block_timeout)
@@ -35,22 +27,14 @@ def main() -> None:
                 return
             continue
 
-        result_path = _write_result_snapshot(state, results_dir)
-        print(_format_processed_job(state, result_path))
+        print(_format_processed_job(state))
         if args.once:
             return
 
 
-def _write_result_snapshot(state: AgentState, results_dir: Path) -> Path:
-    results_dir.mkdir(parents=True, exist_ok=True)
-    path = results_dir / f"{state.job_id}.json"
-    path.write_text(state.model_dump_json(indent=2), encoding="utf-8")
-    return path
-
-
-def _format_processed_job(state: AgentState, result_path: Path) -> str:
+def _format_processed_job(state: AgentState) -> str:
     lines = [f"Processed repository validation job {state.job_id}: {state.status}"]
-    lines.append(f"Result snapshot: {result_path}")
+    lines.append(f"Stored in SQLite job store; fetch with GET /jobs/{state.job_id}")
     lines.append(f"Repository: {state.repository_url}")
     if state.branch:
         lines.append(f"Branch: {state.branch}")

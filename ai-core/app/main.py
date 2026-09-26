@@ -3,7 +3,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.responses import Response
 
 from app.models import CreateValidationResponse, JobResponse, RepositoryValidationRequest, RepositoryValidationResponse
-from app.storage.memory import job_store
+from app.storage.sqlite_store import job_store
 from app.workflow.repository_validation import (
     enqueue_repository_validation,
     process_next_repository_validation,

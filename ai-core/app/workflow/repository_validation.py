@@ -14,8 +14,7 @@ from app.models import (
 from app.queue.redis_queue import redis_task_queue
 from app.repository.preflight import repository_preflight_runner
 from app.sandbox.docker_runner import sandbox_runner
-from app.storage.memory import job_store
-from app.storage.sqlite_store import record_validation_artifacts
+from app.storage.sqlite_store import job_store, record_validation_artifacts
 
 VALIDATION_COUNTER = Counter("codereferee_repository_validations_total", "Total repository validations", ["status"])
 SANDBOX_DURATION = Histogram("codereferee_repository_sandbox_duration_ms", "Repository sandbox duration in ms")

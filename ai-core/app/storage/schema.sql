@@ -42,3 +42,15 @@ CREATE TABLE IF NOT EXISTS rerun_results (
 );
 
 CREATE INDEX IF NOT EXISTS idx_rerun_results_patch_id ON rerun_results(patch_id);
+
+-- API 프로세스와 worker 프로세스가 같은 job을 공유하기 위한 저장소.
+-- 메모리 dict와 JSON 스냅샷 두 갈래를 대체한다.
+CREATE TABLE IF NOT EXISTS validation_jobs (
+  job_id TEXT PRIMARY KEY,
+  request_id TEXT,
+  status TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  state_json TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_validation_jobs_updated_at ON validation_jobs(updated_at DESC);
