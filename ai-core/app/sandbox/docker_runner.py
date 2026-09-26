@@ -93,7 +93,7 @@ class SandboxRunner:
                     network_disabled=False,
                     mem_limit=self.settings.sandbox_memory_limit,
                     nano_cpus=self.settings.sandbox_nano_cpus,
-                    pids_limit=128,
+                    pids_limit=self.settings.sandbox_pids_limit,
                     read_only=False,
                     volumes={str(workdir): {"bind": "/workspace", "mode": "ro"}},
                     working_dir="/workspace",
@@ -193,10 +193,15 @@ def _repository_validation_script(repository_url: str, branch: str | None, commi
     return f"""#!/bin/sh
 set -eu
 
-echo "[CodeReferee] installing sandbox clone tools"
-apt-get update >/dev/null
-apt-get install -y --no-install-recommends git ca-certificates >/dev/null
-rm -rf /var/lib/apt/lists/*
+echo "[CodeReferee] preparing sandbox"
+if ! command -v git >/dev/null 2>&1; then
+  # DEBIAN_FRONTEND 없이 apt를 돌리면 debconf 경고가 stderr를 채워
+  # 실제 실패 원인이 evidence에 묻힌다.
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update >/dev/null
+  apt-get install -y --no-install-recommends git ca-certificates >/dev/null
+  rm -rf /var/lib/apt/lists/*
+fi
 
 echo "[CodeReferee] cloning repository"
 git clone --depth 1 {branch_clause} {url} /tmp/repository
@@ -219,14 +224,15 @@ if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f requirements.txt ]; then
   fi
 elif [ -f build.gradle ] || [ -f settings.gradle ] || [ -f gradlew ]; then
   echo "detected_stack=gradle"
-  if [ -x ./gradlew ]; then ./gradlew test --no-daemon; else echo "No Gradle wrapper in sandbox image"; exit 87; fi
+  if [ -x ./gradlew ]; then ./gradlew test --no-daemon; else echo "Repository has no Gradle wrapper (./gradlew)"; exit 87; fi
 elif [ -f pom.xml ] || [ -f mvnw ]; then
   echo "detected_stack=maven"
-  if [ -x ./mvnw ]; then ./mvnw test; else echo "No Maven wrapper in sandbox image"; exit 87; fi
+  if [ -x ./mvnw ]; then ./mvnw -B test; elif command -v mvn >/dev/null 2>&1; then mvn -B test; else echo "No Maven wrapper and no system mvn"; exit 87; fi
 elif [ -f package.json ]; then
   echo "detected_stack=node"
-  echo "Node execution is not enabled in the current Python sandbox image"
-  exit 87
+  if ! command -v npm >/dev/null 2>&1; then echo "Node toolchain is not available in the sandbox image"; exit 87; fi
+  if [ -f package-lock.json ]; then npm ci; else npm install; fi
+  npm run test --if-present
 else
   echo "No supported project manifest found"
   exit 86
