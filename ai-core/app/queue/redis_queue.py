@@ -21,6 +21,13 @@ class RedisTaskQueue:
     def enqueue(self, payload: dict[str, Any]) -> int:
         return self._client().rpush(self.settings.redis_workflow_queue, json.dumps(payload))
 
+    def publish(self, event: dict[str, Any]) -> int:
+        """Backend가 BLPOP으로 소비하는 output 큐에 이벤트를 넣는다.
+
+        pub/sub이 아니라 list를 쓰는 이유는 서버가 잠깐 죽어 있어도 메시지가 남기 때문이다.
+        """
+        return self._client().rpush(self.settings.redis_output_queue, json.dumps(event))
+
     def dequeue(self, *, block: bool = False, timeout: int = 0) -> dict[str, Any] | None:
         """Pop one task from Redis.
 

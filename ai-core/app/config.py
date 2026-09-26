@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     redis_url: str = "redis://localhost:6379/0"
     redis_workflow_queue: str = "codereferee:workflow:input"
+    redis_output_queue: str = "codereferee:workflow:output"
     sandbox_image: str = "python:3.12-slim"
     sandbox_base_url: str | None = None
     sandbox_repository_path: str = "/repositories/validate"

@@ -89,6 +89,7 @@ class RepositoryValidationTests(unittest.TestCase):
     def test_process_next_repository_validation_dequeues_and_runs_preflight_failure(self) -> None:
         class FakeQueue:
             def __init__(self) -> None:
+                self.published = []
                 self.payload = {
                     "taskId": "job-queue",
                     "repositoryUrl": "https://github.com/example/missing",
@@ -103,6 +104,10 @@ class RepositoryValidationTests(unittest.TestCase):
                 payload = self.payload
                 self.payload = None
                 return payload
+
+            def publish(self, event):
+                self.published.append(event)
+                return len(self.published)
 
         fake_report = RepositoryPreflightReport(
             repository_url="https://github.com/example/missing.git",
@@ -132,6 +137,8 @@ class RepositoryValidationTests(unittest.TestCase):
 
     def test_process_next_repository_validation_runs_sandbox_after_preflight_passes(self) -> None:
         class FakeQueue:
+            published: list = []
+
             def dequeue(self, *, block=False, timeout=0):
                 return {
                     "taskId": "job-pass",
@@ -140,6 +147,10 @@ class RepositoryValidationTests(unittest.TestCase):
                     "commitSha": None,
                     "submittedAt": "2026-05-26T10:00:00",
                 }
+
+            def publish(self, event):
+                self.published.append(event)
+                return len(self.published)
 
         fake_report = RepositoryPreflightReport(
             repository_url="https://github.com/example/project.git",
@@ -213,6 +224,87 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertTrue(result.browser_loaded)
         self.assertEqual(result.page_title, "Demo")
         self.assertEqual(result.run_command, ["npm", "run", "start"])
+
+    class FakeOutputQueue:
+        def __init__(self) -> None:
+            self.events: list[dict] = []
+
+        def publish(self, event: dict) -> int:
+            self.events.append(event)
+            return len(self.events)
+
+    def _run_with_output(self, preflight, sandbox_result, *, request_id="req-1"):
+        state = AgentState(
+            job_id="job-1", request_id=request_id, repository_url="https://github.com/example/project.git"
+        )
+        output = self.FakeOutputQueue()
+        with patch(
+            "app.workflow.repository_validation.repository_preflight_runner.run", return_value=preflight
+        ), patch(
+            "app.workflow.repository_validation.sandbox_runner.run_repository", return_value=sandbox_result
+        ), patch("app.workflow.repository_validation.record_validation_artifacts"):
+            state = execute_repository_validation(state, output_queue=output)
+        return state, output.events
+
+    def test_emits_progress_steps_then_single_result(self) -> None:
+        _, events = self._run_with_output(
+            self._reachable_preflight(), SandboxResult(exit_code=0, stdout="ok", duration_ms=100)
+        )
+        steps = [e["step"] for e in events if e["type"] == "progress"]
+        results = [e for e in events if e["type"] == "result"]
+        self.assertEqual(steps, ["PREFLIGHT", "BASELINE", "JUDGING"])
+        self.assertEqual(len(results), 1)
+        self.assertIs(events[-1], results[0])  # result 뒤에는 어떤 이벤트도 오지 않는다
+
+    def test_result_event_matches_server_contract(self) -> None:
+        _, events = self._run_with_output(
+            self._reachable_preflight(), SandboxResult(exit_code=0, stdout="ok", duration_ms=100)
+        )
+        result = events[-1]
+        self.assertEqual(result["type"], "result")
+        self.assertEqual(result["request_id"], "req-1")
+        self.assertEqual(result["job_id"], "job-1")
+        self.assertEqual(result["status"], "success")
+        for key in (
+            "repository_url", "branch", "commit_sha", "validation_plan", "preflight_report",
+            "execution_result", "judge_report", "critic_feedback", "refiner_report", "metrics", "events",
+        ):
+            self.assertIn(key, result)
+
+    def test_user_code_failure_reports_status_fail(self) -> None:
+        _, events = self._run_with_output(
+            self._reachable_preflight(), SandboxResult(exit_code=1, stderr="pytest failed")
+        )
+        self.assertEqual(events[-1]["status"], "fail")
+        self.assertTrue(events[-1]["critic_feedback"])
+
+    def test_infra_error_reports_status_error_without_judging_progress(self) -> None:
+        _, events = self._run_with_output(
+            self._reachable_preflight(),
+            SandboxResult(exit_code=None, stderr="docker down", infra_error="docker_daemon_unreachable"),
+        )
+        self.assertEqual(events[-1]["status"], "error")
+        self.assertNotIn("JUDGING", [e["step"] for e in events if e["type"] == "progress"])
+
+    def test_chaos_progress_is_reported_only_when_chaos_ran(self) -> None:
+        chaos_result = SandboxResult(
+            exit_code=0,
+            duration_ms=5000,
+            metrics={"availability": 0.99, "recovery_seconds": 2.0},
+            baseline={"metrics": {"p95_latency_ms": 12.0}},
+            chaos_observation={"type": "pod_kill", "recovered": True},
+        )
+        _, events = self._run_with_output(self._reachable_preflight(), chaos_result)
+        self.assertEqual(
+            [e["step"] for e in events if e["type"] == "progress"],
+            ["PREFLIGHT", "BASELINE", "CHAOS", "JUDGING"],
+        )
+
+    def test_no_events_without_request_id(self) -> None:
+        _, events = self._run_with_output(
+            self._reachable_preflight(), SandboxResult(exit_code=0, duration_ms=10), request_id=None
+        )
+        self.assertEqual(events, [])
 
     def test_job_survives_across_store_instances(self) -> None:
         # API와 worker는 별도 프로세스다. 한쪽이 저장한 job을 다른 쪽이 읽을 수 있어야 한다.

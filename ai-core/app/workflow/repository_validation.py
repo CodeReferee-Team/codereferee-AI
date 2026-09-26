@@ -11,6 +11,7 @@ from app.models import (
     RepositoryValidationResponse,
     SREMetrics,
 )
+from app import events as event_builder
 from app.queue.redis_queue import redis_task_queue
 from app.repository.preflight import repository_preflight_runner
 from app.sandbox.docker_runner import sandbox_runner
@@ -43,7 +44,7 @@ def enqueue_repository_validation(request: RepositoryValidationRequest, queue=re
 
 
 def process_next_repository_validation(
-    queue=redis_task_queue, *, block: bool = False, timeout: int = 0
+    queue=redis_task_queue, *, block: bool = False, timeout: int = 0, output_queue=None
 ) -> AgentState | None:
     """Process one repository-validation task from Redis.
 
@@ -55,7 +56,7 @@ def process_next_repository_validation(
         return None
     state = _state_from_queue_payload(payload)
     state.events.append("Queue: repository validation dequeued")
-    return execute_repository_validation(state)
+    return execute_repository_validation(state, output_queue=output_queue or queue)
 
 
 def run_repository_validation(request: RepositoryValidationRequest, job_id: str | None = None) -> AgentState:
@@ -65,7 +66,12 @@ def run_repository_validation(request: RepositoryValidationRequest, job_id: str 
     return execute_repository_validation(state)
 
 
-def execute_repository_validation(state: AgentState) -> AgentState:
+def execute_repository_validation(state: AgentState, output_queue=redis_task_queue) -> AgentState:
+    def emit_progress(step: str, **kwargs) -> None:
+        # request_id가 없으면 서버발 요청이 아니다(로컬 동기 호출). 보낼 곳이 없다.
+        if state.request_id:
+            output_queue.publish(event_builder.progress_event(state, step, **kwargs))
+
     state.status = JobStatus.running
     state.events.append("Workflow: repository validation started")
     job_store.save(state)
@@ -77,12 +83,14 @@ def execute_repository_validation(state: AgentState) -> AgentState:
     )
     state.resolved_commit_sha = state.preflight_report.resolved_commit_sha
     state.events.append("Preflight: repository accessibility checked")
+    emit_progress(event_builder.PREFLIGHT)
     preflight_passed = _preflight_passed(state.preflight_report)
     state.events.append(f"Preflight: {'passed' if preflight_passed else 'failed'}")
     state = planner_node(state)
 
     if preflight_passed:
         state.events.append("Sandbox: repository clone and smoke validation started")
+        emit_progress(event_builder.BASELINE)
         state.execution_result = sandbox_runner.run_repository(
             state.preflight_report.repository_url,
             branch=state.branch,
@@ -92,6 +100,10 @@ def execute_repository_validation(state: AgentState) -> AgentState:
         state.sre_metrics = _sre_metrics_from_execution(state)
         SANDBOX_DURATION.observe(state.execution_result.duration_ms)
         state.events.append("Sandbox: repository clone and smoke validation finished")
+        if state.execution_result.chaos_observation:
+            # 카오스는 sandbox 안에서 일어나므로 실시간 보고가 불가능하다.
+            # 실제로 실험이 있었을 때만 사후에 알린다. 없었다면 보내지 않는다.
+            emit_progress(event_builder.CHAOS, detail=str(state.execution_result.chaos_observation.get("type")))
     else:
         state.events.append("Sandbox: skipped because preflight failed")
         state.metrics = _metrics_from_execution(state)
@@ -104,12 +116,16 @@ def execute_repository_validation(state: AgentState) -> AgentState:
         state.status = JobStatus.error
         state.events.append(f"Workflow: infra error, judgement skipped: {infra_error}")
     else:
+        emit_progress(event_builder.JUDGING)
         state = judge_node(state)
         state = critic_node(state)
         state = refiner_node(state)
     VALIDATION_COUNTER.labels(status=state.status).inc()
     _record_sqlite_artifacts(state)
     job_store.save(state)
+    if state.request_id:
+        # 종료 이벤트는 정확히 한 번. 이 뒤로는 어떤 progress도 보내지 않는다.
+        output_queue.publish(event_builder.result_event(state))
     return state
 
 
