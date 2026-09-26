@@ -8,6 +8,7 @@ from app.models import (
     JobStatus,
     RepositoryValidationRequest,
     RepositoryValidationResponse,
+    SREMetrics,
 )
 from app.queue.redis_queue import redis_task_queue
 from app.repository.preflight import repository_preflight_runner
@@ -87,11 +88,13 @@ def execute_repository_validation(state: AgentState) -> AgentState:
             commit_sha=state.requested_commit_sha,
         )
         state.metrics = _metrics_from_execution(state)
+        state.sre_metrics = _sre_metrics_from_execution(state)
         SANDBOX_DURATION.observe(state.execution_result.duration_ms)
         state.events.append("Sandbox: repository clone and smoke validation finished")
     else:
         state.events.append("Sandbox: skipped because preflight failed")
         state.metrics = _metrics_from_execution(state)
+        state.sre_metrics = _sre_metrics_from_execution(state)
 
     state = judge_node(state)
     state = critic_node(state)
@@ -116,6 +119,7 @@ def to_response(state: AgentState, request_id: str | None = None) -> RepositoryV
         critic_feedback=state.critic_feedback,
         refiner_report=state.refiner_report,
         metrics=state.metrics,
+        sre_metrics=state.sre_metrics,
         events=state.events,
     )
 
@@ -192,4 +196,63 @@ def _metrics_from_execution(state: AgentState) -> dict[str, object]:
         "page_title": result.page_title,
         "service_check_attempted": result.service_check_attempted,
         "browser_check_attempted": result.browser_check_attempted,
+    }
+
+
+def _sre_metrics_from_execution(state: AgentState) -> SREMetrics:
+    result = state.execution_result
+    if result is None:
+        preflight_failed = bool(state.preflight_report and not _preflight_passed(state.preflight_report))
+        return SREMetrics(
+            sli={
+                "availability_percent": 0.0 if preflight_failed else None,
+                "error_rate": 1.0 if preflight_failed else None,
+            },
+            slo=_default_slo(),
+            error_budget={
+                "allowed_error_rate": 0.01,
+                "observed_error_rate": 1.0 if preflight_failed else None,
+                "budget_remaining_percent": 0.0 if preflight_failed else None,
+            },
+        )
+
+    successful = (
+        result.exit_code == 0
+        and not result.timed_out
+        and (not result.service_check_attempted or 200 <= (result.http_status or 0) < 400)
+        and (not result.browser_check_attempted or result.browser_loaded)
+    )
+    observed_error_rate = 0.0 if successful else 1.0
+    budget_remaining = max(0.0, (0.01 - observed_error_rate) / 0.01 * 100)
+    return SREMetrics(
+        chaos={
+            "scenario": "smoke_validation",
+            "target": "repository_sandbox",
+            "duration_sec": max(1, round(result.duration_ms / 1000)),
+            "recovered": successful,
+            "recovery_time_sec": round(result.duration_ms / 1000, 3),
+        },
+        sli={
+            "availability_percent": 100.0 if successful else 0.0,
+            "p95_latency_ms": float(result.duration_ms),
+            "p99_latency_ms": float(result.duration_ms),
+            "error_rate": observed_error_rate,
+            "throughput_rps": 1.0 if result.duration_ms <= 0 else round(1000 / result.duration_ms, 3),
+        },
+        slo=_default_slo(),
+        error_budget={
+            "allowed_error_rate": 0.01,
+            "observed_error_rate": observed_error_rate,
+            "budget_remaining_percent": budget_remaining,
+        },
+    )
+
+
+def _default_slo() -> dict[str, float]:
+    return {
+        "availability_percent_min": 99.9,
+        "p95_latency_ms_max": 30000.0,
+        "p99_latency_ms_max": 60000.0,
+        "error_rate_max": 0.01,
+        "throughput_rps_min": 0.01,
     }

@@ -23,6 +23,7 @@ def build_evidence_packet(state: AgentState) -> dict[str, Any]:
         "preflight": None,
         "execution": None,
         "metrics": dict(state.metrics),
+        "sre_metrics": state.sre_metrics.model_dump(),
         "judge": dict(state.judge_report),
         "critic": dict(state.critic_feedback),
     }

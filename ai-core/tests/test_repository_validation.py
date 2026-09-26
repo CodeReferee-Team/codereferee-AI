@@ -158,17 +158,19 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertTrue(state.metrics["preflight_passed"])
         self.assertTrue(state.metrics["sandbox_executed"])
 
-    def test_to_response_exposes_commit_and_metrics(self) -> None:
+    def test_to_response_exposes_commit_metrics_and_sre_metrics(self) -> None:
         state = AgentState(
             job_id="test",
             repository_url="https://github.com/example/project.git",
             resolved_commit_sha="a" * 40,
             metrics={"exit_code": 0, "timed_out": False},
         )
+        state.sre_metrics.sli.availability_percent = 100.0
         response = to_response(state, request_id="req-1")
         self.assertEqual(response.request_id, "req-1")
         self.assertEqual(response.commit_sha, "a" * 40)
         self.assertEqual(response.metrics["exit_code"], 0)
+        self.assertEqual(response.sre_metrics.sli.availability_percent, 100.0)
 
     def test_sandbox_http_response_exposes_server_smoke(self) -> None:
         result = _sandbox_result_from_response(

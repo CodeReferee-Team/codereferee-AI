@@ -73,6 +73,43 @@ class RepositoryPreflightReport(BaseModel):
     evidence: list[str] = Field(default_factory=list)
 
 
+class SLI(BaseModel):
+    availability_percent: float | None = None
+    p95_latency_ms: float | None = None
+    p99_latency_ms: float | None = None
+    error_rate: float | None = None
+    throughput_rps: float | None = None
+
+
+class SLO(BaseModel):
+    availability_percent_min: float | None = None
+    p95_latency_ms_max: float | None = None
+    p99_latency_ms_max: float | None = None
+    error_rate_max: float | None = None
+    throughput_rps_min: float | None = None
+
+
+class ErrorBudget(BaseModel):
+    allowed_error_rate: float | None = None
+    observed_error_rate: float | None = None
+    budget_remaining_percent: float | None = None
+
+
+class ChaosObservation(BaseModel):
+    scenario: str | None = None
+    target: str | None = None
+    duration_sec: int | None = None
+    recovered: bool | None = None
+    recovery_time_sec: float | None = None
+
+
+class SREMetrics(BaseModel):
+    sli: SLI = Field(default_factory=SLI)
+    slo: SLO = Field(default_factory=SLO)
+    error_budget: ErrorBudget = Field(default_factory=ErrorBudget)
+    chaos: ChaosObservation = Field(default_factory=ChaosObservation)
+
+
 class AgentState(BaseModel):
     job_id: str
     request_id: str | None = None
@@ -87,6 +124,7 @@ class AgentState(BaseModel):
     critic_feedback: dict[str, Any] = Field(default_factory=dict)
     refiner_report: dict[str, Any] = Field(default_factory=dict)
     metrics: dict[str, Any] = Field(default_factory=dict)
+    sre_metrics: SREMetrics = Field(default_factory=SREMetrics)
     error_count: int = 0
     status: JobStatus = JobStatus.queued
     events: list[str] = Field(default_factory=list)
@@ -106,6 +144,7 @@ class RepositoryValidationResponse(BaseModel):
     critic_feedback: dict[str, Any]
     refiner_report: dict[str, Any]
     metrics: dict[str, Any]
+    sre_metrics: SREMetrics = Field(default_factory=SREMetrics)
     events: list[str]
 
 
