@@ -56,18 +56,21 @@ class SandboxRunner:
             return SandboxResult(
                 exit_code=None,
                 stderr=f"Sandbox HTTP error {exc.code} from {endpoint}: {body or exc.reason}",
+                infra_error="sandbox_http_error",
                 duration_ms=_duration_ms(started_at),
             )
         except URLError as exc:
             return SandboxResult(
                 exit_code=None,
                 stderr=f"Sandbox connection error from {endpoint}: {exc.reason}",
+                infra_error="sandbox_unreachable",
                 duration_ms=_duration_ms(started_at),
             )
         except TimeoutError:
             return SandboxResult(
                 exit_code=None,
                 stderr=f"Sandbox HTTP request timed out after {self.settings.sandbox_http_timeout_seconds}s: {endpoint}",
+                infra_error="sandbox_request_timeout",
                 timed_out=True,
                 duration_ms=_duration_ms(started_at),
             )
@@ -117,6 +120,7 @@ class SandboxRunner:
                 return SandboxResult(
                     exit_code=None,
                     stderr=f"Docker repository sandbox error: {exc}",
+                    infra_error="docker_daemon_unreachable",
                     duration_ms=_duration_ms(started_at),
                 )
 

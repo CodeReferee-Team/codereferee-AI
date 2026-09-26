@@ -10,6 +10,7 @@ from app.storage.sqlite_store import SQLitePatchStore
 from app.sandbox.docker_runner import _sandbox_result_from_response
 from app.workflow.repository_validation import (
     _sre_metrics_from_execution,
+    execute_repository_validation,
     enqueue_repository_validation,
     process_next_repository_validation,
     to_response,
@@ -212,6 +213,76 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertTrue(result.browser_loaded)
         self.assertEqual(result.page_title, "Demo")
         self.assertEqual(result.run_command, ["npm", "run", "start"])
+
+    @staticmethod
+    def _run_workflow(preflight: RepositoryPreflightReport, sandbox_result: SandboxResult | None) -> AgentState:
+        state = AgentState(job_id="infra", repository_url="https://github.com/example/project.git")
+        with patch(
+            "app.workflow.repository_validation.repository_preflight_runner.run", return_value=preflight
+        ), patch(
+            "app.workflow.repository_validation.sandbox_runner.run_repository", return_value=sandbox_result
+        ), patch("app.workflow.repository_validation.record_validation_artifacts"):
+            return execute_repository_validation(state)
+
+    @staticmethod
+    def _reachable_preflight() -> RepositoryPreflightReport:
+        return RepositoryPreflightReport(
+            repository_url="https://github.com/example/project.git",
+            cloneable=True,
+            executable=True,
+            reason="reachable",
+        )
+
+    def test_infra_failure_is_error_not_user_code_failure(self) -> None:
+        result = SandboxResult(
+            exit_code=None,
+            stderr="Docker repository sandbox error: cannot connect to the Docker daemon",
+            infra_error="docker_daemon_unreachable",
+        )
+        state = self._run_workflow(self._reachable_preflight(), result)
+        self.assertEqual(state.status, JobStatus.error)
+        self.assertEqual(state.judge_report, {})
+        self.assertEqual(state.critic_feedback, {})
+        self.assertEqual(state.refiner_report, {})
+
+    def test_user_code_failure_stays_failed(self) -> None:
+        result = SandboxResult(exit_code=1, stderr="pytest: 3 failed")
+        state = self._run_workflow(self._reachable_preflight(), result)
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertNotEqual(state.judge_report, {})
+
+    def test_preflight_infra_failure_is_error(self) -> None:
+        preflight = RepositoryPreflightReport(
+            repository_url="https://github.com/example/project.git",
+            reason="git is not installed on the AI core host, so repository intake cannot be verified.",
+            infra_error="git_not_installed",
+        )
+        state = self._run_workflow(preflight, None)
+        self.assertEqual(state.status, JobStatus.error)
+        self.assertEqual(state.judge_report, {})
+
+    def test_chaos_without_baseline_is_error(self) -> None:
+        result = SandboxResult(
+            exit_code=0,
+            duration_ms=5000,
+            metrics={"availability": 0.75},
+            chaos_observation={"type": "pod_kill", "recovered": True},
+        )
+        state = self._run_workflow(self._reachable_preflight(), result)
+        self.assertEqual(state.status, JobStatus.error)
+        self.assertTrue(any("chaos_evidence_missing" in event for event in state.events))
+
+    def test_aborted_chaos_experiment_is_error(self) -> None:
+        result = SandboxResult(
+            exit_code=0,
+            duration_ms=5000,
+            metrics={"availability": 0.99, "recovery_seconds": 2.0},
+            baseline={"metrics": {"p95_latency_ms": 12.0}},
+            chaos_observation={"type": "pod_kill", "recovered": True, "aborted": True},
+        )
+        state = self._run_workflow(self._reachable_preflight(), result)
+        self.assertEqual(state.status, JobStatus.error)
+        self.assertTrue(any("chaos_experiment_aborted" in event for event in state.events))
 
     @staticmethod
     def _chaos_state(job_id: str, **metrics_overrides) -> AgentState:

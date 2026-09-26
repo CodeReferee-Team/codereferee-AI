@@ -11,6 +11,8 @@ class JobStatus(StrEnum):
     running = "running"
     success = "success"
     failed = "failed"
+    # CodeReferee 인프라 문제로 판정 불가. 사용자 레포 결함(failed)과 절대 섞지 않는다.
+    error = "error"
 
 
 class RepositoryValidationRequest(BaseModel):
@@ -38,6 +40,7 @@ class SandboxResult(BaseModel):
     browser_loaded: bool = False
     page_title: str | None = None
     run_command: list[str] | None = None
+    infra_error: str | None = None
     service_check_attempted: bool = Field(default=False, exclude=True)
     browser_check_attempted: bool = Field(default=False, exclude=True)
     schema_version: str | None = None
@@ -74,6 +77,7 @@ class SandboxResult(BaseModel):
 
 class RepositoryPreflightReport(BaseModel):
     repository_url: str
+    infra_error: str | None = None
     cloneable: bool = False
     executable: bool = False
     resolved_commit_sha: str | None = None

@@ -98,9 +98,16 @@ def execute_repository_validation(state: AgentState) -> AgentState:
         state.metrics = _metrics_from_execution(state)
         state.sre_metrics = _sre_metrics_from_execution(state)
 
-    state = judge_node(state)
-    state = critic_node(state)
-    state = refiner_node(state)
+    infra_error = _infra_error_reason(state)
+    if infra_error:
+        # 인프라 문제로 판정 자체가 불가능하다. Judge/Critic/Refiner를 건너뛴다.
+        # 멀쩡한 사용자 코드를 두고 Critic이 고칠 곳을 찾게 두면 안 되기 때문이다.
+        state.status = JobStatus.error
+        state.events.append(f"Workflow: infra error, judgement skipped: {infra_error}")
+    else:
+        state = judge_node(state)
+        state = critic_node(state)
+        state = refiner_node(state)
     VALIDATION_COUNTER.labels(status=state.status).inc()
     _record_sqlite_artifacts(state)
     job_store.save(state)
@@ -174,6 +181,32 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
 
 def _preflight_passed(report) -> bool:
     return bool(report and report.cloneable and report.executable)
+
+
+def _infra_error_reason(state: AgentState) -> str | None:
+    """CodeReferee 쪽 문제로 판정이 불가능한 경우의 사유를 돌려준다.
+
+    구분 기준은 "사용자 레포를 실행해보고 실패했는가"다. 실행 자체를 못 해봤으면 인프라 문제다.
+    docs/judge-policy.md 6.2의 규칙 1, 2에 해당한다.
+    """
+    if state.preflight_report and state.preflight_report.infra_error:
+        return state.preflight_report.infra_error
+
+    result = state.execution_result
+    if result is None:
+        return None
+    if result.infra_error:
+        return result.infra_error
+
+    observation = result.chaos_observation
+    if not observation:
+        return None
+    if observation.get("aborted") or result.source.get("aborted"):
+        return "chaos_experiment_aborted"
+    if not result.baseline or "recovered" not in observation:
+        # 정상 상태 대비 편차로 판정하는데 baseline이나 복구 관측이 없으면 판정 근거가 없다.
+        return "chaos_evidence_missing"
+    return None
 
 
 def _metrics_from_execution(state: AgentState) -> dict[str, object]:
