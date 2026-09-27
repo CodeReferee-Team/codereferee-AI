@@ -21,6 +21,7 @@ from app.agents import nodes, prompts
 from app.models import JobStatus
 from app.workflow import repository_validation as workflow
 from evals import cases as case_loader
+from evals import compare as compare_lib
 from evals import metrics as metric_lib
 
 VERDICT_OF_STATUS = {JobStatus.success: "Pass", JobStatus.failed: "Fail", JobStatus.error: "Error"}
@@ -209,7 +210,18 @@ def main() -> int:
     run_cmd.add_argument("--per-category", type=int, default=3, help="T1 슬라이스의 카테고리당 표본 수")
     run_cmd.add_argument("--seed", type=int, default=7)
     run_cmd.add_argument("--repeat", type=int, default=1, help="같은 케이스 반복 횟수(LLM 흔들림 측정)")
+    cmp_cmd = sub.add_parser("compare", help="기준선과 비교한다")
+    cmp_cmd.add_argument("baseline")
+    cmp_cmd.add_argument("current")
+    cmp_cmd.add_argument("--gate", action="store_true", help="회귀면 exit 1, 비교 불가면 exit 2")
     args = parser.parse_args()
+
+    if args.command == "compare":
+        baseline = json.loads(pathlib.Path(args.baseline).read_text(encoding="utf-8"))
+        current = json.loads(pathlib.Path(args.current).read_text(encoding="utf-8"))
+        outcome = compare_lib.compare(baseline, current)
+        print(compare_lib.render(outcome))
+        return outcome["exit_code"] if args.gate else (2 if outcome["exit_code"] == 2 else 0)
 
     if args.model == "none":
         nodes.llm.enabled = False

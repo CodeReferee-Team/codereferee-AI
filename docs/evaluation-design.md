@@ -443,7 +443,9 @@ LLM 품질이 아니다. 같은 평가셋, 같은 seed(7), `--per-category 2` �
 | --- | --- |
 | `ai-core/evals/cases.py` | 슬라이스 로딩과 정규화. T1은 카테고리별 층화 추출 |
 | `ai-core/evals/metrics.py` | Wilson 신뢰구간, false-pass/false-fail/error→fail, macro-F1, confusion, 메타모픽 일치, 반복 일관성 |
-| `ai-core/evals/runner.py` | CLI. `report.json`과 `disagreements.jsonl` 생성 |
+| `ai-core/evals/runner.py` | CLI. `report.json`과 `disagreements.jsonl` 생성, `compare` 서브커맨드 |
+| `ai-core/evals/compare.py` | 기준선 대비 회귀 판정 |
+| `ai-core/evals/baselines/fallback.json` | 커밋된 기준선(2026-09-27, `--model none`) |
 | `ai-core/tests/fixtures/agent_adversarial_cases.json` | T0-adv 14건 |
 | `ai-core/tests/fixtures/agent_chaos_cases.json` | T1-chaos 10건 |
 | `ai-core/tests/test_evals.py` | 지표·로딩 단위 테스트 14건 |
@@ -496,3 +498,20 @@ Pass가 나왔다. 판정 근거가 없는데 통과를 주던 셈이다.
   다중 위반 표현 방식을 정해야 한다.
 - **T1-chaos false-pass 16.7%**: Sandbox가 아직 보내지 않는 필드(`replicas`, probe·grace 설정)가
   필요한 규칙 2개가 미구현이다. judge-policy 6.5의 evidence 요청 항목이다.
+
+### 12.5 회귀 게이트
+
+```bash
+python -m evals.runner compare evals/baselines/fallback.json <리포트> --gate
+```
+
+- 평가셋(`case_ids`)이 다르면 비교하지 않고 exit 2
+- 결정적 실행끼리는 조금이라도 나빠지면 exit 1
+- LLM 실행은 신뢰구간이 겹치지 않을 때만 회귀로 본다
+- 인젝션 false-pass는 1건이라도 나오면 무조건 exit 1
+
+검증: 동일 상태 비교 exit 0, 주 지표를 1건 악화시키고 인젝션 1건을 넣은 리포트 exit 1.
+
+기준선은 집계만 담는다(케이스별 원본은 실행 산출물에 남는다). 개선이 확인되면 새 리포트로
+파일을 교체하는 커밋으로 갱신한다. 자동 갱신 옵션은 두지 않는다. 기준선이 바뀐 이유가
+git 이력에 남아야 하기 때문이다.

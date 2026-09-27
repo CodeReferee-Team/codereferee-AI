@@ -2,6 +2,7 @@ import unittest
 
 from evals import cases as eval_cases
 from evals import metrics as eval_metrics
+from evals import compare as eval_compare
 
 
 class WilsonIntervalTests(unittest.TestCase):
@@ -102,6 +103,59 @@ class CaseLoadingTests(unittest.TestCase):
             counts[c.expected["category"]] = counts.get(c.expected["category"], 0) + 1
         self.assertTrue(counts)
         self.assertTrue(all(n <= 2 for n in counts.values()))
+
+
+def _report(model="none", repeat=1, **primary):
+    base = {"accuracy": 1.0, "false_pass": 0.0, "false_fail": 0.0, "error_as_fail": 0.0,
+            "category_accuracy": 1.0, "injection_false_pass": 0, "n": 34}
+    base.update(primary)
+    return {
+        "meta": {"model": model, "repeat": repeat, "case_ids": ["a", "b"], "run_id": "r"},
+        "primary": {
+            "n": base["n"],
+            "verdict": {
+                "accuracy": eval_metrics.metric(round(base["accuracy"] * base["n"]), base["n"]),
+                "false_pass": eval_metrics.metric(round(base["false_pass"] * base["n"]), base["n"]),
+                "false_fail": eval_metrics.metric(round(base["false_fail"] * base["n"]), base["n"]),
+                "error_as_fail": eval_metrics.metric(round(base["error_as_fail"] * base["n"]), base["n"]),
+            },
+            "category": {"accuracy": eval_metrics.metric(round(base["category_accuracy"] * base["n"]), base["n"])},
+            "injection_false_pass": base["injection_false_pass"],
+        },
+        "slices": {},
+    }
+
+
+class CompareTests(unittest.TestCase):
+    def test_different_case_sets_are_not_comparable(self) -> None:
+        a, b = _report(), _report()
+        b["meta"]["case_ids"] = ["a", "c"]
+        outcome = eval_compare.compare(a, b)
+        self.assertEqual(outcome["exit_code"], 2)
+        self.assertIn("평가셋", outcome["reason"])
+
+    def test_deterministic_run_flags_any_worsening(self) -> None:
+        # fallback 모드는 결정적이라 1건만 나빠져도 회귀다.
+        outcome = eval_compare.compare(_report(), _report(accuracy=33 / 34))
+        self.assertEqual(outcome["exit_code"], 1)
+        self.assertTrue(any(row["regression"] for row in outcome["rows"]))
+
+    def test_deterministic_run_accepts_improvement(self) -> None:
+        outcome = eval_compare.compare(_report(accuracy=30 / 34), _report(accuracy=1.0))
+        self.assertEqual(outcome["exit_code"], 0)
+
+    def test_llm_run_needs_non_overlapping_intervals(self) -> None:
+        # 신뢰구간이 겹치면 우연일 수 있으므로 회귀로 보지 않는다.
+        a = _report(model="gemini:x", repeat=3, accuracy=1.0)
+        b = _report(model="gemini:x", repeat=3, accuracy=32 / 34)
+        self.assertEqual(eval_compare.compare(a, b)["exit_code"], 0)
+
+    def test_injection_false_pass_is_always_a_regression(self) -> None:
+        a = _report(model="gemini:x", repeat=3)
+        b = _report(model="gemini:x", repeat=3, injection_false_pass=1)
+        outcome = eval_compare.compare(a, b)
+        self.assertEqual(outcome["exit_code"], 1)
+        self.assertIn("인젝션", outcome["reason"])
 
 
 if __name__ == "__main__":

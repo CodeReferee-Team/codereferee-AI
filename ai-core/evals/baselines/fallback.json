@@ -1,0 +1,741 @@
+{
+  "meta": {
+    "run_id": "20260927T074332-none",
+    "created_at": "2026-09-27T07:43:32.910093+00:00",
+    "model": "none",
+    "prompt_version": "unversioned",
+    "prompt_hash": "b41116eb5313",
+    "git_sha": "8577a7e",
+    "git_dirty": true,
+    "slices": [
+      "T0",
+      "T0-adv",
+      "T1-chaos",
+      "T1-metrics",
+      "T1-sandbox"
+    ],
+    "repeat": 1,
+    "seed": 7,
+    "per_category": 2,
+    "case_ids": [
+      "METRIC-007",
+      "METRIC-008",
+      "METRIC-009",
+      "METRIC-010",
+      "METRIC-011",
+      "METRIC-012",
+      "METRIC-013",
+      "METRIC-017",
+      "METRIC-018",
+      "METRIC-20260719-004",
+      "METRIC-20260719-005",
+      "METRIC-20260719-009",
+      "METRIC-20260719-010",
+      "METRIC-20260719-020",
+      "METRIC-20260719-023",
+      "METRIC-20260719-033",
+      "METRIC-20260719-052",
+      "METRIC-20260719-053",
+      "METRIC-20260719-054",
+      "METRIC-20260719-055",
+      "METRIC-20260719-061",
+      "METRIC-20260719-066",
+      "METRIC-20260719-078",
+      "METRIC-20260719-097",
+      "METRIC-20260719-099",
+      "METRIC-20260719-110",
+      "METRIC-20260719-129",
+      "METRIC-20260719-132",
+      "METRIC-20260719-139",
+      "METRIC-20260719-154",
+      "METRIC-20260719-181",
+      "METRIC-20260719-188",
+      "METRIC-20260719-200",
+      "METRIC-20260720-027",
+      "METRIC-20260720-036",
+      "METRIC-20260720-042",
+      "METRIC-20260720-043",
+      "METRIC-20260720-075",
+      "METRIC-20260720-104",
+      "METRIC-20260720-122",
+      "METRIC-20260720-126",
+      "METRIC-20260720-145",
+      "METRIC-20260720-157",
+      "METRIC-20260720-158",
+      "METRIC-20260720-176",
+      "METRIC-20260720-187",
+      "METRIC-GEN-007",
+      "METRIC-GEN-008",
+      "METRIC-GEN-009",
+      "METRIC-GEN-010",
+      "METRIC-GEN-011",
+      "METRIC-GEN-012",
+      "METRIC-GEN-013",
+      "METRIC-GEN-017",
+      "METRIC-GEN-018",
+      "METRIC-GEN-019",
+      "SANDBOX-20260719-011",
+      "SANDBOX-20260719-026",
+      "SANDBOX-20260719-031",
+      "SANDBOX-20260719-032",
+      "SANDBOX-20260719-041",
+      "SANDBOX-20260719-047",
+      "SANDBOX-20260719-055",
+      "SANDBOX-20260719-060",
+      "SANDBOX-20260719-065",
+      "SANDBOX-20260719-071",
+      "SANDBOX-20260719-085",
+      "SANDBOX-20260719-087",
+      "SANDBOX-20260719-098",
+      "SANDBOX-20260719-099",
+      "SANDBOX-20260719-103",
+      "SANDBOX-20260719-139",
+      "SANDBOX-20260719-142",
+      "SANDBOX-20260719-158",
+      "SANDBOX-20260719-159",
+      "SANDBOX-20260719-164",
+      "SANDBOX-20260719-197",
+      "SANDBOX-20260720-006",
+      "SANDBOX-20260720-020",
+      "SANDBOX-20260720-023",
+      "SANDBOX-20260720-045",
+      "SANDBOX-20260720-049",
+      "SANDBOX-20260720-050",
+      "SANDBOX-20260720-055",
+      "SANDBOX-20260720-068",
+      "SANDBOX-20260720-069",
+      "SANDBOX-20260720-079",
+      "SANDBOX-20260720-094",
+      "SANDBOX-20260720-100",
+      "SANDBOX-20260720-102",
+      "SANDBOX-20260720-127",
+      "SANDBOX-20260720-134",
+      "SANDBOX-20260720-136",
+      "SANDBOX-20260720-166",
+      "SANDBOX-20260720-167",
+      "SANDBOX-20260720-182",
+      "SANDBOX-20260720-187",
+      "SANDBOX-20260720-193",
+      "SANDBOX-GEN-005",
+      "SANDBOX-GEN-007",
+      "SANDBOX-GEN-011",
+      "SANDBOX-GEN-012",
+      "SANDBOX-GEN-015",
+      "SANDBOX-GEN-018",
+      "SANDBOX-GEN-026",
+      "SANDBOX-GEN-028",
+      "SANDBOX-GEN-029",
+      "SANDBOX-GEN-040",
+      "SANDBOX-GEN-041",
+      "SANDBOX-GEN-053",
+      "SANDBOX-GEN-060",
+      "SANDBOX-GEN-061",
+      "SANDBOX-GEN-063",
+      "SANDBOX-GEN-068",
+      "SANDBOX-GEN-074",
+      "SANDBOX-GEN-075",
+      "SANDBOX-GEN-077",
+      "SANDBOX-GEN-093",
+      "SANDBOX-GEN-106",
+      "SANDBOX-GEN-119",
+      "SANDBOX-GEN-130",
+      "SANDBOX-GEN-136",
+      "SANDBOX-GEN-138",
+      "SANDBOX-GEN-145",
+      "SANDBOX-GEN-150",
+      "SANDBOX-GEN-159",
+      "SANDBOX-GEN-163",
+      "SANDBOX-GEN-164",
+      "SANDBOX-GEN-177",
+      "SANDBOX-GEN-182",
+      "SANDBOX-GEN-191",
+      "SANDBOX-GEN-192",
+      "adv_conflict_exit0_http500",
+      "adv_conflict_exit0_timeout",
+      "adv_conflict_http200_browser_fail",
+      "adv_false_fail_guard",
+      "adv_infra_docker_down",
+      "adv_injection_page_title",
+      "adv_injection_stderr_json",
+      "adv_injection_stdout",
+      "adv_long_log_error_at_tail",
+      "adv_metamorphic_ansi_unicode",
+      "adv_metamorphic_noise",
+      "adv_metamorphic_shuffled",
+      "adv_misleading_all_tests_passed",
+      "adv_misleading_build_successful",
+      "browser_probe_failed_after_http_200",
+      "chaos_budget_exhausted",
+      "chaos_budget_significant_burn",
+      "chaos_clean_recovery",
+      "chaos_evidence_missing_baseline",
+      "chaos_experiment_aborted",
+      "chaos_injection_in_events",
+      "chaos_latency_degraded",
+      "chaos_not_recovered",
+      "chaos_recovery_exceeds_expected_bound",
+      "chaos_single_replica_downtime",
+      "clone_failure_bad_ref",
+      "clone_failure_missing_repo",
+      "clone_failure_private_repo",
+      "no_entrypoint_docs_only",
+      "no_entrypoint_empty_repo",
+      "no_entrypoint_monorepo_unknown_path",
+      "non_zero_docker_build",
+      "non_zero_npm_install",
+      "non_zero_pytest_assertion",
+      "service_http_500",
+      "service_no_http_response",
+      "success_build_only",
+      "success_cli_pytest",
+      "success_service_browser",
+      "success_with_warnings",
+      "timeout_install_hang",
+      "timeout_startup_hang",
+      "timeout_test_hang",
+      "wrong_port_service_failure"
+    ]
+  },
+  "primary": {
+    "n": 34,
+    "verdict": {
+      "false_pass": {
+        "value": 0.0,
+        "ci": [
+          0.0,
+          0.11696979849974075
+        ],
+        "n": 29
+      },
+      "error_as_fail": {
+        "value": 0.0,
+        "ci": [
+          0.0,
+          0.7934506856227626
+        ],
+        "n": 1
+      },
+      "false_fail": {
+        "value": 0.0,
+        "ci": [
+          0.0,
+          0.43448246478317476
+        ],
+        "n": 5
+      },
+      "accuracy": {
+        "value": 1.0,
+        "ci": [
+          0.8984854458466761,
+          0.9999999999999999
+        ],
+        "n": 34
+      },
+      "confusion": {
+        "Fail": {
+          "Fail": 28
+        },
+        "Pass": {
+          "Pass": 5
+        },
+        "Error": {
+          "Error": 1
+        }
+      },
+      "ambiguous_excluded": 0
+    },
+    "category": {
+      "accuracy": {
+        "value": 0.9411764705882353,
+        "ci": [
+          0.80906393095719,
+          0.9837173447898772
+        ],
+        "n": 34
+      },
+      "macro_f1": 0.834920634920635,
+      "top_confusions": [
+        {
+          "expected": "repository_not_found",
+          "actual": "ref_not_found",
+          "count": 1
+        },
+        {
+          "expected": "docker_build_failed",
+          "actual": "sandbox_nonzero_exit",
+          "count": 1
+        }
+      ]
+    },
+    "warnings": {
+      "value": null,
+      "ci": null,
+      "n": 0
+    },
+    "metamorphic_consistency": {
+      "value": 1.0,
+      "ci": [
+        0.20654931437723745,
+        1.0
+      ],
+      "n": 1
+    },
+    "injection_false_pass": 0,
+    "latency_ms": {
+      "p50": 0.023,
+      "p95": 0.04
+    }
+  },
+  "slices": {
+    "T0": {
+      "n": 20,
+      "verdict": {
+        "false_pass": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.1936076805344365
+          ],
+          "n": 16
+        },
+        "error_as_fail": {
+          "value": null,
+          "ci": null,
+          "n": 0
+        },
+        "false_fail": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.4898908364545973
+          ],
+          "n": 4
+        },
+        "accuracy": {
+          "value": 1.0,
+          "ci": [
+            0.8388748419471806,
+            1.0
+          ],
+          "n": 20
+        },
+        "confusion": {
+          "Fail": {
+            "Fail": 16
+          },
+          "Pass": {
+            "Pass": 4
+          }
+        },
+        "ambiguous_excluded": 0
+      },
+      "category": {
+        "accuracy": {
+          "value": 0.9,
+          "ci": [
+            0.6989663547715128,
+            0.9721335187862319
+          ],
+          "n": 20
+        },
+        "macro_f1": 0.8205128205128205,
+        "top_confusions": [
+          {
+            "expected": "repository_not_found",
+            "actual": "ref_not_found",
+            "count": 1
+          },
+          {
+            "expected": "docker_build_failed",
+            "actual": "sandbox_nonzero_exit",
+            "count": 1
+          }
+        ]
+      },
+      "warnings": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "metamorphic_consistency": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "injection_false_pass": 0,
+      "latency_ms": {
+        "p50": 0.023,
+        "p95": 0.036
+      }
+    },
+    "T0-adv": {
+      "n": 14,
+      "verdict": {
+        "false_pass": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.22809537235419838
+          ],
+          "n": 13
+        },
+        "error_as_fail": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.7934506856227626
+          ],
+          "n": 1
+        },
+        "false_fail": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.7934506856227626
+          ],
+          "n": 1
+        },
+        "accuracy": {
+          "value": 1.0,
+          "ci": [
+            0.7846891972623643,
+            1.0
+          ],
+          "n": 14
+        },
+        "confusion": {
+          "Fail": {
+            "Fail": 12
+          },
+          "Pass": {
+            "Pass": 1
+          },
+          "Error": {
+            "Error": 1
+          }
+        },
+        "ambiguous_excluded": 0
+      },
+      "category": {
+        "accuracy": {
+          "value": 1.0,
+          "ci": [
+            0.7846891972623643,
+            1.0
+          ],
+          "n": 14
+        },
+        "macro_f1": 1.0,
+        "top_confusions": []
+      },
+      "warnings": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "metamorphic_consistency": {
+        "value": 1.0,
+        "ci": [
+          0.20654931437723745,
+          1.0
+        ],
+        "n": 1
+      },
+      "injection_false_pass": 0,
+      "latency_ms": {
+        "p50": 0.021,
+        "p95": 0.04
+      }
+    },
+    "T1-chaos": {
+      "n": 10,
+      "verdict": {
+        "false_pass": {
+          "value": 0.16666666666666666,
+          "ci": [
+            0.030053369748306635,
+            0.5635028221864702
+          ],
+          "n": 6
+        },
+        "error_as_fail": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.6576197724933469
+          ],
+          "n": 2
+        },
+        "false_fail": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.4898908364545973
+          ],
+          "n": 4
+        },
+        "accuracy": {
+          "value": 0.9,
+          "ci": [
+            0.5958499732047615,
+            0.9821237869049271
+          ],
+          "n": 10
+        },
+        "confusion": {
+          "Pass": {
+            "Pass": 4
+          },
+          "Fail": {
+            "Fail": 3,
+            "Pass": 1
+          },
+          "Error": {
+            "Error": 2
+          }
+        },
+        "ambiguous_excluded": 0
+      },
+      "category": {
+        "accuracy": {
+          "value": 0.9,
+          "ci": [
+            0.5958499732047615,
+            0.9821237869049271
+          ],
+          "n": 10
+        },
+        "macro_f1": 0.8148148148148149,
+        "top_confusions": [
+          {
+            "expected": "chaos_recovery_exceeds_expected_bound",
+            "actual": "chaos_recovered_within_budget",
+            "count": 1
+          }
+        ]
+      },
+      "warnings": {
+        "value": 0.6666666666666666,
+        "ci": [
+          0.2076596008020477,
+          0.9385080552796037
+        ],
+        "n": 3
+      },
+      "metamorphic_consistency": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "injection_false_pass": 0,
+      "latency_ms": {
+        "p50": 0.028,
+        "p95": 0.038
+      }
+    },
+    "T1-metrics": {
+      "n": 56,
+      "verdict": {
+        "false_pass": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.08379879086570391
+          ],
+          "n": 42
+        },
+        "error_as_fail": {
+          "value": null,
+          "ci": null,
+          "n": 0
+        },
+        "false_fail": {
+          "value": 0.0,
+          "ci": [
+            1.3877787807814457e-17,
+            0.2153108027376358
+          ],
+          "n": 14
+        },
+        "accuracy": {
+          "value": 1.0,
+          "ci": [
+            0.9358060632812366,
+            1.0
+          ],
+          "n": 56
+        },
+        "confusion": {
+          "Fail": {
+            "Fail": 42
+          },
+          "Pass": {
+            "Pass": 14
+          }
+        },
+        "ambiguous_excluded": 0
+      },
+      "category": {
+        "accuracy": {
+          "value": 0.35714285714285715,
+          "ci": [
+            0.24456571707649905,
+            0.4880611219860049
+          ],
+          "n": 56
+        },
+        "macro_f1": 0.2910714285714286,
+        "top_confusions": [
+          {
+            "expected": "boundary_values_pass",
+            "actual": "all_checks_passed",
+            "count": 2
+          },
+          {
+            "expected": "latency_boundary_failure",
+            "actual": "latency_slo_violation",
+            "count": 2
+          },
+          {
+            "expected": "error_rate_boundary_failure",
+            "actual": "error_rate_slo_violation",
+            "count": 2
+          },
+          {
+            "expected": "cpu_boundary_failure",
+            "actual": "cpu_saturation",
+            "count": 2
+          },
+          {
+            "expected": "availability_passed",
+            "actual": "all_checks_passed",
+            "count": 2
+          }
+        ]
+      },
+      "warnings": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "metamorphic_consistency": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "injection_false_pass": 0,
+      "latency_ms": {
+        "p50": 0.025,
+        "p95": 0.028
+      }
+    },
+    "T1-sandbox": {
+      "n": 76,
+      "verdict": {
+        "false_pass": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.05065117259645781
+          ],
+          "n": 72
+        },
+        "error_as_fail": {
+          "value": 1.0,
+          "ci": [
+            0.34238022750665303,
+            1.0
+          ],
+          "n": 2
+        },
+        "false_fail": {
+          "value": null,
+          "ci": null,
+          "n": 0
+        },
+        "accuracy": {
+          "value": 0.9722222222222222,
+          "ci": [
+            0.9042582477856177,
+            0.9923489780955054
+          ],
+          "n": 72
+        },
+        "confusion": {
+          "Fail": {
+            "Fail": 74
+          },
+          "Error": {
+            "Fail": 2
+          }
+        },
+        "ambiguous_excluded": 4
+      },
+      "category": {
+        "accuracy": {
+          "value": 0.05555555555555555,
+          "ci": [
+            0.02181421598131665,
+            0.13432015965997918
+          ],
+          "n": 72
+        },
+        "macro_f1": 0.024140211640211642,
+        "top_confusions": [
+          {
+            "expected": "maven_permission_denied",
+            "actual": "sandbox_nonzero_exit",
+            "count": 2
+          },
+          {
+            "expected": "missing_env",
+            "actual": "sandbox_nonzero_exit",
+            "count": 2
+          },
+          {
+            "expected": "entrypoint_import_error",
+            "actual": "sandbox_nonzero_exit",
+            "count": 2
+          },
+          {
+            "expected": "dockerfile_missing",
+            "actual": "docker_build_failed",
+            "count": 2
+          },
+          {
+            "expected": "syntax_error",
+            "actual": "sandbox_nonzero_exit",
+            "count": 2
+          }
+        ]
+      },
+      "warnings": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "metamorphic_consistency": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "injection_false_pass": 0,
+      "latency_ms": {
+        "p50": 0.021,
+        "p95": 0.028
+      }
+    }
+  },
+  "consistency": {
+    "repeat": 1,
+    "mean_agreement": 1.0,
+    "fully_consistent": {
+      "value": 1.0,
+      "ci": [
+        0.9786397483323124,
+        1.0
+      ],
+      "n": 176
+    }
+  }
+}
