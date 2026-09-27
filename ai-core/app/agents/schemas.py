@@ -27,8 +27,53 @@ class PlannerReport(StrictAgentReport):
         return _require_non_blank_items(value)
 
 
+# 판정 사유의 정규 코드. docs/judge-policy.md 3절과 6절 기준표에서 왔다.
+# 자유 문자열로 두면 같은 원인이 매번 다르게 적혀 분류 정확도를 잴 수 없다.
+REASON_CATEGORIES = (
+    # preflight
+    "repository_not_found",
+    "ref_not_found",
+    "private_repository_not_supported",
+    "repository_not_accessible",
+    "invalid_repository_input",
+    "no_manifest_detected",
+    "ambiguous_monorepo_path",
+    "empty_repository",
+    "unsupported_project_stack",
+    # sandbox
+    "timeout",
+    "sandbox_nonzero_exit",
+    "sandbox_not_executed",
+    "test_failure",
+    "dependency_install_failed",
+    "docker_build_failed",
+    # runtime
+    "service_smoke_failed",
+    "browser_smoke_failed",
+    # metrics
+    "latency_slo_violation",
+    "error_rate_slo_violation",
+    "availability_slo_violation",
+    "cpu_saturation",
+    "memory_pressure",
+    "unexpected_restart",
+    "database_connection_errors",
+    "redis_connection_errors",
+    "no_traffic_observed",
+    "missing_metrics",
+    # chaos
+    "chaos_not_recovered",
+    "chaos_error_budget_exhausted",
+    "chaos_recovery_exceeds_expected_bound",
+    "chaos_recovered_within_budget",
+    # pass
+    "all_checks_passed",
+)
+
+
 class JudgeReport(StrictAgentReport):
     status: Literal["Pass", "Fail"]
+    reason_category: Literal[REASON_CATEGORIES]  # type: ignore[valid-type]
     reason: str = Field(min_length=1)
     evidence: list[str] = Field(min_length=1)
 

@@ -52,7 +52,7 @@ def run_case(case: case_loader.EvalCase) -> dict[str, Any]:
         state = nodes.judge_node(state)
         verdict = VERDICT_OF_STATUS[state.status]
         judge_reason = str(state.judge_report.get("reason", ""))
-        category = judge_reason.split(":")[0].strip() if ":" in judge_reason else None
+        category = state.judge_report.get("reason_category")
     return {
         "verdict": verdict,
         "category": category,

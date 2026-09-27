@@ -152,29 +152,36 @@ def _invoke_validated_report(
 def _fallback_judge(state: AgentState) -> dict[str, object]:
     preflight = state.preflight_report
     if preflight is None:
-        return {"status": "Fail", "reason": "No preflight report was produced.", "evidence": ["preflight_report=missing"]}
+        return {"status": "Fail", "reason_category": "sandbox_not_executed", "reason": "No preflight report was produced.", "evidence": ["preflight_report=missing"]}
     if not preflight.cloneable:
-        return {"status": "Fail", "reason": preflight.reason or "Repository cannot be cloned.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "cloneable=false")}
+        return {"status": "Fail", "reason_category": _preflight_category(preflight), "reason": preflight.reason or "Repository cannot be cloned.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "cloneable=false")}
     if not preflight.executable:
-        return {"status": "Fail", "reason": preflight.reason or "Repository has no detected executable path.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "executable=false")}
+        return {"status": "Fail", "reason_category": _no_entrypoint_category(preflight), "reason": preflight.reason or "Repository has no detected executable path.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "executable=false")}
 
     result = state.execution_result or SandboxResult(exit_code=None, stderr="No sandbox execution")
     if result.timed_out:
-        return {"status": "Fail", "reason": "Sandbox execution timed out.", "evidence": [result.log]}
+        return {"status": "Fail", "reason_category": "timeout", "reason": "Sandbox execution timed out.", "evidence": [result.log]}
     if result.exit_code != 0:
-        return {"status": "Fail", "reason": result.stderr.strip() or "Sandbox returned non-zero exit code.", "evidence": [result.log]}
+        return {"status": "Fail", "reason_category": _nonzero_exit_category(result), "reason": result.stderr.strip() or "Sandbox returned non-zero exit code.", "evidence": [result.log]}
     if result.service_check_attempted and not _service_smoke_passed(result):
-        return {"status": "Fail", "reason": "Service smoke check failed after sandbox execution.", "evidence": [result.log]}
+        return {"status": "Fail", "reason_category": "service_smoke_failed", "reason": "Service smoke check failed after sandbox execution.", "evidence": [result.log]}
     if result.browser_check_attempted and not result.browser_loaded:
-        return {"status": "Fail", "reason": "Browser smoke check failed after service startup.", "evidence": [result.log]}
+        return {"status": "Fail", "reason_category": "browser_smoke_failed", "reason": "Browser smoke check failed after service startup.", "evidence": [result.log]}
 
     failure, warnings = _measured_policy_findings(state, result)
     state.metrics["policy_warnings"] = warnings
     for warning in warnings:
         state.events.append(f"Judge: warning {warning}")
     if failure:
-        return {"status": "Fail", "reason": failure, "evidence": [result.log]}
-    return {"status": "Pass", "reason": "Repository passed preflight and sandbox smoke validation.", "evidence": [result.log]}
+        category, _, detail = failure.partition(": ")
+        return {"status": "Fail", "reason_category": category, "reason": detail or failure, "evidence": [result.log]}
+    passed_category = "chaos_recovered_within_budget" if result.chaos_observation else "all_checks_passed"
+    return {
+        "status": "Pass",
+        "reason_category": passed_category,
+        "reason": "Repository passed preflight and sandbox smoke validation.",
+        "evidence": [result.log],
+    }
 
 
 def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple[str | None, list[str]]:
@@ -293,6 +300,42 @@ def _as_float(value: object) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     return float(value)
+
+
+def _preflight_category(preflight: RepositoryPreflightReport) -> str:
+    """preflight 사유 문장에서 정규 코드를 고른다. 문장은 preflight.py가 4종만 낸다."""
+    text = f"{preflight.reason} {' '.join(preflight.evidence)}".lower()
+    if "authentication" in text or "private" in text:
+        return "private_repository_not_supported"
+    if "branch" in text or "ref" in text:
+        return "ref_not_found"
+    if "only public github" in text or "url" in text:
+        return "invalid_repository_input"
+    if "not reachable" in text or "not found" in text:
+        return "repository_not_found"
+    return "repository_not_accessible"
+
+
+def _no_entrypoint_category(preflight: RepositoryPreflightReport) -> str:
+    text = f"{preflight.reason} {' '.join(preflight.evidence)}".lower()
+    if "no executable files" in text or "empty" in text:
+        return "empty_repository"
+    if "path" in text or "monorepo" in text:
+        return "ambiguous_monorepo_path"
+    if "manifest" in text:
+        return "no_manifest_detected"
+    return "unsupported_project_stack"
+
+
+def _nonzero_exit_category(result: SandboxResult) -> str:
+    text = f"{result.stderr} {result.stdout}".lower()
+    if "docker build" in text or "dockerfile" in text:
+        return "docker_build_failed"
+    if "install" in text or "npm err" in text or "pip" in text:
+        return "dependency_install_failed"
+    if "test" in text or "pytest" in text or "assert" in text:
+        return "test_failure"
+    return "sandbox_nonzero_exit"
 
 
 def _fallback_critic(state: AgentState) -> dict[str, object]:

@@ -10,12 +10,12 @@ from tests.agent_quality import evaluate_cases, load_cases, run_case
 
 class AgentQualityTests(unittest.TestCase):
     def test_strict_report_schemas_reject_empty_or_extra_fields(self) -> None:
-        valid_judge = {"status": "Fail", "reason": "timeout", "evidence": ["timed_out=True"]}
+        valid_judge = {"status": "Fail", "reason_category": "timeout", "reason": "timeout", "evidence": ["timed_out=True"]}
         self.assertEqual(validate_report(JudgeReport, valid_judge)["status"], "Fail")
         with self.assertRaises(Exception):
-            validate_report(JudgeReport, {"status": "Pass", "reason": "", "evidence": []})
+            validate_report(JudgeReport, {"status": "Pass", "reason_category": "all_checks_passed", "reason": "", "evidence": []})
         with self.assertRaises(Exception):
-            validate_report(JudgeReport, {"status": "Pass", "reason": "ok", "evidence": ["ok"], "extra": "no"})
+            validate_report(JudgeReport, {"status": "Pass", "reason_category": "all_checks_passed", "reason": "ok", "evidence": ["ok"], "extra": "no"})
         with self.assertRaises(Exception):
             validate_report(RefinerReport, {"summary": "x", "patch_guidance": ["x"], "verification_steps": ["x"], "risk": "urgent"})
 
@@ -75,7 +75,10 @@ class AgentQualityTests(unittest.TestCase):
 
             def invoke_schema_repair(self, **_kwargs):
                 self.repairs += 1
-                return '{"status":"Fail","reason":"No preflight report was produced.","evidence":["preflight_report=missing"]}'
+                return (
+                    '{"status":"Fail","reason_category":"sandbox_not_executed",'
+                    '"reason":"No preflight report was produced.","evidence":["preflight_report=missing"]}'
+                )
 
         fake = FakeLLM()
         state = AgentState(job_id="repair", repository_url="https://github.com/example/repo.git")

@@ -1,7 +1,7 @@
 # CodeReferee Agent 평가 체계 설계
 
 작성 시작: 2026-09-15
-상태: 설계 중 (섹션 ①②③ 확정, ④⑤ 진행 예정)
+상태: 섹션 ①②③ 구현 완료, ④⑤ 설계 진행 예정
 
 LitmusChaos가 붙기 전까지 AI 파트의 구조·모델·성능을 개선하려면, 바꾸기 전과 후를 같은 기준으로 잴 수 있어야 한다. 이 문서는 그 평가 체계의 설계를 기록한다. 섹션이 확정될 때마다 갱신한다.
 
@@ -414,6 +414,7 @@ exit code: 0 통과, 1 회귀, 2 비교 불가.
 - golden과 적대적 케이스를 합쳐도 34건이다. 신뢰구간이 넓게 나오는 것이 정상이다.
 
 ## 11. 결정 이력
+| 2026-09-27 | 평가 러너 구현 완료. 러너가 찾은 결함 3건(어댑터 SLO 누락, 정책표 미구현, 카테고리 측정 불가) 수정 |
 
 | 날짜 | 결정 |
 |---|---|
@@ -429,3 +430,69 @@ exit code: 0 통과, 1 회귀, 2 비교 불가.
 | 2026-09-23 | Sandbox v1(Chaos v1) 확인: LitmusChaos 아님, fixture-api 대상 Pod Kill. `feat/sandbox-chaos-evidence` 브랜치 미병합, `repository_validation.py` 충돌 1곳 |
 | 2026-09-23 | Chaos 판정 기준을 judge-policy 6절에 근거와 함께 추가. 고정 복구시간 임계값 대신 정상 상태 편차·에러 버짓·기대 복구 상한 3축 사용 |
 | 2026-09-23 | 평가셋에 T1-chaos 슬라이스 추가(10건). 경고 정확도를 별도 지표로 측정 |
+| 2026-09-27 | 평가 러너 구현 완료. 러너가 찾은 결함 3건(어댑터 SLO 누락, 정책표 미구현, 카테고리 측정 불가) 수정 |
+
+## 12. 구현 기록 (2026-09-27)
+
+설계 ①②③을 구현하고 러너로 측정한 내용이다. 모든 수치는 `--model none`(규칙 기반 fallback)이며
+LLM 품질이 아니다. 같은 평가셋, 같은 seed(7), `--per-category 2` 조건에서 비교했다.
+
+### 12.1 만든 것
+
+| 파일 | 역할 |
+| --- | --- |
+| `ai-core/evals/cases.py` | 슬라이스 로딩과 정규화. T1은 카테고리별 층화 추출 |
+| `ai-core/evals/metrics.py` | Wilson 신뢰구간, false-pass/false-fail/error→fail, macro-F1, confusion, 메타모픽 일치, 반복 일관성 |
+| `ai-core/evals/runner.py` | CLI. `report.json`과 `disagreements.jsonl` 생성 |
+| `ai-core/tests/fixtures/agent_adversarial_cases.json` | T0-adv 14건 |
+| `ai-core/tests/fixtures/agent_chaos_cases.json` | T1-chaos 10건 |
+| `ai-core/tests/test_evals.py` | 지표·로딩 단위 테스트 14건 |
+
+golden 20건에는 `label{verdict, stage, category}`를 사람이 붙였다.
+
+### 12.2 러너가 찾아낸 결함과 수정
+
+**① 평가 어댑터가 케이스 SLO를 버리고 있었다**
+`metrics_judge_cases`는 행마다 자기 SLO(p95 300ms)를 들고 오는데 러너가 그것을 무시하고
+기본 SLO(p95 30000ms)로 재고 있었다. 데이터셋이 의도한 위반이 전혀 잡히지 않았다.
+
+- T1-metrics 판정 정확도 50% → 75%, false-pass 52.4% → 33.3%
+
+**② Judge가 정책표의 일부만 검사하고 있었다**
+`error_rate`, `availability`, `p95` 세 가지만 보고 있어서 나머지 기준이 모두 통과됐다.
+`docs/judge-policy.md` 3절 표의 미구현 항목을 채웠다: `cpu_saturation`, `memory_pressure`,
+`unexpected_restart`, `database_connection_errors`, `redis_connection_errors`,
+`no_traffic_observed`, `missing_metrics`.
+
+`missing_metrics`가 특히 중요하다. SLO를 걸어둔 지표가 값 없이 비어 있으면 이전에는 조용히
+Pass가 나왔다. 판정 근거가 없는데 통과를 주던 셈이다.
+
+- T1-metrics 판정 정확도 75% → 100%, false-pass 33.3% → 0%
+- 주 지표 회귀 없음
+
+**③ 원인 분류를 측정할 수 없었다**
+`JudgeReport`에 `reason_category`가 없어 러너가 판정 사유 문장을 파싱해 추정하고 있었다.
+정규 코드 목록(`schemas.REASON_CATEGORIES`)을 단일 출처로 두고 필수 필드로 추가했다.
+
+- 주 지표 카테고리 정확도 2.9% → 94.1% (측정 불가 상태가 해소된 것이지 실력이 오른 게 아니다)
+
+### 12.3 현재 수치 (2026-09-27, --model none)
+
+| 슬라이스 | 건수 | 판정 정확도 | false-pass | 카테고리 정확도 | 인젝션 false-pass |
+| --- | --- | --- | --- | --- | --- |
+| 주 지표(T0+T0-adv) | 34 | 100% [89.8~100] | 0% | 94.1% | 0건 |
+| T0 | 20 | 100% | 0% | 90.0% | 0건 |
+| T0-adv | 14 | 100% | 0% | 100% | 0건 |
+| T1-chaos | 10 | 90% | 16.7% | 90.0% | 0건 |
+| T1-metrics | 56 | 100% | 0% | 35.7% | 0건 |
+| T1-sandbox | 72 | 97.2% | 0% | 5.6% | 0건 |
+
+### 12.4 남은 격차의 원인
+
+- **T1-sandbox 카테고리 5.6%**: 데이터셋이 `port_bind_failure`, `entrypoint_crash`처럼 20종으로
+  세분화하는데, Judge는 로그를 해석하지 않고 exit code만 보므로 `sandbox_nonzero_exit` 수준까지만
+  구분한다. 로그 분류기(9절 Critic 분류기)가 필요한 지점이며, 지금 수치가 그 필요를 증명한다.
+- **T1-metrics 카테고리 35.7%**: 위반이 여러 개인 케이스에서 우선순위 하나만 보고하기 때문이다.
+  다중 위반 표현 방식을 정해야 한다.
+- **T1-chaos false-pass 16.7%**: Sandbox가 아직 보내지 않는 필드(`replicas`, probe·grace 설정)가
+  필요한 규칙 2개가 미구현이다. judge-policy 6.5의 evidence 요청 항목이다.
