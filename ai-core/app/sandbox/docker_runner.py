@@ -3,6 +3,7 @@ import shlex
 import tempfile
 import time
 from pathlib import Path
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -109,12 +110,14 @@ class SandboxRunner:
 
                 logs = container.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
                 container.remove(force=True)
+                report, clean_logs = _extract_sandbox_report(logs)
                 return SandboxResult(
                     exit_code=exit_code,
-                    stdout=logs if exit_code == 0 else "",
-                    stderr="" if exit_code == 0 else logs,
+                    stdout=clean_logs if exit_code == 0 else "",
+                    stderr="" if exit_code == 0 else clean_logs,
                     timed_out=timed_out,
                     duration_ms=_duration_ms(started_at),
+                    sandbox_report=report,
                 )
             except DockerException as exc:
                 return SandboxResult(
@@ -183,63 +186,171 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
         metrics=_json_object(data.get("metrics")),
         chaos_observation=_json_object(data.get("chaos_observation", data.get("chaosObservation"))),
         source=_json_object(data.get("source")),
+        sandbox_report=_json_object(data.get("sandbox_report", data.get("sandboxReport"))),
     )
 
 
-def _repository_validation_script(repository_url: str, branch: str | None, commit_sha: str | None) -> str:
-    url = shlex.quote(repository_url)
-    branch_clause = f"--branch {shlex.quote(branch)}" if branch else ""
-    checkout = f"git checkout {shlex.quote(commit_sha)}" if commit_sha else "true"
-    return f"""#!/bin/sh
-set -eu
+# 스크립트 본문은 f-string이 아니다. 셸의 중괄호를 그대로 쓰기 위함이며,
+# 저장소 URL 등 동적 값은 앞쪽 헤더에서 셸 변수로만 주입한다.
+_VALIDATION_BODY = """
+STACK="unknown"
+OUTCOME="error"
+FAILED_STEP="none"
+EXIT_CODE=1
+STEPS=""
 
-echo "[CodeReferee] preparing sandbox"
-if ! command -v git >/dev/null 2>&1; then
+now_ms() { date +%s%3N 2>/dev/null || echo 0; }
+
+# trap으로 걸어두면 중간에 exit해도 구조화 결과가 반드시 마지막 줄에 남는다.
+emit_result() {
+  printf '\n[CodeReferee:RESULT] {"schema_version":"sandbox-result.v1","detected_stack":"%s","outcome":"%s","failed_step":"%s","exit_code":%s,"steps":[%s]}\n' \
+    "$STACK" "$OUTCOME" "$FAILED_STEP" "$EXIT_CODE" "$STEPS"
+}
+trap emit_result EXIT
+
+run_step() {
+  _name=$1
+  shift
+  _start=$(now_ms)
+  "$@"
+  _rc=$?
+  _dur=$(( $(now_ms) - _start ))
+  if [ -n "$STEPS" ]; then STEPS="$STEPS,"; fi
+  STEPS="$STEPS$(printf '{"name":"%s","exit_code":%s,"duration_ms":%s}' "$_name" "$_rc" "$_dur")"
+  if [ "$_rc" -ne 0 ]; then
+    FAILED_STEP="$_name"
+    EXIT_CODE="$_rc"
+    OUTCOME="failure"
+    exit "$_rc"
+  fi
+}
+
+prepare_sandbox() {
+  command -v git >/dev/null 2>&1 && return 0
   # DEBIAN_FRONTEND 없이 apt를 돌리면 debconf 경고가 stderr를 채워
   # 실제 실패 원인이 evidence에 묻힌다.
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update >/dev/null
-  apt-get install -y --no-install-recommends git ca-certificates >/dev/null
+  apt-get update >/dev/null || return $?
+  apt-get install -y --no-install-recommends git ca-certificates >/dev/null || return $?
   rm -rf /var/lib/apt/lists/*
-fi
+}
 
+clone_repository() {
+  git clone --depth 1 $BRANCH_CLAUSE "$REPO_URL" /tmp/repository || return $?
+  cd /tmp/repository || return $?
+  [ -n "$COMMIT_SHA" ] || return 0
+  # --depth 1 클론에는 해당 커밋이 없을 수 있어 먼저 받아둔다.
+  git fetch --depth 1 origin "$COMMIT_SHA" >/dev/null 2>&1 || true
+  git checkout "$COMMIT_SHA"
+}
+
+detect_stack() {
+  if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f requirements.txt ]; then STACK="python"
+  elif [ -f build.gradle ] || [ -f settings.gradle ] || [ -f gradlew ]; then STACK="gradle"
+  elif [ -f pom.xml ] || [ -f mvnw ]; then STACK="maven"
+  elif [ -f package.json ]; then STACK="node"
+  else
+    echo "No supported project manifest found"
+    return 86
+  fi
+  echo "detected_stack=$STACK"
+}
+
+install_dependencies() {
+  case "$STACK" in
+    python)
+      [ -f requirements.txt ] || return 0
+      python -m pip install --disable-pip-version-check -r requirements.txt >/dev/null
+      ;;
+    node)
+      command -v npm >/dev/null 2>&1 || { echo "Node toolchain is not available in the sandbox image"; return 87; }
+      if [ -f package-lock.json ]; then npm ci; else npm install; fi
+      ;;
+    *)
+      # gradle/maven은 의존성 해결이 test 단계에 포함된다.
+      return 0
+      ;;
+  esac
+}
+
+run_smoke_test() {
+  case "$STACK" in
+    python)
+      python -m compileall -q . || return $?
+      [ -d tests ] || return 0
+      python -m pip install --disable-pip-version-check pytest >/dev/null || return $?
+      python -m pytest -q
+      ;;
+    gradle)
+      [ -x ./gradlew ] || { echo "Repository has no Gradle wrapper (./gradlew)"; return 87; }
+      ./gradlew test --no-daemon
+      ;;
+    maven)
+      if [ -x ./mvnw ]; then ./mvnw -B test
+      elif command -v mvn >/dev/null 2>&1; then mvn -B test
+      else echo "No Maven wrapper and no system mvn"; return 87; fi
+      ;;
+    node)
+      npm run test --if-present
+      ;;
+  esac
+}
+
+echo "[CodeReferee] preparing sandbox"
+run_step prepare prepare_sandbox
 echo "[CodeReferee] cloning repository"
-git clone --depth 1 {branch_clause} {url} /tmp/repository
-cd /tmp/repository
-{checkout}
-
-echo "[CodeReferee] resolving commit"
-git rev-parse HEAD
-
+run_step clone clone_repository
 echo "[CodeReferee] detecting project stack"
-if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f requirements.txt ]; then
-  echo "detected_stack=python"
-  if [ -f requirements.txt ]; then
-    python -m pip install --disable-pip-version-check -r requirements.txt >/dev/null
-  fi
-  python -m compileall .
-  if [ -d tests ]; then
-    python -m pip install --disable-pip-version-check pytest >/dev/null
-    python -m pytest -q
-  fi
-elif [ -f build.gradle ] || [ -f settings.gradle ] || [ -f gradlew ]; then
-  echo "detected_stack=gradle"
-  if [ -x ./gradlew ]; then ./gradlew test --no-daemon; else echo "Repository has no Gradle wrapper (./gradlew)"; exit 87; fi
-elif [ -f pom.xml ] || [ -f mvnw ]; then
-  echo "detected_stack=maven"
-  if [ -x ./mvnw ]; then ./mvnw -B test; elif command -v mvn >/dev/null 2>&1; then mvn -B test; else echo "No Maven wrapper and no system mvn"; exit 87; fi
-elif [ -f package.json ]; then
-  echo "detected_stack=node"
-  if ! command -v npm >/dev/null 2>&1; then echo "Node toolchain is not available in the sandbox image"; exit 87; fi
-  if [ -f package-lock.json ]; then npm ci; else npm install; fi
-  npm run test --if-present
-else
-  echo "No supported project manifest found"
-  exit 86
-fi
+run_step detect detect_stack
+echo "[CodeReferee] installing dependencies"
+run_step dependencies install_dependencies
+echo "[CodeReferee] running smoke validation"
+run_step smoke run_smoke_test
 
+OUTCOME="success"
+FAILED_STEP="none"
+EXIT_CODE=0
 echo "[CodeReferee] repository smoke validation completed"
+exit 0
 """
+
+
+def _repository_validation_script(repository_url: str, branch: str | None, commit_sha: str | None) -> str:
+    branch_clause = f"--branch {branch}" if branch else ""
+    header = (
+        "#!/bin/sh\n"
+        # set -e는 쓰지 않는다. 각 단계의 exit code를 기록해야 하므로
+        # run_step이 직접 반환값을 받아 처리한다.
+        "set -u\n"
+        f"REPO_URL={shlex.quote(repository_url)}\n"
+        f"BRANCH_CLAUSE={shlex.quote(branch_clause)}\n"
+        f"COMMIT_SHA={shlex.quote(commit_sha or '')}\n"
+    )
+    return header + _VALIDATION_BODY
+
+
+RESULT_SENTINEL = "[CodeReferee:RESULT] "
+
+
+def _extract_sandbox_report(logs: str) -> tuple[dict[str, Any], str]:
+    """구조화 결과 줄을 분리해 돌려주고, 로그 본문에서는 제거한다.
+
+    Judge는 이 구조화 결과로 판정하고 로그 전문은 보지 않는 것이 계약이다.
+    """
+    report: dict[str, Any] = {}
+    kept: list[str] = []
+    for line in logs.splitlines():
+        if line.startswith(RESULT_SENTINEL):
+            try:
+                parsed = json.loads(line[len(RESULT_SENTINEL) :])
+            except json.JSONDecodeError:
+                kept.append(line)
+                continue
+            if isinstance(parsed, dict):
+                report = parsed
+        else:
+            kept.append(line)
+    return report, "\n".join(kept).strip()
 
 
 def _join_url(base_url: str, path: str) -> str:

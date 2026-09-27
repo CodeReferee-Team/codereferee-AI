@@ -7,7 +7,8 @@ from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
 from app.models import AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 from app.repository.preflight import _normalize_github_url
 from app.storage.sqlite_store import SQLiteJobStore, SQLitePatchStore
-from app.sandbox.docker_runner import _sandbox_result_from_response
+from app.agents.evidence import build_evidence_packet, summarize_metrics
+from app.sandbox.docker_runner import _extract_sandbox_report, _sandbox_result_from_response
 from app.workflow.repository_validation import (
     _sre_metrics_from_execution,
     execute_repository_validation,
@@ -549,6 +550,77 @@ class RepositoryValidationTests(unittest.TestCase):
             "https://github.com/CodeReferee-Team/codereferee-AI.git",
         )
         self.assertIsNone(_normalize_github_url("git@github.com:CodeReferee-Team/codereferee-AI.git"))
+
+
+class SandboxResultContractTests(unittest.TestCase):
+    """샌드박스 결과 JSON 계약: Judge는 로그 전문이 아니라 이 구조화 결과로 판정한다."""
+
+    def _failed_result(self) -> SandboxResult:
+        logs = (
+            "[CodeReferee] preparing sandbox\n"
+            "[CodeReferee] cloning repository\n"
+            "fatal: Remote branch no-such-branch not found\n"
+            '[CodeReferee:RESULT] {"schema_version":"sandbox-result.v1","detected_stack":"unknown",'
+            '"outcome":"failure","failed_step":"clone","exit_code":128,'
+            '"steps":[{"name":"prepare","exit_code":0,"duration_ms":1},'
+            '{"name":"clone","exit_code":128,"duration_ms":524}]}'
+        )
+        report, clean = _extract_sandbox_report(logs)
+        return SandboxResult(exit_code=128, stderr=clean, sandbox_report=report)
+
+    def test_extract_sandbox_report_removes_sentinel_line_from_logs(self) -> None:
+        result = self._failed_result()
+        self.assertEqual(result.sandbox_report["failed_step"], "clone")
+        self.assertEqual(result.sandbox_report["steps"][1]["exit_code"], 128)
+        # 센티널 줄은 로그 본문에 남지 않아야 중복 노출이 생기지 않는다.
+        self.assertNotIn("CodeReferee:RESULT", result.stderr)
+        self.assertIn("Remote branch no-such-branch not found", result.stderr)
+
+    def test_malformed_sentinel_is_kept_as_plain_log(self) -> None:
+        report, clean = _extract_sandbox_report("[CodeReferee:RESULT] not-json\nother line")
+        self.assertEqual(report, {})
+        self.assertIn("not-json", clean)
+
+    def test_sandbox_summary_is_one_line(self) -> None:
+        summary = self._failed_result().sandbox_summary
+        self.assertIn("failed_step=clone", summary)
+        self.assertIn("clone:128(524ms)", summary)
+        self.assertNotIn("\n", summary)
+
+    def test_judge_reason_is_a_sentence_not_a_log_dump(self) -> None:
+        state = AgentState(
+            job_id="t",
+            repository_url="https://github.com/example/project.git",
+            preflight_report=RepositoryPreflightReport(
+                repository_url="https://github.com/example/project.git", cloneable=True, executable=True
+            ),
+            execution_result=self._failed_result(),
+        )
+        state = judge_node(state)
+        reason = state.judge_report["reason"]
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertIn("clone", reason)
+        self.assertLess(len(reason), 200)
+        # 스택을 모를 때 "unknown"을 문장에 넣으면 진단이 모호해진다.
+        self.assertNotIn("unknown", reason.casefold())
+        # 로그 전문이 evidence에 통째로 들어가면 Critic 프롬프트가 중복으로 비대해진다.
+        self.assertTrue(all(len(item) <= 500 for item in state.judge_report["evidence"]))
+
+    def test_evidence_packet_trims_unbounded_chaos_observation(self) -> None:
+        metrics = {
+            "exit_code": 0,
+            "chaos_observation": {
+                "type": "pod_kill",
+                "kubernetes_events": [{"reason": "Scheduled", "message": "m" * 100} for _ in range(60)],
+                "replacement_logs": "line\n" * 500,
+            },
+        }
+        trimmed = summarize_metrics(metrics)["chaos_observation"]
+        self.assertEqual(trimmed["kubernetes_events_total"], 60)
+        self.assertEqual(len(trimmed["kubernetes_events"]), 20)
+        self.assertLess(len(trimmed["replacement_logs"]), 700)
+        # 원본은 건드리지 않는다. Backend로는 전문이 그대로 가야 한다.
+        self.assertEqual(len(metrics["chaos_observation"]["kubernetes_events"]), 60)
 
 
 if __name__ == "__main__":
