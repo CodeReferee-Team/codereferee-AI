@@ -6,6 +6,7 @@ from app.agents.evidence import build_evidence_packet, classify_failure_category
 from app.agents.llm import llm, parse_json_strict
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
+from app.config import get_settings
 from app.models import DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 
 
@@ -18,7 +19,7 @@ def planner_node(state: AgentState) -> AgentState:
     state.events.append("Planner: repository validation plan prepared")
     packet = build_evidence_packet(state)
     fallback = _fallback_plan(state)
-    if llm.enabled:
+    if llm.enabled and get_settings().planner_uses_llm:
         state.validation_plan = _invoke_validated_report(
             role="Planner",
             schema=PlannerReport,
@@ -40,7 +41,7 @@ def judge_node(state: AgentState) -> AgentState:
     state.events.append("Judge: repository validation result evaluated")
     packet = build_evidence_packet(state)
     fallback = _fallback_judge(state)
-    if llm.enabled:
+    if llm.enabled and get_settings().judge_uses_llm:
         report = _invoke_validated_report(
             role="Judge",
             schema=JudgeReport,

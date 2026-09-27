@@ -167,7 +167,27 @@ Sandbox v1이 실제 Kubernetes Pod Kill 실험 결과를 보내기 시작하면
 
 마지막 항목은 [SRE Workbook의 요청 기반 SLI 정의](https://sre.google/workbook/implementing-slos/)가 "유효 이벤트" 분모를 명시하도록 요구하기 때문이다. 분모가 흔들리면 같은 장애도 다른 판정이 나온다.
 
-## 7. 현재 한계
+## 7. 판정 주체 (2026-09-27 확정)
+
+Pass/Fail 판정과 reason_category는 **규칙이 정한다.** LLM은 판정에 관여하지 않는다.
+
+측정 근거(같은 평가셋 34건, docs/evaluation-design.md 12절)
+
+| 지표 | 규칙 | LLM(gemini-3.1-flash-lite) |
+| --- | --- | --- |
+| 판정 정확도 | 100% | 100% |
+| false-pass | 0% | 0% |
+| 원인 분류 정확도 | 94.1% | 76.5% |
+
+판정 정확도가 같고 원인 분류는 규칙이 더 정확했다. 게다가 규칙은 결정적이고, 근거를 정책
+문서로 추적할 수 있으며, 레포 로그에 심어둔 지시에 흔들리지 않는다. 비용과 지연도 없다.
+
+LLM은 Critic의 원인 서술과 Refiner의 개선 제안에만 쓴다. 규칙이 할 수 없는 일이다.
+
+비교 실험을 다시 돌릴 수 있도록 경로는 남겨 두었다. `JUDGE_USES_LLM=true`,
+`PLANNER_USES_LLM=true`로 켤 수 있으며 기본값은 꺼짐이다.
+
+## 8. 현재 한계
 
 현재 기준은 LitmusChaos 실측 데이터가 붙기 전의 기본 정책이다.
 

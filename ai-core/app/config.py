@@ -7,6 +7,11 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     # 모델명을 코드에 박지 않는다. 신규 키에서 구모델이 막히는 일이 있어 교체가 잦다.
     llm_model: str = "gemini-flash-latest"
+    # 판정은 규칙이 한다. 측정 결과 LLM은 판정 정확도가 같고 원인 분류는 더 낮았으며
+    # (docs/evaluation-design.md 12절), 레포 로그에 심어둔 지시에 흔들릴 여지도 남는다.
+    # 비교 실험을 다시 돌릴 수 있도록 경로 자체는 남겨 둔다.
+    judge_uses_llm: bool = False
+    planner_uses_llm: bool = False
     redis_url: str = "redis://localhost:6379/0"
     redis_workflow_queue: str = "codereferee:workflow:input"
     redis_output_queue: str = "codereferee:workflow:output"

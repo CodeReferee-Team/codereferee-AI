@@ -64,6 +64,7 @@ class AgentQualityTests(unittest.TestCase):
         self.assertIn("http_status=500", packet["primary_signal"])
 
     def test_invalid_llm_report_gets_one_schema_repair_before_fallback(self) -> None:
+        # 판정은 규칙이 하므로 LLM 경로는 Critic으로 확인한다.
         class FakeLLM:
             enabled = True
 
@@ -76,18 +77,18 @@ class AgentQualityTests(unittest.TestCase):
             def invoke_schema_repair(self, **_kwargs):
                 self.repairs += 1
                 return (
-                    '{"status":"Fail","reason_category":"sandbox_not_executed",'
-                    '"reason":"No preflight report was produced.","evidence":["preflight_report=missing"]}'
+                    '{"issue":"sandbox failed","root_cause":"dependency install failed",'
+                    '"evidence":["pip install failed"],"recommended_action":"pin dependency versions"}'
                 )
 
         fake = FakeLLM()
         state = AgentState(job_id="repair", repository_url="https://github.com/example/repo.git")
         with patch.object(nodes, "llm", fake):
-            result = nodes.judge_node(state)
+            result = nodes.critic_node(state)
 
         self.assertEqual(fake.repairs, 1)
-        self.assertEqual(result.judge_report["status"], "Fail")
-        self.assertIn("Judge: Agent schema repair accepted", result.events)
+        self.assertEqual(result.critic_feedback["root_cause"], "dependency install failed")
+        self.assertIn("Critic: Agent schema repair accepted", result.events)
 
 
 if __name__ == "__main__":

@@ -28,6 +28,29 @@ class RepositoryValidationTests(unittest.TestCase):
     def tearDown(self) -> None:
         nodes.llm.enabled = self._llm_enabled
 
+    def test_judge_does_not_call_llm_even_when_enabled(self) -> None:
+        # 판정은 규칙이 한다. LLM이 켜져 있어도 호출하지 않는다.
+        class ExplodingLLM:
+            enabled = True
+
+            def invoke_text(self, *_a, **_k):
+                raise AssertionError("판정에서 LLM을 호출하면 안 된다")
+
+        state = AgentState(
+            job_id="rules-only",
+            repository_url="https://github.com/example/project.git",
+            preflight_report=RepositoryPreflightReport(
+                repository_url="https://github.com/example/project.git",
+                cloneable=True, executable=True, reason="reachable",
+            ),
+            execution_result=SandboxResult(exit_code=1, stderr="pytest failed"),
+        )
+        with patch.object(nodes, "llm", ExplodingLLM()):
+            state = judge_node(state)
+            state = planner_node(state)
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertEqual(state.judge_report["reason_category"], "test_failure")
+
     def test_planner_builds_repository_validation_plan(self) -> None:
         state = AgentState(job_id="test", repository_url="https://github.com/example/project.git")
         result = planner_node(state)
