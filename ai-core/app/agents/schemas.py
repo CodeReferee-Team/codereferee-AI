@@ -107,6 +107,8 @@ class CriticReport(StrictAgentReport):
 
 class RefinerReport(StrictAgentReport):
     summary: str = Field(min_length=1)
+    # 실제 unified diff. 만들지 못하면 None이고 patch_guidance만 남는다.
+    patch_diff: str | None = None
     patch_guidance: list[str] = Field(min_length=1)
     verification_steps: list[str] = Field(min_length=1)
     risk: Literal["low", "medium", "high"]

@@ -2,7 +2,13 @@ from uuid import uuid4
 
 from prometheus_client import Counter, Histogram
 
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+
 from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
+from app.agents.patching import check_applies
 from app.models import (
     DEFAULT_SLO,
     AgentState,
@@ -12,6 +18,7 @@ from app.models import (
     SREMetrics,
 )
 from app import events as event_builder
+from app.config import get_settings
 from app.queue.redis_queue import redis_task_queue
 from app.repository.preflight import repository_preflight_runner
 from app.sandbox.docker_runner import sandbox_runner
@@ -120,6 +127,7 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
         state = judge_node(state)
         state = critic_node(state)
         state = refiner_node(state)
+        _verify_patch_applies(state)
     VALIDATION_COUNTER.labels(status=state.status).inc()
     _record_sqlite_artifacts(state)
     job_store.save(state)
@@ -337,6 +345,43 @@ def _measured_float(metrics: dict[str, object], key: str) -> float | None:
 
 def _default_slo() -> dict[str, float]:
     return DEFAULT_SLO.model_dump()
+
+
+def _verify_patch_applies(state: AgentState) -> None:
+    """Refiner 패치가 실제 레포에 적용되는지 확인한다.
+
+    sandbox에 보내기 전에 여기서 거른다. 적용도 안 될 패치로 sandbox를 돌리면
+    수십 초를 버리고, 실패 원인이 패치인지 코드인지도 흐려진다.
+    """
+    diff = state.refiner_report.get("patch_diff")
+    if not diff:
+        return
+
+    workdir = tempfile.mkdtemp(prefix="codereferee-patchcheck-")
+    try:
+        clone = subprocess.run(
+            ["git", "clone", "--quiet", "--depth", "1", *(["--branch", state.branch] if state.branch else []),
+             state.repository_url, workdir],
+            capture_output=True, text=True, timeout=get_settings().repository_clone_timeout_seconds,
+        )
+        if clone.returncode != 0:
+            state.events.append("Refiner: patch apply check skipped, clone failed")
+            return
+        verdict = check_applies(str(diff), Path(workdir))
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        state.events.append(f"Refiner: patch apply check skipped: {exc.__class__.__name__}")
+        return
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+    check = dict(state.metrics.get("patch_check") or {})
+    check.update({"applies": verdict.accepted, "reason_code": verdict.reason_code, "reason": verdict.reason})
+    state.metrics["patch_check"] = check
+    if verdict.accepted:
+        state.events.append("Refiner: patch applies cleanly to the repository")
+    else:
+        state.events.append(f"Refiner: patch does not apply: {verdict.reason_code}")
+        state.refiner_report["patch_diff"] = None
 
 
 def _record_sqlite_artifacts(state: AgentState) -> None:

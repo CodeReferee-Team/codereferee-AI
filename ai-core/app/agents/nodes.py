@@ -4,6 +4,7 @@ from pydantic import ValidationError
 
 from app.agents.evidence import build_evidence_packet, classify_failure_category, render_evidence_packet
 from app.agents.llm import llm, parse_json_strict
+from app.agents.patching import inspect_diff
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
 from app.config import get_settings
@@ -105,7 +106,27 @@ def refiner_node(state: AgentState) -> AgentState:
         )
     else:
         state.refiner_report = validate_report(RefinerReport, fallback)
+
+    _record_patch_inspection(state)
     return state
+
+
+def _record_patch_inspection(state: AgentState) -> None:
+    """생성된 패치를 내용 기준으로 먼저 거른다. 적용 검사(git apply)는 워크플로가 레포를 받은 뒤 한다."""
+    diff = state.refiner_report.get("patch_diff")
+    if not diff:
+        state.metrics["patch_check"] = {"accepted": False, "reason_code": "patch_absent"}
+        return
+    verdict = inspect_diff(str(diff))
+    state.metrics["patch_check"] = {
+        "accepted": verdict.accepted,
+        "reason_code": verdict.reason_code,
+        "reason": verdict.reason,
+        "touched_paths": verdict.touched_paths,
+    }
+    if not verdict.accepted:
+        state.events.append(f"Refiner: patch rejected before sandbox: {verdict.reason_code}")
+        state.refiner_report["patch_diff"] = None
 
 
 def _fallback_plan(state: AgentState) -> dict[str, object]:

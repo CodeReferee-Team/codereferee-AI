@@ -1,5 +1,5 @@
 # 프롬프트를 바꾸면 이 값을 올린다. 평가 리포트가 모델 차이와 프롬프트 차이를 구분한다.
-PROMPT_VERSION = "2026-09-27.1"
+PROMPT_VERSION = "2026-09-27.2"
 
 PLANNER_PROMPT = """
 You are a Senior SRE validation planner.
@@ -41,6 +41,9 @@ Produce a remediation report or patch guidance for the existing project only.
 Map every remediation step to the Critic root cause and include observable verification outcomes.
 Use supplied evidence_refs; do not hallucinate files, commands, or LitmusChaos results.
 Return strict JSON:
-{"summary": "...", "patch_guidance": ["..."], "verification_steps": ["..."], "risk": "low|medium|high"}.
+{"summary": "...", "patch_diff": "..." or null, "patch_guidance": ["..."], "verification_steps": ["..."], "risk": "low|medium|high"}.
+patch_diff must be a unified diff that `git apply` accepts, with a/ and b/ prefixes.
+Change only source files you can see in the evidence. Never touch CI config or paths outside the repository.
+Set patch_diff to null when the evidence is not enough to write a concrete change.
 Do not include markdown fences.
 """
