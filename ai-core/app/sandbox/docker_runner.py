@@ -147,6 +147,7 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
     run_command = data.get("run_command", data.get("runCommand"))
     service_check_attempted = _explicit_bool(data, "service_check_attempted", "serviceCheckAttempted")
     browser_check_attempted = _explicit_bool(data, "browser_check_attempted", "browserCheckAttempted")
+    observation_status = data.get("observation_status", data.get("observationStatus"))
     schema_version = data.get("schema_version", data.get("schemaVersion"))
     probe_transport = data.get("probe_transport", data.get("probeTransport"))
 
@@ -187,6 +188,8 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
         chaos_observation=_json_object(data.get("chaos_observation", data.get("chaosObservation"))),
         source=_json_object(data.get("source")),
         sandbox_report=_json_object(data.get("sandbox_report", data.get("sandboxReport"))),
+        observation_status=str(observation_status) if observation_status else None,
+        infra_error=_infra_error_from_observation(observation_status),
     )
 
 
@@ -384,6 +387,25 @@ def _infer_browser_check_attempted(
         or page_title
         or (http_status is not None and _infer_service_check_attempted(server_started, server_url, http_status, run_command))
     )
+
+
+OBSERVED = "observed"
+INFRASTRUCTURE_ERROR = "infrastructure_error"
+
+
+def _infra_error_from_observation(observation_status: object) -> str | None:
+    """Sandbox가 "관측 불가"라고 밝히면 기존 infra_error 흐름으로 넘긴다.
+
+    2026-09 Sandbox 팀과의 합의:
+    - observed             → exitCode로 판정 (0=복구 성공, 1=복구 실패). timedOut이 함께 와도 FAILED다.
+    - infrastructure_error → exitCode는 null이고 판정 자체가 불가능하다. ERROR로 간다.
+
+    timedOut만으로 판단하지 않는 것이 핵심이다. 같은 timedOut이라도
+    observed면 복구 관측 시간 초과(코드 결함), infrastructure_error면 Sandbox 실행 실패다.
+    """
+    if observation_status == INFRASTRUCTURE_ERROR:
+        return "sandbox_observation_unavailable"
+    return None
 
 
 def _json_object(value: object) -> dict[str, object]:

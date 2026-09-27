@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -621,6 +622,66 @@ class SandboxResultContractTests(unittest.TestCase):
         self.assertLess(len(trimmed["replacement_logs"]), 700)
         # 원본은 건드리지 않는다. Backend로는 전문이 그대로 가야 한다.
         self.assertEqual(len(metrics["chaos_observation"]["kubernetes_events"]), 60)
+
+
+class ObservationStatusContractTests(unittest.TestCase):
+    """2026-09 Sandbox 팀 합의: exitCode만으로는 복구 실패와 관측 불가를 구분할 수 없다.
+
+    핵심은 timedOut만으로 판단하지 않는 것이다. 같은 timedOut이라도
+    observed면 복구 관측 시간 초과(코드 결함)이고, infrastructure_error면 Sandbox 실행 실패다.
+    """
+
+    def _parse(self, **fields) -> SandboxResult:
+        return _sandbox_result_from_response(json.dumps(fields), started_at=0)
+
+    def test_observed_success_is_not_an_infra_error(self) -> None:
+        result = self._parse(observationStatus="observed", exitCode=0)
+        self.assertEqual(result.observation_status, "observed")
+        self.assertIsNone(result.infra_error)
+
+    def test_observed_failure_is_not_an_infra_error(self) -> None:
+        self.assertIsNone(self._parse(observationStatus="observed", exitCode=1).infra_error)
+
+    def test_observed_timeout_stays_a_code_failure(self) -> None:
+        # 합의: observed + timedOut → exitCode 1, FAILED. ERROR로 새면 안 된다.
+        result = self._parse(observationStatus="observed", exitCode=1, timedOut=True)
+        self.assertTrue(result.timed_out)
+        self.assertIsNone(result.infra_error)
+
+    def test_infrastructure_error_becomes_infra_error(self) -> None:
+        result = self._parse(observationStatus="infrastructure_error", exitCode=None, timedOut=True)
+        self.assertEqual(result.observation_status, "infrastructure_error")
+        self.assertEqual(result.infra_error, "sandbox_observation_unavailable")
+
+    def test_snake_case_field_is_accepted(self) -> None:
+        self.assertEqual(self._parse(observation_status="observed").observation_status, "observed")
+
+    def test_infrastructure_error_skips_judgement_and_reports_error(self) -> None:
+        fake_preflight = RepositoryPreflightReport(
+            repository_url="https://github.com/example/project.git", cloneable=True, executable=True
+        )
+        broken = SandboxResult(
+            exit_code=None,
+            timed_out=True,
+            observation_status="infrastructure_error",
+            infra_error="sandbox_observation_unavailable",
+        )
+        state = AgentState(job_id="infra", repository_url="https://github.com/example/project")
+
+        class SilentQueue:
+            def publish(self, event):
+                return 1
+
+        with patch(
+            "app.workflow.repository_validation.repository_preflight_runner.run", return_value=fake_preflight
+        ), patch("app.workflow.repository_validation.sandbox_runner.run_repository", return_value=broken):
+            state = execute_repository_validation(state, output_queue=SilentQueue())
+
+        self.assertEqual(state.status, JobStatus.error)
+        # 멀쩡한 사용자 코드를 두고 Critic이 고칠 곳을 찾게 두면 안 된다.
+        self.assertEqual(state.judge_report, {})
+        self.assertEqual(state.critic_feedback, {})
+        self.assertEqual(state.refiner_report, {})
 
 
 if __name__ == "__main__":
