@@ -2,7 +2,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.agents.evidence import build_evidence_packet, classify_failure_category, render_evidence_packet
+from app.agents.evidence import build_evidence_packet, classify_failure_category, render_evidence_packet, truncate_log
 from app.agents.llm import llm, parse_json_strict
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
@@ -160,21 +160,21 @@ def _fallback_judge(state: AgentState) -> dict[str, object]:
 
     result = state.execution_result or SandboxResult(exit_code=None, stderr="No sandbox execution")
     if result.timed_out:
-        return {"status": "Fail", "reason": "Sandbox execution timed out.", "evidence": [result.log]}
+        return {"status": "Fail", "reason": "Sandbox execution timed out.", "evidence": _sandbox_evidence(result)}
     if result.exit_code != 0:
-        return {"status": "Fail", "reason": result.stderr.strip() or "Sandbox returned non-zero exit code.", "evidence": [result.log]}
+        return {"status": "Fail", "reason": _sandbox_failure_reason(result), "evidence": _sandbox_evidence(result)}
     if result.service_check_attempted and not _service_smoke_passed(result):
-        return {"status": "Fail", "reason": "Service smoke check failed after sandbox execution.", "evidence": [result.log]}
+        return {"status": "Fail", "reason": "Service smoke check failed after sandbox execution.", "evidence": _sandbox_evidence(result)}
     if result.browser_check_attempted and not result.browser_loaded:
-        return {"status": "Fail", "reason": "Browser smoke check failed after service startup.", "evidence": [result.log]}
+        return {"status": "Fail", "reason": "Browser smoke check failed after service startup.", "evidence": _sandbox_evidence(result)}
 
     failure, warnings = _measured_policy_findings(state, result)
     state.metrics["policy_warnings"] = warnings
     for warning in warnings:
         state.events.append(f"Judge: warning {warning}")
     if failure:
-        return {"status": "Fail", "reason": failure, "evidence": [result.log]}
-    return {"status": "Pass", "reason": "Repository passed preflight and sandbox smoke validation.", "evidence": [result.log]}
+        return {"status": "Fail", "reason": failure, "evidence": _sandbox_evidence(result)}
+    return {"status": "Pass", "reason": "Repository passed preflight and sandbox smoke validation.", "evidence": _sandbox_evidence(result)}
 
 
 def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple[str | None, list[str]]:
@@ -277,28 +277,28 @@ def _fallback_critic(state: AgentState) -> dict[str, object]:
         return {
             "issue": "Repository exceeded the bounded sandbox execution window.",
             "root_cause": "Sandbox execution timed out before validation completed.",
-            "evidence": [result.log],
+            "evidence": _sandbox_evidence(result),
             "recommended_action": "Reduce blocking startup/test work, add timeout-safe startup behavior, and re-run validation from the same commit.",
         }
     if result and result.exit_code not in (0, None):
         return {
             "issue": "Repository command returned a non-zero sandbox exit code.",
             "root_cause": state.judge_report.get("reason", "Sandbox command failed."),
-            "evidence": _non_empty_evidence(state.judge_report.get("evidence", []), result.stderr, f"exit_code={result.exit_code}"),
+            "evidence": _sandbox_evidence(result),
             "recommended_action": "Fix the failing build/test/run command surfaced in the logs and verify the command exits with exit_code=0.",
         }
     if result and result.service_check_attempted and not _service_smoke_passed(result):
         return {
             "issue": "Service smoke validation failed after the process started.",
             "root_cause": f"HTTP/browser service check failed with http_status={result.http_status} and browser_loaded={result.browser_loaded}.",
-            "evidence": [result.log],
+            "evidence": _sandbox_evidence(result),
             "recommended_action": "Fix the app health endpoint or start command, then verify the service returns a successful HTTP status and browser probe loads.",
         }
     if result and result.browser_check_attempted and not result.browser_loaded:
         return {
             "issue": "Browser smoke validation failed.",
             "root_cause": "The service did not load successfully in the browser probe.",
-            "evidence": [result.log],
+            "evidence": _sandbox_evidence(result),
             "recommended_action": "Fix client startup/rendering and verify the endpoint loads in a headless browser.",
         }
     return {
@@ -320,6 +320,42 @@ def _fallback_refiner(state: AgentState) -> dict[str, object]:
         "verification_steps": ["Re-run repository validation from the same commit SHA.", "Confirm sandbox exit_code=0 and timed_out=False."],
         "risk": "medium" if state.status == JobStatus.failed else "low",
     }
+
+
+def _sandbox_failure_reason(result: SandboxResult) -> str:
+    """실패 이유를 한 문장으로. 로그 원문은 evidence 쪽에 따로 들어간다.
+
+    스택을 모를 때 "unknown"을 문장에 넣으면 진단이 모호해지므로 생략한다.
+    """
+    report = result.sandbox_report or {}
+    stack = report.get("detected_stack")
+    suffix = f" in the {stack} build" if stack and stack != "unknown" else ""
+    failed_step = report.get("failed_step")
+    if failed_step and failed_step != "none":
+        return f"Sandbox step '{failed_step}' failed with exit_code={result.exit_code}{suffix}."
+    return f"Sandbox command exited with exit_code={result.exit_code}{suffix}."
+
+
+def _sandbox_evidence(result: SandboxResult) -> list[str]:
+    """로그 전문 대신 구조화된 사실 + 짧은 발췌만 남긴다.
+
+    각 항목은 evidence 패킷의 evidence_refs와 같은 형식·같은 절단 길이를 쓴다.
+    그래야 Critic이 인용한 근거가 패킷 안에서 그대로 확인된다.
+    """
+    items = [
+        f"exit_code={result.exit_code}",
+        f"timed_out={result.timed_out}",
+        f"duration_ms={result.duration_ms}",
+        f"http_status={result.http_status}",
+        f"browser_loaded={result.browser_loaded}",
+    ]
+    if result.sandbox_summary:
+        items.append(result.sandbox_summary)
+    if result.stdout.strip():
+        items.append(truncate_log(result.stdout.strip(), 400))
+    if result.stderr.strip():
+        items.append(truncate_log(result.stderr.strip(), 400))
+    return items
 
 
 def _service_smoke_passed(result: SandboxResult) -> bool:

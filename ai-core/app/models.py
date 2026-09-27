@@ -49,6 +49,32 @@ class SandboxResult(BaseModel):
     metrics: dict[str, Any] = Field(default_factory=dict)
     chaos_observation: dict[str, Any] = Field(default_factory=dict)
     source: dict[str, Any] = Field(default_factory=dict)
+    sandbox_report: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def sandbox_summary(self) -> str:
+        """구조화 결과의 한 줄 요약.
+
+        baseline/metrics/chaos_observation을 dict 그대로 로그에 붙이면
+        실제 stdout/stderr가 밀려나고 같은 내용이 evidence마다 중복된다.
+        원본은 각 필드에 그대로 남아 있으므로 여기서는 요약만 만든다.
+        """
+        report = self.sandbox_report
+        if not report:
+            return ""
+        parts = [f"stack={report.get('detected_stack')}", f"outcome={report.get('outcome')}"]
+        failed_step = report.get("failed_step")
+        if failed_step and failed_step != "none":
+            parts.append(f"failed_step={failed_step}")
+        steps = report.get("steps") or []
+        if isinstance(steps, list) and steps:
+            rendered = ",".join(
+                f"{step.get('name')}:{step.get('exit_code')}({step.get('duration_ms')}ms)"
+                for step in steps
+                if isinstance(step, dict)
+            )
+            parts.append(f"steps={rendered}")
+        return " ".join(parts)
 
     @property
     def log(self) -> str:
@@ -61,17 +87,14 @@ class SandboxResult(BaseModel):
             f"http_status={self.http_status}",
             f"browser_loaded={self.browser_loaded}",
             f"page_title={self.page_title}",
-            f"schema_version={self.schema_version}",
-            f"probe_transport={self.probe_transport}",
-            f"baseline={self.baseline}",
-            f"metrics={self.metrics}",
-            f"chaos_observation={self.chaos_observation}",
-            f"source={self.source}",
-            "stdout:",
-            self.stdout.strip(),
-            "stderr:",
-            self.stderr.strip(),
         ]
+        if self.schema_version:
+            parts.append(f"schema_version={self.schema_version}")
+        if self.probe_transport:
+            parts.append(f"probe_transport={self.probe_transport}")
+        if self.sandbox_summary:
+            parts.append(f"sandbox={self.sandbox_summary}")
+        parts += ["stdout:", self.stdout.strip(), "stderr:", self.stderr.strip()]
         return "\n".join(parts)
 
 

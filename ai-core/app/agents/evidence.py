@@ -6,6 +6,7 @@ from typing import Any
 from app.models import AgentState
 
 MAX_LOG_CHARS = 1200
+MAX_CHAOS_EVENTS = 20
 
 
 def build_evidence_packet(state: AgentState) -> dict[str, Any]:
@@ -22,7 +23,7 @@ def build_evidence_packet(state: AgentState) -> dict[str, Any]:
         "secondary_signals": list(evidence_refs.values()),
         "preflight": None,
         "execution": None,
-        "metrics": dict(state.metrics),
+        "metrics": summarize_metrics(state.metrics),
         "sre_metrics": state.sre_metrics.model_dump(),
         "judge": dict(state.judge_report),
         "critic": dict(state.critic_feedback),
@@ -51,9 +52,35 @@ def build_evidence_packet(state: AgentState) -> dict[str, Any]:
             "run_command": result.run_command,
             "service_check_applicable": getattr(result, "service_check_attempted", False),
             "browser_check_applicable": getattr(result, "browser_check_attempted", False),
+            "sandbox_report": dict(result.sandbox_report),
+            "sandbox_summary": result.sandbox_summary,
             "log_excerpt": truncate_log(result.log),
         }
     return packet
+
+
+def summarize_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
+    """프롬프트에 실을 metrics를 줄인다.
+
+    chaos_observation의 kubernetes_events와 replacement_logs는 상한이 없어
+    그대로 넣으면 패킷이 수십 KB가 된다. 원본은 execution_result에 남아
+    Backend까지 전달되므로 여기서는 판단에 필요한 만큼만 남긴다.
+    """
+    summary = dict(metrics)
+    observation = summary.get("chaos_observation")
+    if not isinstance(observation, dict):
+        return summary
+
+    trimmed = dict(observation)
+    events = trimmed.get("kubernetes_events")
+    if isinstance(events, list):
+        trimmed["kubernetes_events_total"] = len(events)
+        trimmed["kubernetes_events"] = events[-MAX_CHAOS_EVENTS:]
+    logs = trimmed.get("replacement_logs")
+    if isinstance(logs, str):
+        trimmed["replacement_logs"] = truncate_log(logs, 600)
+    summary["chaos_observation"] = trimmed
+    return summary
 
 
 def render_evidence_packet(packet: dict[str, Any]) -> str:
