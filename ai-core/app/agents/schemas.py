@@ -65,6 +65,9 @@ class RefinerReport(StrictAgentReport):
     patch_guidance: list[str] = Field(min_length=1)
     verification_steps: list[str] = Field(min_length=1)
     risk: Literal["low", "medium", "high"]
+    # base commit 대비 누적 unified diff. LLM 없이 도는 결정적 fallback은
+    # diff를 만들 수 없으므로 선택 필드다. 없으면 재검증 루프가 돌지 않는다.
+    patch_diff: str | None = None
 
     @field_validator("summary")
     @classmethod

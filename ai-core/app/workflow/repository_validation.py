@@ -1,3 +1,4 @@
+from typing import Any
 from uuid import uuid4
 
 from prometheus_client import Counter, Histogram
@@ -9,8 +10,10 @@ from app.models import (
     JobStatus,
     RepositoryValidationRequest,
     RepositoryValidationResponse,
+    SandboxResult,
     SREMetrics,
 )
+from app.config import get_settings
 from app import events as event_builder
 from app.queue.redis_queue import redis_task_queue
 from app.repository.preflight import repository_preflight_runner
@@ -120,6 +123,7 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
         state = judge_node(state)
         state = critic_node(state)
         state = refiner_node(state)
+        state = _run_refinement_rounds(state, emit_progress)
     VALIDATION_COUNTER.labels(status=state.status).inc()
     _record_sqlite_artifacts(state)
     job_store.save(state)
@@ -196,6 +200,104 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
 
 def _preflight_passed(report) -> bool:
     return bool(report and report.cloneable and report.executable)
+
+
+def _patch_diff_from(refiner_report: dict[str, Any]) -> str | None:
+    """Refiner가 낸 누적 diff. 결정적 fallback은 diff를 만들 수 없어 None이다."""
+    diff = (refiner_report or {}).get("patch_diff")
+    if not isinstance(diff, str) or not diff.strip():
+        return None
+    return diff
+
+
+def _judge_status(state: AgentState) -> str | None:
+    value = (state.judge_report or {}).get("status")
+    return str(value) if value else None
+
+
+def _round_record(
+    round_number: int,
+    patch_diff: str,
+    before_status: str | None,
+    after_status: str | None,
+    result: SandboxResult,
+) -> dict[str, Any]:
+    return {
+        "round": round_number,
+        "patch_bytes": len(patch_diff.encode("utf-8")),
+        "before_judge_status": before_status,
+        "after_judge_status": after_status,
+        "sandbox_exit_code": result.exit_code,
+        "failed_step": (result.sandbox_report or {}).get("failed_step"),
+    }
+
+
+def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
+    """Judge가 실패로 본 경우 Refiner의 diff를 적용해 재검증을 반복한다.
+
+    유저 레포에는 절대 push하지 않는다. diff는 샌드박스 안에서만 적용되고
+    최종 산출물은 "검증된 diff"로 리포트에 담긴다.
+
+    diff가 없으면 즉시 멈춘다. 고칠 수단이 없는데 반복해봐야 같은 결과이기 때문이며,
+    LLM이 설정되지 않은 환경에서는 이 경로로 빠져 기존 동작이 그대로 유지된다.
+    """
+    settings = get_settings()
+    max_rounds = settings.max_self_healing_retries
+    if max_rounds <= 0 or state.preflight_report is None:
+        return state
+
+    for round_number in range(1, max_rounds + 1):
+        if state.status != JobStatus.failed:
+            break
+
+        patch_diff = _patch_diff_from(state.refiner_report)
+        if not patch_diff:
+            state.events.append("Refine: no patch diff produced, refinement loop stopped")
+            break
+        patch_bytes = len(patch_diff.encode("utf-8"))
+        if patch_bytes > settings.max_patch_diff_bytes:
+            # 수정 범위가 이 정도면 판정을 신뢰하기 어렵다.
+            state.events.append(
+                f"Refine: patch diff too large ({patch_bytes} bytes), refinement loop stopped"
+            )
+            break
+
+        before_status = _judge_status(state)
+        emit_progress(event_builder.REFINING, round_=round_number, max_rounds=max_rounds)
+        state.events.append(f"Refine: round {round_number}/{max_rounds} re-validating with patch")
+
+        result = sandbox_runner.run_repository(
+            state.preflight_report.repository_url,
+            branch=state.branch,
+            commit_sha=state.requested_commit_sha,
+            patch_diff=patch_diff,
+        )
+        state.execution_result = result
+        state.metrics = _metrics_from_execution(state)
+        state.sre_metrics = _sre_metrics_from_execution(state)
+        SANDBOX_DURATION.observe(result.duration_ms)
+
+        infra_error = _infra_error_reason(state)
+        if infra_error:
+            state.status = JobStatus.error
+            state.events.append(f"Refine: round {round_number} hit infra error, judgement skipped: {infra_error}")
+            state.refine_rounds.append(_round_record(round_number, patch_diff, before_status, None, result))
+            break
+
+        emit_progress(event_builder.JUDGING)
+        state = judge_node(state)
+        state.refine_rounds.append(
+            _round_record(round_number, patch_diff, before_status, _judge_status(state), result)
+        )
+
+        if state.status == JobStatus.success:
+            state.events.append(f"Refine: round {round_number} passed after applying the patch")
+            break
+
+        state = critic_node(state)
+        state = refiner_node(state)
+
+    return state
 
 
 def _infra_error_reason(state: AgentState) -> str | None:
