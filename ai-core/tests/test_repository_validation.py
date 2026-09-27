@@ -684,5 +684,118 @@ class ObservationStatusContractTests(unittest.TestCase):
         self.assertEqual(state.refiner_report, {})
 
 
+class RecordingQueue:
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def publish(self, event):
+        self.events.append(event)
+        return 1
+
+    def steps(self, step: str) -> list[dict]:
+        return [e for e in self.events if e.get("type") == "progress" and e.get("step") == step]
+
+
+class RefinementLoopTests(unittest.TestCase):
+    """Refiner diff를 적용해 재검증하는 루프.
+
+    유저 레포에는 절대 push하지 않고, diff는 샌드박스 안에서만 적용된다.
+    """
+
+    PREFLIGHT = RepositoryPreflightReport(
+        repository_url="https://github.com/example/project.git", cloneable=True, executable=True
+    )
+
+    def _refiner_returning(self, diff):
+        def _node(state):
+            state.refiner_report = {
+                "summary": "fix the failing build",
+                "patch_guidance": ["apply the diff"],
+                "verification_steps": ["re-run validation"],
+                "risk": "medium",
+                "patch_diff": diff,
+            }
+            return state
+
+        return _node
+
+    def _run(self, sandbox_results, diff):
+        queue = RecordingQueue()
+        state = AgentState(job_id="refine", request_id="refine", repository_url="https://github.com/example/project")
+        pending = list(sandbox_results)
+        calls: list[dict] = []
+
+        def _sandbox(repository_url, branch=None, commit_sha=None, patch_diff=None):
+            calls.append({"patch_diff": patch_diff})
+            return pending.pop(0)
+
+        with patch(
+            "app.workflow.repository_validation.repository_preflight_runner.run", return_value=self.PREFLIGHT
+        ), patch("app.workflow.repository_validation.sandbox_runner.run_repository", side_effect=_sandbox), patch(
+            "app.workflow.repository_validation.refiner_node", side_effect=self._refiner_returning(diff)
+        ):
+            state = execute_repository_validation(state, output_queue=queue)
+        return state, queue, calls
+
+    def test_no_diff_means_no_refinement_round(self) -> None:
+        # LLM이 없으면 결정적 fallback이 diff를 만들지 못한다. 기존 동작이 유지돼야 한다.
+        state, queue, calls = self._run([SandboxResult(exit_code=1, stderr="boom")], diff=None)
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertEqual(state.refine_rounds, [])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(queue.steps("REFINING"), [])
+        self.assertIn("Refine: no patch diff produced, refinement loop stopped", state.events)
+
+    def test_patch_that_fixes_the_build_passes_on_first_round(self) -> None:
+        state, queue, calls = self._run(
+            [SandboxResult(exit_code=1, stderr="boom"), SandboxResult(exit_code=0, stdout="ok")],
+            diff="--- a/x\n+++ b/x\n",
+        )
+        self.assertEqual(state.status, JobStatus.success)
+        self.assertEqual(len(state.refine_rounds), 1)
+        self.assertEqual(state.refine_rounds[0]["before_judge_status"], "Fail")
+        self.assertEqual(state.refine_rounds[0]["after_judge_status"], "Pass")
+        # 재검증 호출에만 diff가 실려야 한다. 최초 실행은 원본 코드를 봐야 한다.
+        self.assertIsNone(calls[0]["patch_diff"])
+        self.assertEqual(calls[1]["patch_diff"], "--- a/x\n+++ b/x\n")
+
+    def test_refining_progress_carries_round_and_max_rounds(self) -> None:
+        _, queue, _ = self._run(
+            [SandboxResult(exit_code=1, stderr="boom"), SandboxResult(exit_code=0, stdout="ok")],
+            diff="--- a/x\n+++ b/x\n",
+        )
+        refining = queue.steps("REFINING")
+        self.assertEqual(len(refining), 1)
+        self.assertEqual(refining[0]["round"], 1)
+        self.assertEqual(refining[0]["max_rounds"], 3)
+
+    def test_loop_stops_after_max_rounds_when_patch_never_works(self) -> None:
+        failures = [SandboxResult(exit_code=1, stderr="boom") for _ in range(4)]
+        state, queue, calls = self._run(failures, diff="--- a/x\n+++ b/x\n")
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertEqual(len(state.refine_rounds), 3)
+        self.assertEqual(len(queue.steps("REFINING")), 3)
+        self.assertEqual(len(calls), 4)  # 최초 1회 + 재검증 3회
+
+    def test_oversized_diff_is_rejected_before_rerunning(self) -> None:
+        huge = "x" * 1_000_001
+        state, queue, calls = self._run([SandboxResult(exit_code=1, stderr="boom")], diff=huge)
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(queue.steps("REFINING"), [])
+        self.assertTrue(any("patch diff too large" in event for event in state.events))
+
+    def test_infra_error_during_rerun_reports_error(self) -> None:
+        state, _, _ = self._run(
+            [
+                SandboxResult(exit_code=1, stderr="boom"),
+                SandboxResult(exit_code=None, infra_error="sandbox_observation_unavailable"),
+            ],
+            diff="--- a/x\n+++ b/x\n",
+        )
+        self.assertEqual(state.status, JobStatus.error)
+        self.assertEqual(state.refine_rounds[-1]["after_judge_status"], None)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -181,6 +181,8 @@ class AgentState(BaseModel):
     metrics: dict[str, Any] = Field(default_factory=dict)
     sre_metrics: SREMetrics = Field(default_factory=SREMetrics)
     error_count: int = 0
+    # 재검증 라운드별 기록. Refiner diff를 적용해 다시 돌린 결과를 남긴다.
+    refine_rounds: list[dict[str, Any]] = Field(default_factory=list)
     status: JobStatus = JobStatus.queued
     events: list[str] = Field(default_factory=list)
 

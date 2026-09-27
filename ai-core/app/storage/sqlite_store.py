@@ -79,7 +79,7 @@ class SQLitePatchStore:
                     _string_or_none(critic.get("issue")),
                     _string_or_none(critic.get("root_cause")),
                     patch_summary,
-                    None,
+                    _string_or_none(refiner.get("patch_diff")),
                     _string_or_none(refiner.get("risk")),
                     _utc_now(),
                 ),
@@ -161,8 +161,23 @@ job_store = SQLiteJobStore()
 def record_validation_artifacts(state: AgentState) -> None:
     store = SQLitePatchStore()
     run_id = store.save_validation_run(state)
-    if state.critic_feedback or state.refiner_report:
-        store.save_patch_suggestion(run_id=run_id, state=state)
+    if not (state.critic_feedback or state.refiner_report):
+        return
+    patch_id = store.save_patch_suggestion(run_id=run_id, state=state)
+    for round_record in state.refine_rounds:
+        # 라운드마다 패치 전후 판정을 남긴다. 어떤 수정이 실제로 통과로 바꿨는지
+        # 나중에 평가 데이터로 쓰려면 이 전후 비교가 필요하다.
+        after_status = round_record.get("after_judge_status")
+        store.save_rerun_result(
+            patch_id=patch_id,
+            before_judge_status=_string_or_none(round_record.get("before_judge_status")),
+            after_judge_status=_string_or_none(after_status),
+            before_error_rate=None,
+            after_error_rate=None,
+            before_p95_latency_ms=None,
+            after_p95_latency_ms=None,
+            improved=str(after_status).casefold() == "pass",
+        )
 
 
 def _reason_category(state: AgentState) -> str | None:

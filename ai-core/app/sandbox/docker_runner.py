@@ -18,18 +18,31 @@ class SandboxRunner:
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    def run_repository(self, repository_url: str, branch: str | None = None, commit_sha: str | None = None) -> SandboxResult:
+    def run_repository(
+        self,
+        repository_url: str,
+        branch: str | None = None,
+        commit_sha: str | None = None,
+        patch_diff: str | None = None,
+    ) -> SandboxResult:
         """Clone and smoke-test an existing repository.
 
         When SANDBOX_BASE_URL is configured, delegate to the external sandbox HTTP service.
         Otherwise, fall back to the local Docker SDK sandbox.
+
+        patch_diff가 있으면 clone 직후 적용한다. 재검증 라운드에서 Refiner가 만든
+        누적 diff를 넣는 경로이며, 사용자 레포에는 절대 push하지 않는다.
         """
         if self.settings.sandbox_base_url:
-            return self._run_repository_via_http(repository_url, branch, commit_sha)
-        return self._run_repository_via_local_docker(repository_url, branch, commit_sha)
+            return self._run_repository_via_http(repository_url, branch, commit_sha, patch_diff)
+        return self._run_repository_via_local_docker(repository_url, branch, commit_sha, patch_diff)
 
     def _run_repository_via_http(
-        self, repository_url: str, branch: str | None = None, commit_sha: str | None = None
+        self,
+        repository_url: str,
+        branch: str | None = None,
+        commit_sha: str | None = None,
+        patch_diff: str | None = None,
     ) -> SandboxResult:
         started_at = time.monotonic()
         endpoint = _join_url(self.settings.sandbox_base_url or "", self.settings.sandbox_repository_path)
@@ -42,6 +55,9 @@ class SandboxRunner:
             "repository_url": repository_url,
             "commit_sha": commit_sha,
         }
+        if patch_diff:
+            payload["patchDiff"] = patch_diff
+            payload["patch_diff"] = patch_diff
         request = Request(
             endpoint,
             data=json.dumps(payload).encode("utf-8"),
@@ -77,13 +93,24 @@ class SandboxRunner:
             )
 
     def _run_repository_via_local_docker(
-        self, repository_url: str, branch: str | None = None, commit_sha: str | None = None
+        self,
+        repository_url: str,
+        branch: str | None = None,
+        commit_sha: str | None = None,
+        patch_diff: str | None = None,
     ) -> SandboxResult:
         started_at = time.monotonic()
         with tempfile.TemporaryDirectory(prefix="codereferee-repo-") as tmp:
             workdir = Path(tmp)
+            patch_path = ""
+            if patch_diff:
+                # 컨테이너에는 /workspace가 read-only로 마운트되므로 여기서 미리 써둔다.
+                (workdir / PATCH_FILENAME).write_text(patch_diff, encoding="utf-8")
+                patch_path = PATCH_CONTAINER_PATH
             script_path = workdir / "validate_repository.sh"
-            script_path.write_text(_repository_validation_script(repository_url, branch, commit_sha), encoding="utf-8")
+            script_path.write_text(
+                _repository_validation_script(repository_url, branch, commit_sha, patch_path), encoding="utf-8"
+            )
 
             try:
                 client = docker.from_env()
@@ -247,6 +274,16 @@ clone_repository() {
   git checkout "$COMMIT_SHA"
 }
 
+apply_patch() {
+  [ -n "$PATCH_FILE" ] || return 0
+  [ -f "$PATCH_FILE" ] || { echo "Patch file not found: $PATCH_FILE"; return 88; }
+  # 적용 불가능한 diff는 빌드 전에 걸러낸다. 검증 시간의 대부분이 smoke 단계라
+  # 여기서 막으면 가장 비싼 구간을 통째로 건너뛴다.
+  git apply --check "$PATCH_FILE" || return $?
+  git apply "$PATCH_FILE"
+  echo "[CodeReferee] patch applied"
+}
+
 detect_stack() {
   if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f requirements.txt ]; then STACK="python"
   elif [ -f build.gradle ] || [ -f settings.gradle ] || [ -f gradlew ]; then STACK="gradle"
@@ -303,6 +340,8 @@ echo "[CodeReferee] preparing sandbox"
 run_step prepare prepare_sandbox
 echo "[CodeReferee] cloning repository"
 run_step clone clone_repository
+echo "[CodeReferee] applying patch if present"
+run_step patch apply_patch
 echo "[CodeReferee] detecting project stack"
 run_step detect detect_stack
 echo "[CodeReferee] installing dependencies"
@@ -318,7 +357,16 @@ exit 0
 """
 
 
-def _repository_validation_script(repository_url: str, branch: str | None, commit_sha: str | None) -> str:
+PATCH_FILENAME = "repository.patch"
+PATCH_CONTAINER_PATH = f"/workspace/{PATCH_FILENAME}"
+
+
+def _repository_validation_script(
+    repository_url: str,
+    branch: str | None,
+    commit_sha: str | None,
+    patch_file: str = "",
+) -> str:
     branch_clause = f"--branch {branch}" if branch else ""
     header = (
         "#!/bin/sh\n"
@@ -328,6 +376,7 @@ def _repository_validation_script(repository_url: str, branch: str | None, commi
         f"REPO_URL={shlex.quote(repository_url)}\n"
         f"BRANCH_CLAUSE={shlex.quote(branch_clause)}\n"
         f"COMMIT_SHA={shlex.quote(commit_sha or '')}\n"
+        f"PATCH_FILE={shlex.quote(patch_file)}\n"
     )
     return header + _VALIDATION_BODY
 

@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     sandbox_pids_limit: int = 512
     repository_clone_timeout_seconds: int = 30
     max_self_healing_retries: int = 3
+    # 1MB가 넘는 diff는 수정 범위가 과도하다는 뜻이라 신뢰하기 어렵다.
+    max_patch_diff_bytes: int = 1_000_000
     sqlite_patch_db_path: str = ".codereferee/codereferee.sqlite3"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
