@@ -110,6 +110,12 @@ SLO_FIELD_MAP = {
     "p95_latency_ms_max": "p95_latency_ms_max",
     "error_rate_max": "error_rate_max",
     "availability_min": "availability_percent_min",
+    "cpu_usage_percent_max": "cpu_usage_percent_max",
+    "memory_usage_ratio_max": "memory_usage_ratio_max",
+    "restart_count_max": "restart_count_max",
+    "db_connection_errors_max": "db_connection_errors_max",
+    "redis_connection_errors_max": "redis_connection_errors_max",
+    "request_count_min": "request_count_min",
 }
 
 

@@ -216,10 +216,25 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
             warnings.append("chaos_latency_degraded")
         return None, warnings
 
-    # 카오스 실험이 아닌 실측 구간에는 SLO를 그대로 적용한다.
-    error_rate = _as_float(measured.get("error_rate"))
-    if error_rate is not None and slo.error_rate_max is not None and error_rate > slo.error_rate_max:
-        return f"error_rate_slo_violation: error_rate {error_rate} exceeds {slo.error_rate_max}.", warnings
+    # 카오스 실험이 아닌 실측 구간에는 docs/judge-policy.md 3절 기준표를 그대로 적용한다.
+    if missing := _missing_required_metrics(measured):
+        return f"missing_metrics: required metrics are absent: {', '.join(missing)}.", warnings
+
+    for category, key, limit, over in (
+        ("error_rate_slo_violation", "error_rate", slo.error_rate_max, True),
+        ("latency_slo_violation", "p95_latency_ms", slo.p95_latency_ms_max, True),
+        ("cpu_saturation", "cpu_usage_percent", slo.cpu_usage_percent_max, True),
+        ("unexpected_restart", "restart_count", slo.restart_count_max, True),
+        ("database_connection_errors", "db_connection_errors", slo.db_connection_errors_max, True),
+        ("redis_connection_errors", "redis_connection_errors", slo.redis_connection_errors_max, True),
+        ("no_traffic_observed", "request_count", slo.request_count_min, False),
+    ):
+        observed = _as_float(measured.get(key))
+        if observed is None or limit is None:
+            continue
+        if (observed > limit) if over else (observed < limit):
+            comparison = "exceeds" if over else "is below"
+            return f"{category}: {key} {observed} {comparison} {limit}.", warnings
 
     availability = _as_float(measured.get("availability"))
     if (
@@ -233,11 +248,35 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
             warnings,
         )
 
-    p95 = _as_float(measured.get("p95_latency_ms"))
-    if p95 is not None and slo.p95_latency_ms_max is not None and p95 > slo.p95_latency_ms_max:
-        return f"latency_slo_violation: p95 {p95}ms exceeds {slo.p95_latency_ms_max}ms.", warnings
+    memory_ratio = _memory_usage_ratio(measured)
+    if (
+        memory_ratio is not None
+        and slo.memory_usage_ratio_max is not None
+        and memory_ratio > slo.memory_usage_ratio_max
+    ):
+        return (
+            f"memory_pressure: memory usage ratio {round(memory_ratio, 3)} exceeds "
+            f"{slo.memory_usage_ratio_max}.",
+            warnings,
+        )
 
     return None, warnings
+
+
+# SLO를 걸어둔 지표가 값 없이 비어 있으면 판정 근거가 없는 것이다. 통과로 넘기지 않는다.
+REQUIRED_METRIC_KEYS = ("p95_latency_ms", "error_rate")
+
+
+def _missing_required_metrics(measured: dict[str, object]) -> list[str]:
+    return [key for key in REQUIRED_METRIC_KEYS if key in measured and _as_float(measured.get(key)) is None]
+
+
+def _memory_usage_ratio(measured: dict[str, object]) -> float | None:
+    used = _as_float(measured.get("memory_usage_mb"))
+    limit = _as_float(measured.get("memory_limit_mb"))
+    if used is None or not limit:
+        return None
+    return used / limit
 
 
 def _monthly_unavailability_budget_seconds(availability_percent_min: float | None) -> float | None:

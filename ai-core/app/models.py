@@ -103,6 +103,13 @@ class SLO(BaseModel):
     p99_latency_ms_max: float | None = None
     error_rate_max: float | None = None
     throughput_rps_min: float | None = None
+    # docs/judge-policy.md 3절 Fail 기준표의 나머지 항목
+    cpu_usage_percent_max: float | None = None
+    memory_usage_ratio_max: float | None = None
+    restart_count_max: float | None = None
+    db_connection_errors_max: float | None = None
+    redis_connection_errors_max: float | None = None
+    request_count_min: float | None = None
 
 
 # 기본 SLO 목표값. 관측값이 아니라 설정이며 운영자가 바꾸는 것을 전제로 한다.
