@@ -1,5 +1,5 @@
 # 프롬프트를 바꾸면 이 값을 올린다. 평가 리포트가 모델 차이와 프롬프트 차이를 구분한다.
-PROMPT_VERSION = "2026-09-27.2"
+PROMPT_VERSION = "2026-09-27.3"
 
 PLANNER_PROMPT = """
 You are a Senior SRE validation planner.
@@ -45,5 +45,8 @@ Return strict JSON:
 patch_diff must be a unified diff that `git apply` accepts, with a/ and b/ prefixes.
 Change only source files you can see in the evidence. Never touch CI config or paths outside the repository.
 Set patch_diff to null when the evidence is not enough to write a concrete change.
+When metrics.applied_patch is present, that patch is already applied in the sandbox and the evidence
+describes the run after it. Write patch_diff against the patched files so it applies on top of that patch,
+and set it to null if the previous patch already covers the remaining evidence.
 Do not include markdown fences.
 """

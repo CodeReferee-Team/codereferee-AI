@@ -12,7 +12,8 @@
 8. Judge decides pass/fail from preflight, logs, and metrics.
 9. Critic identifies the reliability gap and root cause.
 10. Refiner returns remediation guidance, verification steps, risk level, and an optional unified diff for the reported defect; it does not regenerate the project.
-11. A proposed diff is gated before execution (size cap, protected paths, `git apply --check`), then applied inside the sandbox for a rerun whose result is recorded in `metrics.patch_rerun`.
+11. A proposed diff is gated before execution (size cap, protected paths, `git apply --check`), then applied inside the sandbox for a rerun.
+12. A failing rerun is re-judged on a copied state to produce the next patch, which is appended to the cumulative diff and rerun, up to `MAX_SELF_HEALING_RETRIES` rounds or the 1MB cumulative cap. Rounds never change the verdict for the submitted repository.
 
 ## Full System Mapping
 

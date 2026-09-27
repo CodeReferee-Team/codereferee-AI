@@ -5,7 +5,8 @@ from pathlib import Path
 
 from unittest import mock
 
-from app.agents import patching
+from app.agents import nodes, patching
+from app.config import get_settings
 from app.models import AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 from app.sandbox import docker_runner
 from app.workflow import repository_validation
@@ -111,10 +112,12 @@ class PatchRerunTests(unittest.TestCase):
         with mock.patch.object(
             repository_validation.sandbox_runner, "run_repository", return_value=SandboxResult(exit_code=0)
         ) as run:
-            repository_validation._rerun_with_patch(state)
+            _, summary = repository_validation._rerun_with_patch(
+                state, str(state.refiner_report["patch_diff"])
+            )
         self.assertEqual(run.call_args.kwargs["patch_diff"], state.refiner_report["patch_diff"])
-        self.assertTrue(state.metrics["patch_rerun"]["passed"])
-        self.assertTrue(state.metrics["patch_rerun"]["patch_applied"])
+        self.assertTrue(summary["passed"])
+        self.assertTrue(summary["patch_applied"])
 
     def test_rerun_marks_patch_apply_failure_separately(self) -> None:
         state = AgentState(job_id="j", repository_url="https://github.com/o/r", status=JobStatus.failed)
@@ -124,9 +127,11 @@ class PatchRerunTests(unittest.TestCase):
         state.refiner_report = {"patch_diff": "--- a/app.py\n+++ b/app.py\n"}
         failure = SandboxResult(exit_code=docker_runner.PATCH_APPLY_EXIT_CODE)
         with mock.patch.object(repository_validation.sandbox_runner, "run_repository", return_value=failure):
-            repository_validation._rerun_with_patch(state)
-        self.assertFalse(state.metrics["patch_rerun"]["patch_applied"])
-        self.assertFalse(state.metrics["patch_rerun"]["passed"])
+            _, summary = repository_validation._rerun_with_patch(
+                state, str(state.refiner_report["patch_diff"])
+            )
+        self.assertFalse(summary["patch_applied"])
+        self.assertFalse(summary["passed"])
 
     def test_rerun_is_skipped_unless_the_patch_was_verified(self) -> None:
         state = AgentState(job_id="j", repository_url="https://github.com/o/r", status=JobStatus.failed)
@@ -136,6 +141,118 @@ class PatchRerunTests(unittest.TestCase):
         self.assertFalse(repository_validation._patch_is_applicable(state))
         state.metrics["patch_check"] = {"applies": True}
         self.assertTrue(repository_validation._patch_is_applicable(state))
+
+
+DIFF = "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n"
+FOLLOW_UP = "--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-x = 2\n+x = 3\n"
+
+
+def _failing_state() -> AgentState:
+    state = AgentState(job_id="j", repository_url="https://github.com/o/r", status=JobStatus.failed)
+    state.preflight_report = RepositoryPreflightReport(
+        repository_url="https://github.com/o/r", cloneable=True, executable=True
+    )
+    state.refiner_report = {"patch_diff": DIFF}
+    state.metrics["patch_check"] = {"applies": True}
+    return state
+
+
+class PatchRoundTests(unittest.TestCase):
+    """B3: 라운드 루프. 상한은 라운드 수와 누적 diff 크기."""
+
+    def setUp(self) -> None:
+        self.progress: list[tuple[int | None, int | None]] = []
+        # 라운드 루프 테스트는 루프 제어를 본다. LLM을 켜두면 실제 호출이 나간다.
+        self._llm_enabled = nodes.llm.enabled
+        nodes.llm.enabled = False
+
+    def tearDown(self) -> None:
+        nodes.llm.enabled = self._llm_enabled
+
+    def _emit(self, step: str, **kwargs) -> None:
+        self.progress.append((kwargs.get("round_"), kwargs.get("max_rounds")))
+
+    def test_passing_rerun_stops_after_one_round(self) -> None:
+        state = _failing_state()
+        with mock.patch.object(
+            repository_validation.sandbox_runner, "run_repository", return_value=SandboxResult(exit_code=0)
+        ) as run:
+            repository_validation._run_patch_rounds(state, self._emit)
+        self.assertEqual(run.call_count, 1)
+        rounds = state.metrics["patch_rounds"]
+        self.assertEqual(len(rounds), 1)
+        self.assertTrue(rounds[0]["passed"])
+        self.assertEqual(self.progress, [(1, 3)])
+
+    def test_failing_rerun_feeds_the_next_round_and_accumulates_the_diff(self) -> None:
+        state = _failing_state()
+        with mock.patch.object(
+            repository_validation.sandbox_runner, "run_repository", return_value=SandboxResult(exit_code=1)
+        ) as run, mock.patch.object(
+            repository_validation, "_next_patch_from_rerun", return_value=(FOLLOW_UP, {"status": "Fail"})
+        ), mock.patch.object(
+            repository_validation, "_check_applies", return_value=patching.PatchVerdict(True)
+        ), mock.patch.object(
+            repository_validation, "get_settings", return_value=get_settings().model_copy(
+                update={"max_self_healing_retries": 2}
+            )
+        ):
+            repository_validation._run_patch_rounds(state, self._emit)
+        self.assertEqual(run.call_count, 2)
+        # 2라운드는 누적 diff로 돌아야 한다. 새 패치만 보내면 1라운드 수정이 사라진다.
+        self.assertEqual(run.call_args.kwargs["patch_diff"], DIFF + FOLLOW_UP)
+        self.assertEqual(state.refiner_report["patch_diff"], DIFF + FOLLOW_UP)
+        self.assertEqual(self.progress, [(1, 2), (2, 2)])
+        self.assertEqual(state.metrics["patch_rounds"][-1]["stopped"], "round_limit")
+
+    def test_round_stops_when_the_cumulative_diff_exceeds_the_cap(self) -> None:
+        state = _failing_state()
+        huge = "--- a/big.py\n+++ b/big.py\n" + "+line\n" * 200_000
+        with mock.patch.object(
+            repository_validation.sandbox_runner, "run_repository", return_value=SandboxResult(exit_code=1)
+        ) as run, mock.patch.object(
+            repository_validation, "_next_patch_from_rerun", return_value=(huge, {"status": "Fail"})
+        ):
+            repository_validation._run_patch_rounds(state, self._emit)
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(state.metrics["patch_rounds"][0]["stopped"], "patch_too_large")
+        self.assertEqual(state.refiner_report["patch_diff"], DIFF)
+
+    def test_round_stops_when_the_accumulated_patch_no_longer_applies(self) -> None:
+        state = _failing_state()
+        with mock.patch.object(
+            repository_validation.sandbox_runner, "run_repository", return_value=SandboxResult(exit_code=1)
+        ), mock.patch.object(
+            repository_validation, "_next_patch_from_rerun", return_value=(FOLLOW_UP, {"status": "Fail"})
+        ), mock.patch.object(
+            repository_validation,
+            "_check_applies",
+            return_value=patching.PatchVerdict(False, "patch_does_not_apply", "context mismatch"),
+        ):
+            repository_validation._run_patch_rounds(state, self._emit)
+        self.assertEqual(state.metrics["patch_rounds"][0]["stopped"], "patch_does_not_apply")
+        self.assertEqual(state.refiner_report["patch_diff"], DIFF)
+
+    def test_patch_apply_failure_stops_the_loop(self) -> None:
+        state = _failing_state()
+        failure = SandboxResult(exit_code=docker_runner.PATCH_APPLY_EXIT_CODE)
+        with mock.patch.object(
+            repository_validation.sandbox_runner, "run_repository", return_value=failure
+        ) as run:
+            repository_validation._run_patch_rounds(state, self._emit)
+        self.assertEqual(run.call_count, 1)
+
+    def test_rejudging_the_rerun_leaves_the_original_verdict_alone(self) -> None:
+        state = _failing_state()
+        state.judge_report = {"status": "Fail", "reason_category": "test_failure", "reason": "r", "evidence": ["e"]}
+        original = dict(state.judge_report)
+        follow_up, verdict = repository_validation._next_patch_from_rerun(
+            state, SandboxResult(exit_code=1), {"passed": False}, DIFF
+        )
+        self.assertEqual(state.judge_report, original)
+        self.assertEqual(verdict["status"], "Fail")
+        # LLM이 꺼진 기본 설정에서는 규칙 기반 Refiner가 diff를 만들지 않는다. 루프는 여기서 끝난다.
+        self.assertIsNone(follow_up)
 
 
 if __name__ == "__main__":

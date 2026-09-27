@@ -57,7 +57,11 @@ Refiner Agent는 Critic Agent의 분석 결과를 바탕으로 수정 방향을 
 - 재검증 절차 제안
 - 위험도 평가
 
-패치는 실행 전에 두 단계로 거른다. `inspect_diff`가 1MB 상한·보호 경로(`.github/`, `.git/`, CI 설정)·레포 밖 경로를 막고, `check_applies`가 얕게 clone한 레포에 `git apply --check`를 돌린다. 둘을 통과한 패치만 sandbox에서 적용해 재실행하고, 결과는 `metrics.patch_rerun`에 남는다. 재실행은 판정을 바꾸지 않는다 — 패치가 문제를 해결했는지에 대한 증거일 뿐이다.
+패치는 실행 전에 두 단계로 거른다. `inspect_diff`가 1MB 상한·보호 경로(`.github/`, `.git/`, CI 설정)·레포 밖 경로를 막고, `check_applies`가 얕게 clone한 레포에 `git apply --check`를 돌린다. 둘을 통과한 패치만 sandbox에서 적용해 재실행한다.
+
+재실행이 여전히 실패하면 그 실행 결과를 다시 판정해 다음 패치를 만들고, 새 패치를 누적 diff 뒤에 이어 붙여 다시 돌린다. 멈추는 조건은 네 가지다 — 재실행 통과, 라운드 상한(`MAX_SELF_HEALING_RETRIES`, 기본 3), 누적 diff 1MB 초과, 더 만들 패치가 없음. 라운드마다 `REFINING` progress를 `round`/`max_rounds`와 함께 보내고, 결과는 `metrics.patch_rounds`(라운드별)와 `metrics.patch_rerun`(마지막)에 남는다.
+
+재판정은 복사한 state에서 돌린다. 제출된 레포에 대한 판정이 최종 산출물이라 덮어쓰면 안 된다. 재실행이 통과해도 판정은 바뀌지 않는다 — 제출된 레포는 여전히 실패했고, 누적 diff는 "이 변경이면 고쳐진다"는 증거다.
 
 ## 3. 관련 파일
 

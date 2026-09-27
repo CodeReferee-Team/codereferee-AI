@@ -8,13 +8,14 @@ import tempfile
 from pathlib import Path
 
 from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
-from app.agents.patching import check_applies
+from app.agents.patching import PatchVerdict, check_applies, inspect_diff
 from app.models import (
     DEFAULT_SLO,
     AgentState,
     JobStatus,
     RepositoryValidationRequest,
     RepositoryValidationResponse,
+    SandboxResult,
     SREMetrics,
 )
 from app import events as event_builder
@@ -129,10 +130,7 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
         state = refiner_node(state)
         _verify_patch_applies(state)
         if _patch_is_applicable(state):
-            emit_progress(
-                event_builder.REFINING, round_=1, max_rounds=get_settings().max_self_healing_retries
-            )
-            _rerun_with_patch(state)
+            _run_patch_rounds(state, emit_progress)
     VALIDATION_COUNTER.labels(status=state.status).inc()
     _record_sqlite_artifacts(state)
     job_store.save(state)
@@ -361,23 +359,9 @@ def _verify_patch_applies(state: AgentState) -> None:
     diff = state.refiner_report.get("patch_diff")
     if not diff:
         return
-
-    workdir = tempfile.mkdtemp(prefix="codereferee-patchcheck-")
-    try:
-        clone = subprocess.run(
-            ["git", "clone", "--quiet", "--depth", "1", *(["--branch", state.branch] if state.branch else []),
-             state.repository_url, workdir],
-            capture_output=True, text=True, timeout=get_settings().repository_clone_timeout_seconds,
-        )
-        if clone.returncode != 0:
-            state.events.append("Refiner: patch apply check skipped, clone failed")
-            return
-        verdict = check_applies(str(diff), Path(workdir))
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        state.events.append(f"Refiner: patch apply check skipped: {exc.__class__.__name__}")
+    verdict = _check_applies(state, str(diff))
+    if verdict is None:
         return
-    finally:
-        shutil.rmtree(workdir, ignore_errors=True)
 
     check = dict(state.metrics.get("patch_check") or {})
     check.update({"applies": verdict.accepted, "reason_code": verdict.reason_code, "reason": verdict.reason})
@@ -396,19 +380,15 @@ def _patch_is_applicable(state: AgentState) -> bool:
     return bool((state.metrics.get("patch_check") or {}).get("applies"))
 
 
-def _rerun_with_patch(state: AgentState) -> None:
-    """패치를 적용한 상태로 sandbox를 다시 돌려 결과를 기록한다.
-
-    판정을 바꾸지는 않는다. 여기서 하는 일은 "이 패치가 실제로 문제를 해결하는가"의 증거를 남기는 것이고,
-    라운드를 돌며 재판정하는 것은 다음 단계다.
-    """
+def _rerun_with_patch(state: AgentState, diff: str) -> tuple[SandboxResult, dict[str, object]]:
+    """패치를 적용한 상태로 sandbox를 다시 돌리고 결과를 요약한다."""
     result = sandbox_runner.run_repository(
         state.preflight_report.repository_url,
         branch=state.branch,
         commit_sha=state.requested_commit_sha,
-        patch_diff=str(state.refiner_report["patch_diff"]),
+        patch_diff=diff,
     )
-    rerun = {
+    summary: dict[str, object] = {
         "attempted": True,
         "exit_code": result.exit_code,
         "timed_out": result.timed_out,
@@ -418,13 +398,119 @@ def _rerun_with_patch(state: AgentState) -> None:
         "patch_applied": result.exit_code != PATCH_APPLY_EXIT_CODE,
         "passed": result.exit_code == 0 and not result.timed_out,
     }
-    state.metrics["patch_rerun"] = rerun
     if result.infra_error:
         state.events.append(f"Refiner: patch rerun unavailable: {result.infra_error}")
-    elif rerun["passed"]:
+    elif summary["passed"]:
         state.events.append("Refiner: sandbox rerun with the patch passed")
     else:
         state.events.append(f"Refiner: sandbox rerun with the patch failed (exit={result.exit_code})")
+    return result, summary
+
+
+def _run_patch_rounds(state: AgentState, emit_progress) -> None:
+    """패치를 적용해 재실행하고, 여전히 실패하면 그 결과를 근거로 다음 패치를 만든다.
+
+    라운드마다 새 패치를 누적 diff 뒤에 이어 붙인다. 한 번에 다 적용하므로 같은 파일을 두 번
+    고치는 것도 순서대로 적용된다. 멈추는 조건은 네 가지다. 재실행 통과, 라운드 상한
+    (max_self_healing_retries), 누적 diff 상한(inspect_diff의 1MB), 그리고 더 만들 패치가 없음.
+
+    재실행이 통과해도 최종 판정은 바꾸지 않는다. 제출된 레포는 여전히 실패했고, 패치는 제안이다.
+    통과한 패치는 "이 변경이면 고쳐진다"는 증거로 남는다.
+    """
+    max_rounds = get_settings().max_self_healing_retries
+    cumulative = str(state.refiner_report["patch_diff"])
+    rounds: list[dict[str, object]] = []
+    state.metrics["patch_rounds"] = rounds
+
+    for round_ in range(1, max_rounds + 1):
+        emit_progress(event_builder.REFINING, round_=round_, max_rounds=max_rounds)
+        result, summary = _rerun_with_patch(state, cumulative)
+        record: dict[str, object] = {
+            "round": round_,
+            "patch_bytes": len(cumulative.encode("utf-8")),
+            **summary,
+        }
+        rounds.append(record)
+        state.metrics["patch_rerun"] = summary
+        if summary["passed"] or summary["infra_error"] or not summary["patch_applied"]:
+            break
+        if round_ == max_rounds:
+            record["stopped"] = "round_limit"
+            break
+
+        follow_up, verdict = _next_patch_from_rerun(state, result, summary, cumulative)
+        record["rerun_verdict"] = verdict
+        if not follow_up:
+            record["stopped"] = "no_further_patch"
+            break
+        merged = cumulative + ("" if cumulative.endswith("\n") else "\n") + follow_up
+        gate = inspect_diff(merged)
+        if not gate.accepted:
+            record["stopped"] = gate.reason_code
+            break
+        applies = _check_applies(state, merged)
+        if applies is None or not applies.accepted:
+            record["stopped"] = applies.reason_code if applies else "patch_check_skipped"
+            break
+        cumulative = merged
+
+    # 사람이 적용할 것은 누적 diff 전체다.
+    state.refiner_report["patch_diff"] = cumulative
+
+
+def _next_patch_from_rerun(
+    state: AgentState, result: SandboxResult, summary: dict[str, object], applied_patch: str
+) -> tuple[str | None, dict[str, object]]:
+    """패치 적용 후에도 실패한 실행을 다시 판정하고, 그 근거로 다음 패치를 만든다.
+
+    원본 판정을 덮으면 안 된다. 제출된 레포에 대한 판정이 최종 산출물이기 때문에
+    복사한 state에서 돌리고 결과만 가져온다.
+    """
+    probe = state.model_copy(deep=True)
+    probe.execution_result = result
+    probe.metrics = _metrics_from_execution(probe)
+    probe.sre_metrics = _sre_metrics_from_execution(probe)
+    probe.metrics["patch_rerun"] = dict(summary)
+    # 다음 패치는 이 패치 위에 적용된다. 무엇이 이미 적용됐는지 보여주지 않으면
+    # 원본 파일 기준으로 패치를 써서 충돌한다.
+    probe.metrics["applied_patch"] = applied_patch
+    probe.judge_report = {}
+    probe.critic_feedback = {}
+    probe.refiner_report = {}
+
+    probe = judge_node(probe)
+    verdict = {
+        "status": probe.judge_report.get("status"),
+        "reason_category": probe.judge_report.get("reason_category"),
+    }
+    if probe.judge_report.get("status") == "Pass":
+        # 재실행은 실패로 끝났는데 규칙은 통과라고 본다면 근거가 어긋난 것이다. 더 고치지 않는다.
+        return None, verdict
+    probe = critic_node(probe)
+    probe = refiner_node(probe)
+    follow_up = probe.refiner_report.get("patch_diff")
+    state.events.extend(probe.events[len(state.events) :])
+    return (str(follow_up) if follow_up else None), verdict
+
+
+def _check_applies(state: AgentState, diff: str) -> PatchVerdict | None:
+    """레포를 얕게 clone해 패치 적용 가능성을 확인한다. 확인 자체를 못 하면 None."""
+    workdir = tempfile.mkdtemp(prefix="codereferee-patchcheck-")
+    try:
+        clone = subprocess.run(
+            ["git", "clone", "--quiet", "--depth", "1", *(["--branch", state.branch] if state.branch else []),
+             state.repository_url, workdir],
+            capture_output=True, text=True, timeout=get_settings().repository_clone_timeout_seconds,
+        )
+        if clone.returncode != 0:
+            state.events.append("Refiner: patch apply check skipped, clone failed")
+            return None
+        return check_applies(diff, Path(workdir))
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        state.events.append(f"Refiner: patch apply check skipped: {exc.__class__.__name__}")
+        return None
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 def _record_sqlite_artifacts(state: AgentState) -> None:
