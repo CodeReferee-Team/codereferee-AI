@@ -52,6 +52,7 @@ def build_evidence_packet(state: AgentState) -> dict[str, Any]:
             "run_command": result.run_command,
             "service_check_applicable": getattr(result, "service_check_attempted", False),
             "browser_check_applicable": getattr(result, "browser_check_attempted", False),
+            "observation_status": result.observation_status,
             "sandbox_report": dict(result.sandbox_report),
             "sandbox_summary": result.sandbox_summary,
             "log_excerpt": truncate_log(result.log),

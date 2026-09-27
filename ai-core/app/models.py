@@ -50,6 +50,9 @@ class SandboxResult(BaseModel):
     chaos_observation: dict[str, Any] = Field(default_factory=dict)
     source: dict[str, Any] = Field(default_factory=dict)
     sandbox_report: dict[str, Any] = Field(default_factory=dict)
+    # Sandbox가 관측에 성공했는지 스스로 밝히는 값 (observed | infrastructure_error).
+    # exitCode만으로는 "복구 실패"와 "관측 불가"를 구분할 수 없어 2026-09 합의로 추가됐다.
+    observation_status: str | None = None
 
     @property
     def sandbox_summary(self) -> str:
@@ -92,6 +95,8 @@ class SandboxResult(BaseModel):
             parts.append(f"schema_version={self.schema_version}")
         if self.probe_transport:
             parts.append(f"probe_transport={self.probe_transport}")
+        if self.observation_status:
+            parts.append(f"observation_status={self.observation_status}")
         if self.sandbox_summary:
             parts.append(f"sandbox={self.sandbox_summary}")
         parts += ["stdout:", self.stdout.strip(), "stderr:", self.stderr.strip()]
