@@ -53,8 +53,11 @@ Refiner Agent는 Critic Agent의 분석 결과를 바탕으로 수정 방향을 
 
 - 개선 요약 작성
 - 수정 가이드 제안
+- 실제 unified diff 제안 (`patch_diff`, 만들 근거가 없으면 `null`)
 - 재검증 절차 제안
 - 위험도 평가
+
+패치는 실행 전에 두 단계로 거른다. `inspect_diff`가 1MB 상한·보호 경로(`.github/`, `.git/`, CI 설정)·레포 밖 경로를 막고, `check_applies`가 얕게 clone한 레포에 `git apply --check`를 돌린다. 둘을 통과한 패치만 sandbox에서 적용해 재실행하고, 결과는 `metrics.patch_rerun`에 남는다. 재실행은 판정을 바꾸지 않는다 — 패치가 문제를 해결했는지에 대한 증거일 뿐이다.
 
 ## 3. 관련 파일
 

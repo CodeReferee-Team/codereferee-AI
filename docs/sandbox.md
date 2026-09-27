@@ -8,6 +8,7 @@ CodeReferee Sandbox는 GitHub 레포지토리의 실행 가능성과 신뢰성 �
 - 외부 Sandbox 실행 경로: Kubernetes 기반 fixture의 Chaos v1 실험 실행 및 복구 관측
 - timeout 및 resource limit 적용
 - stdout/stderr/exit_code와 SRE 관측값 수집
+- Refiner 패치 재실행: `patch_diff`가 오면 `refiner_patch.diff`로 마운트해 clone/checkout 직후 `git apply`한다. 적용 실패는 검증 실패와 원인이 달라 전용 종료 코드 88로 구분한다. 외부 sandbox HTTP API에는 아직 패치 필드가 없어 `sandbox_patch_unsupported`로 돌려준다 (백엔드 상의 항목).
 - Judge Agent에 전달할 실행 결과와 evidence 생성
 
 ## 실행 흐름

@@ -11,7 +11,8 @@
 7. The sandbox emits logs and Prometheus-style metrics such as exit code, timeout, and duration.
 8. Judge decides pass/fail from preflight, logs, and metrics.
 9. Critic identifies the reliability gap and root cause.
-10. Refiner returns remediation guidance, verification steps, and risk level; it does not generate replacement project code.
+10. Refiner returns remediation guidance, verification steps, risk level, and an optional unified diff for the reported defect; it does not regenerate the project.
+11. A proposed diff is gated before execution (size cap, protected paths, `git apply --check`), then applied inside the sandbox for a rerun whose result is recorded in `metrics.patch_rerun`.
 
 ## Full System Mapping
 

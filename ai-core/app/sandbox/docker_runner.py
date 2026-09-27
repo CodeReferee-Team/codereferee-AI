@@ -12,20 +12,39 @@ from docker.errors import DockerException
 from app.config import get_settings
 from app.models import SandboxResult
 
+PATCH_FILENAME = "refiner_patch.diff"
+# 패치 적용 실패 전용 종료 코드. 스택 미검출(86)·러너 부재(87)와 섞이면 원인을 못 가린다.
+PATCH_APPLY_EXIT_CODE = 88
+
 
 class SandboxRunner:
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    def run_repository(self, repository_url: str, branch: str | None = None, commit_sha: str | None = None) -> SandboxResult:
+    def run_repository(
+        self,
+        repository_url: str,
+        branch: str | None = None,
+        commit_sha: str | None = None,
+        patch_diff: str | None = None,
+    ) -> SandboxResult:
         """Clone and smoke-test an existing repository.
 
         When SANDBOX_BASE_URL is configured, delegate to the external sandbox HTTP service.
         Otherwise, fall back to the local Docker SDK sandbox.
+
+        patch_diff는 Refiner가 만든 패치를 적용한 뒤 재실행할 때 쓴다. 외부 sandbox API에는
+        아직 패치를 실을 필드가 없어서 로컬 Docker 경로에서만 지원한다.
         """
         if self.settings.sandbox_base_url:
+            if patch_diff:
+                return SandboxResult(
+                    exit_code=None,
+                    stderr="External sandbox has no patch field yet; rerun with patch is unsupported.",
+                    infra_error="sandbox_patch_unsupported",
+                )
             return self._run_repository_via_http(repository_url, branch, commit_sha)
-        return self._run_repository_via_local_docker(repository_url, branch, commit_sha)
+        return self._run_repository_via_local_docker(repository_url, branch, commit_sha, patch_diff)
 
     def _run_repository_via_http(
         self, repository_url: str, branch: str | None = None, commit_sha: str | None = None
@@ -76,13 +95,22 @@ class SandboxRunner:
             )
 
     def _run_repository_via_local_docker(
-        self, repository_url: str, branch: str | None = None, commit_sha: str | None = None
+        self,
+        repository_url: str,
+        branch: str | None = None,
+        commit_sha: str | None = None,
+        patch_diff: str | None = None,
     ) -> SandboxResult:
         started_at = time.monotonic()
         with tempfile.TemporaryDirectory(prefix="codereferee-repo-") as tmp:
             workdir = Path(tmp)
+            if patch_diff:
+                (workdir / PATCH_FILENAME).write_text(patch_diff, encoding="utf-8")
             script_path = workdir / "validate_repository.sh"
-            script_path.write_text(_repository_validation_script(repository_url, branch, commit_sha), encoding="utf-8")
+            script_path.write_text(
+                _repository_validation_script(repository_url, branch, commit_sha, bool(patch_diff)),
+                encoding="utf-8",
+            )
 
             try:
                 client = docker.from_env()
@@ -186,10 +214,20 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
     )
 
 
-def _repository_validation_script(repository_url: str, branch: str | None, commit_sha: str | None) -> str:
+def _repository_validation_script(
+    repository_url: str, branch: str | None, commit_sha: str | None, with_patch: bool = False
+) -> str:
     url = shlex.quote(repository_url)
     branch_clause = f"--branch {shlex.quote(branch)}" if branch else ""
     checkout = f"git checkout {shlex.quote(commit_sha)}" if commit_sha else "true"
+    # 패치가 있으면 clone/checkout 직후에 적용한다. 적용 실패는 검증 실패(86/87)와 원인이 달라
+    # 별도 종료 코드로 구분한다.
+    apply_patch = (
+        f'echo "[CodeReferee] applying refiner patch"\n'
+        f"git apply --whitespace=nowarn /workspace/{PATCH_FILENAME} || exit {PATCH_APPLY_EXIT_CODE}"
+        if with_patch
+        else "true"
+    )
     return f"""#!/bin/sh
 set -eu
 
@@ -202,6 +240,7 @@ echo "[CodeReferee] cloning repository"
 git clone --depth 1 {branch_clause} {url} /tmp/repository
 cd /tmp/repository
 {checkout}
+{apply_patch}
 
 echo "[CodeReferee] resolving commit"
 git rev-parse HEAD

@@ -21,7 +21,7 @@ from app import events as event_builder
 from app.config import get_settings
 from app.queue.redis_queue import redis_task_queue
 from app.repository.preflight import repository_preflight_runner
-from app.sandbox.docker_runner import sandbox_runner
+from app.sandbox.docker_runner import PATCH_APPLY_EXIT_CODE, sandbox_runner
 from app.storage.sqlite_store import job_store, record_validation_artifacts
 
 VALIDATION_COUNTER = Counter("codereferee_repository_validations_total", "Total repository validations", ["status"])
@@ -128,6 +128,11 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
         state = critic_node(state)
         state = refiner_node(state)
         _verify_patch_applies(state)
+        if _patch_is_applicable(state):
+            emit_progress(
+                event_builder.REFINING, round_=1, max_rounds=get_settings().max_self_healing_retries
+            )
+            _rerun_with_patch(state)
     VALIDATION_COUNTER.labels(status=state.status).inc()
     _record_sqlite_artifacts(state)
     job_store.save(state)
@@ -382,6 +387,44 @@ def _verify_patch_applies(state: AgentState) -> None:
     else:
         state.events.append(f"Refiner: patch does not apply: {verdict.reason_code}")
         state.refiner_report["patch_diff"] = None
+
+
+def _patch_is_applicable(state: AgentState) -> bool:
+    """패치가 있고 실제 레포에 적용되는 것까지 확인됐는지."""
+    if not state.refiner_report.get("patch_diff"):
+        return False
+    return bool((state.metrics.get("patch_check") or {}).get("applies"))
+
+
+def _rerun_with_patch(state: AgentState) -> None:
+    """패치를 적용한 상태로 sandbox를 다시 돌려 결과를 기록한다.
+
+    판정을 바꾸지는 않는다. 여기서 하는 일은 "이 패치가 실제로 문제를 해결하는가"의 증거를 남기는 것이고,
+    라운드를 돌며 재판정하는 것은 다음 단계다.
+    """
+    result = sandbox_runner.run_repository(
+        state.preflight_report.repository_url,
+        branch=state.branch,
+        commit_sha=state.requested_commit_sha,
+        patch_diff=str(state.refiner_report["patch_diff"]),
+    )
+    rerun = {
+        "attempted": True,
+        "exit_code": result.exit_code,
+        "timed_out": result.timed_out,
+        "duration_ms": result.duration_ms,
+        "infra_error": result.infra_error,
+        # 패치 적용 자체가 실패한 경우는 sandbox 스크립트가 전용 종료 코드로 알려준다.
+        "patch_applied": result.exit_code != PATCH_APPLY_EXIT_CODE,
+        "passed": result.exit_code == 0 and not result.timed_out,
+    }
+    state.metrics["patch_rerun"] = rerun
+    if result.infra_error:
+        state.events.append(f"Refiner: patch rerun unavailable: {result.infra_error}")
+    elif rerun["passed"]:
+        state.events.append("Refiner: sandbox rerun with the patch passed")
+    else:
+        state.events.append(f"Refiner: sandbox rerun with the patch failed (exit={result.exit_code})")
 
 
 def _record_sqlite_artifacts(state: AgentState) -> None:
