@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from app.agents import nodes
 from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
 from app.models import AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 from app.repository.preflight import _normalize_github_url
@@ -19,6 +20,14 @@ from app.models import RepositoryValidationRequest
 
 
 class RepositoryValidationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # 단위 테스트는 결정적이어야 한다. API 키가 설정돼 있어도 실제 호출을 하지 않는다.
+        self._llm_enabled = nodes.llm.enabled
+        nodes.llm.enabled = False
+
+    def tearDown(self) -> None:
+        nodes.llm.enabled = self._llm_enabled
+
     def test_planner_builds_repository_validation_plan(self) -> None:
         state = AgentState(job_id="test", repository_url="https://github.com/example/project.git")
         result = planner_node(state)

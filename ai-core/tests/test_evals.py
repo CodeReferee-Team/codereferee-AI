@@ -150,6 +150,14 @@ class CompareTests(unittest.TestCase):
         b = _report(model="gemini:x", repeat=3, accuracy=32 / 34)
         self.assertEqual(eval_compare.compare(a, b)["exit_code"], 0)
 
+    def test_insignificant_drop_is_labelled_worse_not_better(self) -> None:
+        # 신뢰구간이 겹쳐 회귀가 아니어도, 수치가 내려갔으면 개선이라고 적으면 안 된다.
+        a = _report(model="gemini:x", repeat=3, category_accuracy=1.0)
+        b = _report(model="gemini:x", repeat=3, category_accuracy=32 / 34)
+        rendered = eval_compare.render(eval_compare.compare(a, b))
+        self.assertIn("악화", rendered)
+        self.assertNotIn("| 개선 |", rendered)
+
     def test_injection_false_pass_is_always_a_regression(self) -> None:
         a = _report(model="gemini:x", repeat=3)
         b = _report(model="gemini:x", repeat=3, injection_false_pass=1)

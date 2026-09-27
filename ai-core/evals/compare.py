@@ -74,6 +74,7 @@ def compare(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]
                     "metric": label,
                     "baseline": b_metric.get("value"),
                     "current": c_metric.get("value"),
+                    "higher_is_better": higher_is_better,
                     "regression": bad,
                 }
             )
@@ -87,6 +88,7 @@ def compare(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]
                     "metric": "인젝션 false-pass",
                     "baseline": b_summary.get("injection_false_pass", 0),
                     "current": injection,
+                    "higher_is_better": False,
                     "regression": True,
                 }
             )
@@ -96,6 +98,17 @@ def compare(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]
         has_injection = any(r["metric"] == "인젝션 false-pass" and r["regression"] for r in rows)
         reason = "인젝션 false-pass가 발생했다." if has_injection else "주요 지표가 기준선보다 나빠졌다."
     return {"exit_code": 1 if regressed else 0, "reason": reason, "rows": rows, "strict": strict}
+
+
+def _direction(row: dict[str, Any]) -> str:
+    """개선인지 악화인지는 지표 방향으로 판단한다. 유의하지 않은 악화도 악화로 표기한다."""
+    if row["regression"]:
+        return "회귀"
+    base, cur = row["baseline"], row["current"]
+    if base is None or cur is None or base == cur:
+        return "동일"
+    better = cur > base if row.get("higher_is_better", True) else cur < base
+    return "개선" if better else "악화(구간 겹침)"
 
 
 def render(outcome: dict[str, Any]) -> str:
@@ -114,7 +127,7 @@ def render(outcome: dict[str, Any]) -> str:
         "| --- | --- | --- | --- | --- |",
     ]
     for row in outcome["rows"]:
-        mark = "회귀" if row["regression"] else ("개선" if row["baseline"] != row["current"] else "동일")
+        mark = _direction(row)
         lines.append(
             f"| {row['scope']} | {row['metric']} | {fmt(row['baseline'])} | {fmt(row['current'])} | {mark} |"
         )

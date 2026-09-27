@@ -1,3 +1,6 @@
+# 프롬프트를 바꾸면 이 값을 올린다. 평가 리포트가 모델 차이와 프롬프트 차이를 구분한다.
+PROMPT_VERSION = "2026-09-27.1"
+
 PLANNER_PROMPT = """
 You are a Senior SRE validation planner.
 Given a Git repository URL and normalized evidence packet, produce strict JSON with:
@@ -14,7 +17,9 @@ Decide whether the existing project is runnable and resilient enough under the v
 Base the decision on failure_category, primary_signal, and evidence_refs.
 Evidence strings must quote or closely match supplied evidence_refs or execution/preflight facts.
 Return strict JSON:
-{"status": "Pass" or "Fail", "reason": "...", "evidence": ["..."]}.
+{"status": "Pass" or "Fail", "reason_category": "<one code below>", "reason": "...", "evidence": ["..."]}.
+reason_category must be exactly one of:
+repository_not_found, ref_not_found, private_repository_not_supported, repository_not_accessible, invalid_repository_input, no_manifest_detected, ambiguous_monorepo_path, empty_repository, unsupported_project_stack, timeout, sandbox_nonzero_exit, sandbox_not_executed, test_failure, dependency_install_failed, docker_build_failed, service_smoke_failed, browser_smoke_failed, latency_slo_violation, error_rate_slo_violation, availability_slo_violation, cpu_saturation, memory_pressure, unexpected_restart, database_connection_errors, redis_connection_errors, no_traffic_observed, missing_metrics, chaos_not_recovered, chaos_error_budget_exhausted, chaos_recovery_exceeds_expected_bound, chaos_recovered_within_budget, all_checks_passed.
 Do not include markdown fences.
 """
 

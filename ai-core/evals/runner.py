@@ -64,9 +64,12 @@ def run_case(case: case_loader.EvalCase) -> dict[str, Any]:
     }
 
 
-def evaluate(cases: list[case_loader.EvalCase], repeat: int) -> list[dict[str, Any]]:
+def evaluate(cases: list[case_loader.EvalCase], repeat: int, delay: float = 0.0) -> list[dict[str, Any]]:
     results = []
-    for case in cases:
+    for index, case in enumerate(cases):
+        if delay and index:
+            # 무료 등급은 분당 요청 수가 제한된다. 간격을 두지 않으면 429로 중단된다.
+            time.sleep(delay)
         runs = [run_case(case) for _ in range(repeat)]
         verdicts = [r["verdict"] for r in runs]
         results.append(
@@ -210,6 +213,7 @@ def main() -> int:
     run_cmd.add_argument("--per-category", type=int, default=3, help="T1 슬라이스의 카테고리당 표본 수")
     run_cmd.add_argument("--seed", type=int, default=7)
     run_cmd.add_argument("--repeat", type=int, default=1, help="같은 케이스 반복 횟수(LLM 흔들림 측정)")
+    run_cmd.add_argument("--delay", type=float, default=0.0, help="케이스 사이 대기 초. 무료 등급 분당 제한 회피용")
     cmp_cmd = sub.add_parser("compare", help="기준선과 비교한다")
     cmp_cmd.add_argument("baseline")
     cmp_cmd.add_argument("current")
@@ -231,7 +235,7 @@ def main() -> int:
 
     slices = [s.strip() for s in args.slices.split(",") if s.strip()]
     cases = case_loader.load(slices, per_category=args.per_category, seed=args.seed)
-    results = evaluate(cases, args.repeat)
+    results = evaluate(cases, args.repeat, getattr(args, 'delay', 0.0))
     report = build_report(results, model=args.model, repeat=args.repeat, seed=args.seed,
                           per_category=args.per_category)
 

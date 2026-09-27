@@ -16,25 +16,32 @@ def _strip_fences(text: str) -> str:
 
 
 class AgentLLM:
-    def __init__(self) -> None:
+    def __init__(self, model: str | None = None) -> None:
         settings = get_settings()
+        self.model = model or settings.llm_model
         self.enabled = bool(settings.google_api_key and ChatGoogleGenerativeAI and ChatPromptTemplate)
         self._llm = None
         if self.enabled:
             self._llm = ChatGoogleGenerativeAI(
-                model="gemini-2.5-flash",
+                model=self.model,
                 google_api_key=settings.google_api_key,
                 temperature=0,
                 convert_system_message_to_human=True,
             )
 
     def invoke_text(self, system_prompt: str, user_prompt: str, values: dict[str, Any]) -> str:
+        """프롬프트를 직접 치환해 모델에 넘긴다.
+
+        ChatPromptTemplate을 쓰지 않는 이유: 프롬프트에 담긴 JSON 예시의 중괄호를
+        템플릿 변수로 해석해 KeyError를 낸다. 값 치환은 우리가 하면 되는 일이라
+        템플릿 엔진을 끼울 이유가 없다.
+        """
         if not self._llm:
             raise RuntimeError("LLM is not configured")
-        prompt = ChatPromptTemplate.from_messages(
-            [("system", system_prompt), ("user", user_prompt)]
-        )
-        response = (prompt | self._llm).invoke(values)
+        filled = user_prompt
+        for key, value in values.items():
+            filled = filled.replace("{" + key + "}", str(value))
+        response = self._llm.invoke([("system", system_prompt), ("user", filled)])
         return _strip_fences(str(response.content))
 
     def invoke_schema_repair(

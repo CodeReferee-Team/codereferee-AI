@@ -5,6 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     google_api_key: str | None = None
+    # 모델명을 코드에 박지 않는다. 신규 키에서 구모델이 막히는 일이 있어 교체가 잦다.
+    llm_model: str = "gemini-flash-latest"
     redis_url: str = "redis://localhost:6379/0"
     redis_workflow_queue: str = "codereferee:workflow:input"
     redis_output_queue: str = "codereferee:workflow:output"
