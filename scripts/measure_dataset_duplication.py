@@ -46,9 +46,24 @@ def template_key(row: dict[str, Any]) -> str:
 
 @dataclass
 class FileReport:
+    """Stats for one filename, accumulated across every directory it appears in.
+
+    A batch directory per date means the same filename shows up many times, so
+    the sets must accumulate -- counting rows across batches while measuring
+    uniqueness within one of them would report a number nothing supports.
+    """
+
     total_rows: int = 0
-    unique_rows: int = 0
-    unique_templates: int = 0
+    rows: set[str] = field(default_factory=set)
+    templates: set[str] = field(default_factory=set)
+
+    @property
+    def unique_rows(self) -> int:
+        return len(self.rows)
+
+    @property
+    def unique_templates(self) -> int:
+        return len(self.templates)
 
     @property
     def duplication_percent(self) -> float:
@@ -83,10 +98,14 @@ def _percent(total: int, unique: int) -> float:
 
 def _iter_jsonl(paths: Iterable[Path]) -> Iterable[Path]:
     for path in paths:
+        if not path.exists():
+            raise SystemExit(f"no such path: {path}")
         if path.is_dir():
             yield from sorted(path.rglob("*.jsonl"))
         elif path.suffix == ".jsonl":
             yield path
+        else:
+            raise SystemExit(f"not a directory or .jsonl file: {path}")
 
 
 def _read_rows(path: Path) -> Iterable[dict[str, Any]]:
@@ -108,8 +127,6 @@ def measure(paths: Iterable[Path]) -> Report:
 
     for path in _iter_jsonl(paths):
         file_report = report.per_file.setdefault(path.name, FileReport())
-        file_rows: set[str] = set()
-        file_templates: set[str] = set()
 
         for row in _read_rows(path):
             canonical = canonical_key(row)
@@ -119,11 +136,8 @@ def measure(paths: Iterable[Path]) -> Report:
             file_report.total_rows += 1
             seen_rows.add(canonical)
             seen_templates.add(template)
-            file_rows.add(canonical)
-            file_templates.add(template)
-
-        file_report.unique_rows = len(file_rows)
-        file_report.unique_templates = len(file_templates)
+            file_report.rows.add(canonical)
+            file_report.templates.add(template)
 
     report.unique_rows = len(seen_rows)
     report.unique_templates = len(seen_templates)
@@ -147,7 +161,7 @@ def format_report(report: Report) -> str:
     return "\n".join(lines)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("paths", nargs="+", type=Path, help="Batch directories or .jsonl files to measure")
     parser.add_argument("--max-duplication", type=float, default=None, help="Fail when duplication exceeds this percent")
@@ -158,7 +172,8 @@ def main() -> int:
         help="Fail when template duplication exceeds this percent",
     )
     parser.add_argument("--json", action="store_true", help="Print the report as JSON")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    gated = args.max_duplication is not None or args.max_template_duplication is not None
 
     report = measure(args.paths)
 
@@ -189,6 +204,11 @@ def main() -> int:
         print(format_report(report))
 
     failed = False
+    if gated and report.total_rows == 0:
+        # A gate that measured nothing has not held any line. Say so loudly:
+        # an empty or mistyped path must not read as a clean batch.
+        print("FAIL: no rows measured, so nothing was checked")
+        failed = True
     if args.max_duplication is not None and report.duplication_percent > args.max_duplication:
         print(f"FAIL: duplication {report.duplication_percent:.1f}% exceeds {args.max_duplication:.1f}%")
         failed = True
