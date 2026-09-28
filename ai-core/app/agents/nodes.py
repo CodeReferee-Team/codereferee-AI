@@ -228,6 +228,14 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
             return "chaos_not_recovered: chaos experiment never recovered to a serving state.", warnings
 
         recovery = _as_float(measured.get("recovery_seconds"))
+        bound = _expected_recovery_bound(observation)
+        if recovery is not None and bound is not None and recovery > bound:
+            return (
+                f"chaos_recovery_exceeds_expected_bound: recovery {recovery}s exceeds the "
+                f"bound {round(bound, 3)}s implied by the workload configuration.",
+                warnings,
+            )
+
         allowance = _monthly_unavailability_budget_seconds(slo.availability_percent_min)
         if recovery is not None and allowance:
             if recovery >= allowance:
@@ -238,6 +246,10 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
                 )
             if recovery >= allowance * 0.2:
                 warnings.append("chaos_error_budget_significant_burn")
+
+        if _as_float((observation.get("workload") or {}).get("replicas_desired")) == 1:
+            # replica가 1개면 다운타임은 문서화된 정상 동작이다. 구성 경고로만 남긴다.
+            warnings.append("chaos_single_replica_topology")
 
         baseline_p95 = _as_float((result.baseline.get("metrics") or {}).get("p95_latency_ms"))
         observed_p95 = _as_float(measured.get("p95_latency_ms"))
@@ -306,6 +318,34 @@ def _memory_usage_ratio(measured: dict[str, object]) -> float | None:
     if used is None or not limit:
         return None
     return used / limit
+
+
+def _expected_recovery_bound(observation: dict[str, object]) -> float | None:
+    """워크로드 설정에서 기대 복구 상한을 계산한다. docs/judge-policy.md 6.5.
+
+    필드가 하나라도 없으면 None을 돌려 규칙 4를 건너뛴다. 근거 없는 상한으로 Fail을 내면
+    안 되기 때문이다.
+    """
+    workload = observation.get("workload")
+    if not isinstance(workload, dict):
+        return None
+    probe = workload.get("readiness_probe")
+    if not isinstance(probe, dict):
+        return None
+
+    initial_delay = _as_float(probe.get("initial_delay_seconds"))
+    period = _as_float(probe.get("period_seconds"))
+    success_threshold = _as_float(probe.get("success_threshold"))
+    if initial_delay is None or period is None or success_threshold is None:
+        return None
+
+    # force 삭제는 grace period를 기다리지 않는다.
+    grace = 0.0
+    if observation.get("kill_mode") != "force":
+        grace = _as_float(workload.get("termination_grace_period_seconds")) or 0.0
+    min_ready = _as_float(workload.get("min_ready_seconds")) or 0.0
+    allowance = get_settings().chaos_recovery_startup_allowance_seconds
+    return grace + initial_delay + period * success_threshold + min_ready + allowance
 
 
 def _monthly_unavailability_budget_seconds(availability_percent_min: float | None) -> float | None:

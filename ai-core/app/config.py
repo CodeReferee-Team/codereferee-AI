@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     sandbox_nano_cpus: int = 500_000_000
     repository_clone_timeout_seconds: int = 30
     max_self_healing_retries: int = 3
+    # 교체 Pod의 스케줄링·이미지 pull에 드는 시간. 클러스터마다 달라 측정이 불가능하므로 설정으로 둔다.
+    # docs/judge-policy.md 6.5의 기대 복구 상한 계산식에 쓴다.
+    chaos_recovery_startup_allowance_seconds: float = 30.0
     sqlite_patch_db_path: str = ".codereferee/codereferee.sqlite3"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

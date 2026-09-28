@@ -152,20 +152,114 @@ Sandbox v1이 실제 Kubernetes Pod Kill 실험 결과를 보내기 시작하면
 
 현재 코드의 기본 SLO(`_default_slo`: p95 30000ms, availability 99.9%)와 이 문서 3절의 표(p95 300ms, availability 0.995)가 서로 다르다. 어느 쪽도 출처가 있는 값이 아니므로, 구현 시 하나의 설정으로 통합하고 기본값을 명시적으로 선언한다.
 
-### 6.5 Sandbox에 추가로 요청할 evidence
+### 6.5 Sandbox에 요청하는 evidence (필드 확정)
 
-현재 `chaos-v1` 응답만으로는 위 규칙 4, 7을 계산할 수 없다. 다음 필드가 필요하다.
+`chaos-v1` 응답만으로는 규칙 4와 7을 계산할 수 없다. 아래 필드를 받으면 두 규칙이 동작한다.
 
-- 대상 워크로드의 `replicas`
-- readiness probe 설정(`initialDelaySeconds`, `periodSeconds`, `successThreshold`)과 `minReadySeconds`, `terminationGracePeriodSeconds`
-- kill 방식(graceful 삭제인지 `--force --grace-period=0`인지)
-- 삭제 요청, 교체 Pod 생성, Ready 도달, 엔드포인트 등록 시각
-- 이전 Pod와 새 Pod의 UID(재시작이 아니라 교체임을 증명)
-- baseline 관측 구간의 길이와 실험 구간의 길이
-- 중단 조건 발동 여부
-- 오류율 분모에 무엇을 포함했는지(헬스체크 포함 여부)
+**모든 신규 필드는 `chaos_observation` 안에 넣는다.** AI Core는 이 객체를 통째로 보존하므로
+파서를 고치지 않아도 값이 유실되지 않는다. 새 최상위 키를 만들면 파서가 버린다.
 
-마지막 항목은 [SRE Workbook의 요청 기반 SLI 정의](https://sre.google/workbook/implementing-slos/)가 "유효 이벤트" 분모를 명시하도록 요구하기 때문이다. 분모가 흔들리면 같은 장애도 다른 판정이 나온다.
+```json
+"chaos_observation": {
+  "type": "pod_kill",
+  "recovered": true,
+  "recovery_seconds": 12,
+
+  "workload": {
+    "kind": "Deployment",
+    "name": "fixture-api",
+    "replicas_desired": 1,
+    "replicas_ready_before": 1,
+    "min_ready_seconds": 0,
+    "termination_grace_period_seconds": 30,
+    "readiness_probe": {
+      "initial_delay_seconds": 1,
+      "period_seconds": 2,
+      "success_threshold": 1,
+      "failure_threshold": 3,
+      "timeout_seconds": 1
+    }
+  },
+
+  "kill_mode": "graceful",
+  "target_pod_uid": "8f3c...",
+  "replacement_pod_uid": "b91a...",
+  "deletion_requested_at": "2026-09-28T05:00:00Z",
+  "replacement_ready_at": "2026-09-28T05:00:12Z",
+  "endpoint_ready_at": "2026-09-28T05:00:13Z",
+
+  "aborted": false,
+  "abort_reason": null,
+
+  "windows": {
+    "baseline_seconds": 30,
+    "experiment_seconds": 60,
+    "probe_interval_seconds": 1,
+    "probe_count_baseline": 30,
+    "probe_count_experiment": 60
+  },
+  "error_rate_definition": {
+    "denominator": "application_requests_only",
+    "excluded_paths": ["/healthz"]
+  }
+}
+```
+
+#### 필드별 용도와 수집 방법
+
+| 필드 | 쓰는 규칙 | 수집 방법 |
+| --- | --- | --- |
+| `workload.replicas_desired` | **규칙 7** (단일 replica는 Fail이 아니다) | `kubectl get deploy <name> -o jsonpath='{.spec.replicas}'` |
+| `workload.replicas_ready_before` | 규칙 7 보강 (실험 직전 실제 상태) | 같은 객체의 `{.status.readyReplicas}` |
+| `workload.readiness_probe.*` | **규칙 4** (기대 복구 상한 계산) | `{.spec.template.spec.containers[0].readinessProbe}` |
+| `workload.min_ready_seconds` | 규칙 4 | `{.spec.minReadySeconds}` |
+| `workload.termination_grace_period_seconds` | 규칙 4 | `{.spec.template.spec.terminationGracePeriodSeconds}` |
+| `kill_mode` | 규칙 4 (`force`면 grace를 더하지 않는다) | pod-delete 실험의 `FORCE` env. true면 `"force"`, 아니면 `"graceful"` |
+| `target_pod_uid`, `replacement_pod_uid` | 재시작이 아니라 교체임을 증명 | `kubectl get pod <name> -o jsonpath='{.metadata.uid}'` |
+| `deletion_requested_at` | 복구 시간의 시작점 확정 | 삭제 요청 시각. `{.metadata.deletionTimestamp}`로도 확인 가능 |
+| `replacement_ready_at` | 복구 시간의 종료점 | `{.status.conditions[?(@.type=="Ready")].lastTransitionTime}` |
+| `endpoint_ready_at` | 트래픽 실제 복귀 시점 | `kubectl get endpointslice`의 `endpoints[].conditions.ready` |
+| `aborted`, `abort_reason` | **규칙 2** (중단은 결함이 아니다) | 실험 러너의 자체 상태. Litmus면 ChaosEngine `spec.engineState=stop` |
+| `windows.*` | 관측 구간이 짧아서 나온 수치인지 구분 | 러너가 쓴 probe 횟수·간격을 그대로 |
+| `error_rate_definition.denominator` | 같은 장애가 다른 판정으로 나오는 것 방지 | probe 대상 경로 정의를 그대로 |
+
+`error_rate_definition`은 [SRE Workbook의 요청 기반 SLI 정의](https://sre.google/workbook/implementing-slos/)가 "유효 이벤트" 분모를 명시하도록 요구하기 때문에 받는다. 분모가 흔들리면 같은 장애도 다른 판정이 나온다.
+
+#### 기대 복구 상한 (규칙 4의 계산식)
+
+```
+bound = grace + initial_delay + (period × success_threshold) + min_ready + startup_allowance
+grace = 0 (kill_mode = "force") | termination_grace_period_seconds (graceful)
+```
+
+`startup_allowance`는 스케줄링과 이미지 pull에 드는 시간으로, 클러스터마다 달라 측정이 불가능하다.
+설정값(`CHAOS_RECOVERY_STARTUP_ALLOWANCE_SECONDS`, 기본 30초)으로 두고 운영자가 조정한다.
+위 필드가 하나라도 없으면 상한을 계산하지 않고 규칙 4를 건너뛴다. 근거 없는 상한으로 Fail을 내지 않는다.
+
+#### LitmusChaos로 전환할 때 추가로 받을 것
+
+Litmus는 아래를 CR에 이미 갖고 있어 새로 측정할 필요가 없다. `chaos_observation.litmus`에 넣어주면
+실험 자체가 제대로 돌았는지와 대상 서비스의 결함을 구분할 수 있다.
+
+```json
+"litmus": {
+  "engine": "fixture-api-chaos",
+  "experiment": "pod-delete",
+  "verdict": "Pass",
+  "fail_step": null,
+  "probe_success_percentage": 100,
+  "total_chaos_duration_seconds": 30,
+  "chaos_interval_seconds": 10,
+  "pods_affected_percentage": 100
+}
+```
+
+출처는 ChaosResult의 `status.experimentStatus`(verdict, failStep)와 `status.probeStatus`, ChaosEngine의
+실험 env(`TOTAL_CHAOS_DURATION`, `CHAOS_INTERVAL`, `PODS_AFFECTED_PERC`, `FORCE`)다.
+필드 이름은 Litmus 버전에 따라 다를 수 있으니 실제 CR을 덤프해 확인하고 매핑한다.
+
+`verdict`는 판정에 직접 쓰지 않는다. Litmus의 `Fail`은 "실험 수행 실패"와 "대상 서비스 결함"을
+구분하지 않기 때문이다. 우리 규칙 2(중단)와 규칙 1(근거 없음)의 판별 자료로만 쓴다.
 
 ## 7. 판정 주체 (2026-09-27 확정)
 

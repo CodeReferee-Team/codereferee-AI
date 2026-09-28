@@ -394,7 +394,22 @@
         "chaos_observation": {
           "type": "pod_kill",
           "recovered": true,
-          "replicas": 1
+          "kill_mode": "graceful",
+          "workload": {
+            "kind": "Deployment",
+            "name": "fixture-api",
+            "replicas_desired": 1,
+            "replicas_ready_before": 1,
+            "min_ready_seconds": 0,
+            "termination_grace_period_seconds": 30,
+            "readiness_probe": {
+              "initial_delay_seconds": 1,
+              "period_seconds": 2,
+              "success_threshold": 1,
+              "failure_threshold": 3,
+              "timeout_seconds": 1
+            }
+          }
         },
         "source": {
           "fixture": "fixture-api",
@@ -416,7 +431,6 @@
       "category": "chaos_recovered_within_budget",
       "labeled_by": "human-reviewed 2026-09-27"
     },
-    "needs_sandbox_field": "replicas",
     "expected_warnings": [
       "chaos_single_replica_topology"
     ]
@@ -444,9 +458,22 @@
         "chaos_observation": {
           "type": "pod_kill",
           "recovered": true,
-          "termination_grace_period_seconds": 30,
-          "readiness_period_seconds": 10,
-          "min_ready_seconds": 0
+          "kill_mode": "graceful",
+          "workload": {
+            "kind": "Deployment",
+            "name": "fixture-api",
+            "replicas_desired": 3,
+            "replicas_ready_before": 3,
+            "min_ready_seconds": 0,
+            "termination_grace_period_seconds": 30,
+            "readiness_probe": {
+              "initial_delay_seconds": 5,
+              "period_seconds": 10,
+              "success_threshold": 1,
+              "failure_threshold": 3,
+              "timeout_seconds": 1
+            }
+          }
         },
         "source": {
           "fixture": "fixture-api",
@@ -468,7 +495,6 @@
       "category": "chaos_recovery_exceeds_expected_bound",
       "labeled_by": "human-reviewed 2026-09-27"
     },
-    "needs_sandbox_field": "probe/grace 설정",
     "expected_warnings": []
   }
 ]
