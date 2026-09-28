@@ -13,6 +13,7 @@ sys.path.insert(0, str(SCRIPTS_DIR))
 
 from measure_dataset_duplication import (  # noqa: E402
     canonical_key,
+    main,
     measure,
     template_key,
 )
@@ -107,3 +108,43 @@ def test_empty_input_reports_zero(tmp_path: Path):
 
     assert report.total_rows == 0
     assert report.duplication_percent == pytest.approx(0.0)
+
+
+def test_same_filename_in_two_directories_accumulates(tmp_path: Path):
+    """A batch dir per date means the same filename appears many times.
+
+    The per-file row count and unique count must describe the same set of
+    rows, otherwise the breakdown contradicts the overall number.
+    """
+    first = [row(f"A-{i}", "batch_1", f"reason_{i}", i) for i in range(10)]
+    second = [row(f"B-{i}", "batch_2", f"other_{i}", i) for i in range(10)]
+    write_batch(tmp_path / "batch_1", "preflight_failures", first)
+    write_batch(tmp_path / "batch_2", "preflight_failures", second)
+
+    report = measure([tmp_path])
+    file_report = report.per_file["preflight_failures.jsonl"]
+
+    assert file_report.total_rows == 20
+    assert file_report.unique_rows == 20
+    assert file_report.duplication_percent == pytest.approx(0.0)
+    assert file_report.duplication_percent == pytest.approx(report.duplication_percent)
+
+
+def test_missing_path_is_an_error(tmp_path: Path):
+    """A gate pointed at a path that does not exist must not pass silently."""
+    with pytest.raises(SystemExit):
+        measure([tmp_path / "does-not-exist"])
+
+
+def test_main_fails_when_threshold_set_but_nothing_measured(tmp_path: Path, capsys):
+    """Zero rows means the gate checked nothing. That is a failure, not a pass."""
+    exit_code = main([str(tmp_path), "--max-duplication", "5"])
+
+    assert exit_code == 1
+    assert "no rows" in capsys.readouterr().out.lower()
+
+
+def test_main_without_threshold_tolerates_zero_rows(tmp_path: Path):
+    exit_code = main([str(tmp_path)])
+
+    assert exit_code == 0

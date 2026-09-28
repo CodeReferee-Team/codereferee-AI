@@ -266,6 +266,8 @@ python3 scripts/measure_dataset_duplication.py datasets/codereferee/generated/ba
 
 임계값을 넘으면 exit 1이다. `--json`으로 기계가 읽을 형태도 낸다.
 
+게이트가 조용히 통과하는 경우를 막는다. 경로가 없으면 exit 1이고, 임계값을 준 상태에서 측정된 행이 0개면 "아무것도 검사하지 않았다"로 보고 역시 exit 1이다. 경로 오타나 배치 미생성이 깨끗한 배치로 읽히면 안 된다.
+
 측정 결과 (2026-09-28, 배치 2개 2000행)
 
 ```
