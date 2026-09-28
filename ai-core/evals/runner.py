@@ -1,7 +1,8 @@
 """평가 러너 CLI.
 
     python -m evals.runner run --model none --slices T0,T0-adv,T1-chaos
-    python -m evals.runner run --model gemini:gemini-2.5-flash --repeat 3
+    python -m evals.runner run --model gemini:gemini-flash-latest --repeat 3
+    python -m evals.runner run --model ollama:llama3.1:8b --slices T0,T0-adv
 
 --model none은 LLM 없이 규칙 기반 fallback만 채점한다. 결정적이고 비용이 들지 않는다.
 """
@@ -18,6 +19,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.agents import nodes, prompts
+from app.agents.llm import OPENAI_COMPATIBLE, AgentLLM
+from app.config import get_settings
 from app.models import JobStatus
 from app.workflow import repository_validation as workflow
 from evals import cases as case_loader
@@ -204,6 +207,14 @@ def print_summary(report: dict[str, Any]) -> None:
         print(f"  인젝션 false-pass: {s['injection_false_pass']}건")
 
 
+def _local_llm(model: str, base_url: str) -> AgentLLM:
+    """로컬 OpenAI 호환 서버(Ollama 등)를 가리키는 LLM을 만든다."""
+    settings = get_settings().model_copy(
+        update={"llm_provider": OPENAI_COMPATIBLE, "llm_base_url": base_url, "llm_model": model}
+    )
+    return AgentLLM(settings=settings)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="CodeReferee 에이전트 평가 러너")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -213,6 +224,11 @@ def main() -> int:
     run_cmd.add_argument("--per-category", type=int, default=3, help="T1 슬라이스의 카테고리당 표본 수")
     run_cmd.add_argument("--seed", type=int, default=7)
     run_cmd.add_argument("--repeat", type=int, default=1, help="같은 케이스 반복 횟수(LLM 흔들림 측정)")
+    run_cmd.add_argument(
+        "--base-url",
+        default="http://localhost:11434/v1",
+        help="ollama:/local: 모델을 쓸 때의 OpenAI 호환 서버 주소",
+    )
     run_cmd.add_argument("--delay", type=float, default=0.0, help="케이스 사이 대기 초. 무료 등급 분당 제한 회피용")
     cmp_cmd = sub.add_parser("compare", help="기준선과 비교한다")
     cmp_cmd.add_argument("baseline")
@@ -229,6 +245,12 @@ def main() -> int:
 
     if args.model == "none":
         nodes.llm.enabled = False
+    elif args.model.startswith(("ollama:", "local:")):
+        # provider:model 에서 model 쪽만 떼어낸다. llama3.1:8b 처럼 모델명에 콜론이 들어간다.
+        nodes.llm = _local_llm(args.model.split(":", 1)[1], args.base_url)
+        if not nodes.llm.enabled:
+            print(f"경고: 로컬 LLM 주소가 비어 있습니다: {args.base_url}")
+            return 2
     elif not nodes.llm.enabled:
         print(f"경고: {args.model}을 요청했지만 LLM이 설정되지 않았습니다. GOOGLE_API_KEY를 확인하세요.")
         return 2
