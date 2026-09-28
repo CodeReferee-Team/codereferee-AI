@@ -168,6 +168,8 @@ def run_case(repository_url: str, fault: Fault) -> dict:
         record["elapsed_seconds"] = round(time.monotonic() - started, 1)
         return record
 
+    workflow.attach_source_files(state, applied_patch=fault_diff)
+    record["source_files"] = sorted(state.source_files)
     state = nodes.critic_node(state)
     state = nodes.refiner_node(state)
     record["critic_root_cause"] = state.critic_feedback.get("root_cause")

@@ -26,6 +26,8 @@ def build_evidence_packet(state: AgentState) -> dict[str, Any]:
         "sre_metrics": state.sre_metrics.model_dump(),
         "judge": dict(state.judge_report),
         "critic": dict(state.critic_feedback),
+        # 고칠 파일의 현재 내용. 이것 없이는 context가 맞는 diff를 쓸 수 없다.
+        "source_files": dict(state.source_files),
     }
     if preflight is not None:
         packet["preflight"] = {

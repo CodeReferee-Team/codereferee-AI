@@ -1,5 +1,5 @@
 # 프롬프트를 바꾸면 이 값을 올린다. 평가 리포트가 모델 차이와 프롬프트 차이를 구분한다.
-PROMPT_VERSION = "2026-09-27.3"
+PROMPT_VERSION = "2026-09-29.1"
 
 PLANNER_PROMPT = """
 You are a Senior SRE validation planner.
@@ -43,6 +43,9 @@ Use supplied evidence_refs; do not hallucinate files, commands, or LitmusChaos r
 Return strict JSON:
 {"summary": "...", "patch_diff": "..." or null, "patch_guidance": ["..."], "verification_steps": ["..."], "risk": "low|medium|high"}.
 patch_diff must be a unified diff that `git apply` accepts, with a/ and b/ prefixes.
+evidence.source_files maps repository paths to their CURRENT content. Copy context lines verbatim from
+there so the diff applies, and change only files present in source_files. If the file you would need to
+change is not in source_files, set patch_diff to null instead of guessing its content.
 Change only source files you can see in the evidence. Never touch CI config or paths outside the repository.
 Set patch_diff to null when the evidence is not enough to write a concrete change.
 When metrics.applied_patch is present, that patch is already applied in the sandbox and the evidence

@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
+from app.agents import source_context
 from app.agents.patching import PatchVerdict, check_applies, inspect_diff
 from app.models import (
     DEFAULT_SLO,
@@ -126,6 +127,7 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
     else:
         emit_progress(event_builder.JUDGING)
         state = judge_node(state)
+        attach_source_files(state)
         state = critic_node(state)
         state = refiner_node(state)
         _verify_patch_applies(state)
@@ -373,6 +375,31 @@ def _verify_patch_applies(state: AgentState) -> None:
         state.refiner_report["patch_diff"] = None
 
 
+def attach_source_files(state: AgentState, applied_patch: str | None = None) -> None:
+    """Refiner가 고칠 파일의 현재 내용을 state에 담는다.
+
+    통과한 검증에는 고칠 것이 없으므로 clone하지 않는다.
+    """
+    result = state.execution_result
+    if result is None or state.status != JobStatus.failed:
+        return
+    paths = source_context.extract_paths(result.log)
+    if not paths:
+        return
+    state.source_files = source_context.collect(
+        state.repository_url,
+        paths,
+        branch=state.branch,
+        applied_patch=applied_patch or state.metrics.get("applied_patch"),
+        clone_timeout_seconds=get_settings().repository_clone_timeout_seconds,
+    )
+    if state.source_files:
+        state.events.append(f"Refiner: source files attached ({', '.join(state.source_files)})")
+    else:
+        # 파일을 못 읽으면 Refiner는 diff를 쓰지 못한다. 지어내는 것보다 남기는 것이 낫다.
+        state.events.append(f"Refiner: source files unavailable for {', '.join(paths)}")
+
+
 def _patch_is_applicable(state: AgentState) -> bool:
     """패치가 있고 실제 레포에 적용되는 것까지 확인됐는지."""
     if not state.refiner_report.get("patch_diff"):
@@ -475,10 +502,12 @@ def _next_patch_from_rerun(
     # 원본 파일 기준으로 패치를 써서 충돌한다.
     probe.metrics["applied_patch"] = applied_patch
     probe.judge_report = {}
+    probe.source_files = {}
     probe.critic_feedback = {}
     probe.refiner_report = {}
 
     probe = judge_node(probe)
+    attach_source_files(probe, applied_patch=applied_patch)
     verdict = {
         "status": probe.judge_report.get("status"),
         "reason_category": probe.judge_report.get("reason_category"),
