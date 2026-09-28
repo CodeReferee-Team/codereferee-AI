@@ -8,6 +8,12 @@ CodeReferee Sandbox는 GitHub 레포지토리의 실행 가능성과 신뢰성 �
 - 외부 Sandbox 실행 경로: Kubernetes 기반 fixture의 Chaos v1 실험 실행 및 복구 관측
 - timeout 및 resource limit 적용
 - stdout/stderr/exit_code와 SRE 관측값 수집
+- **요청: 실패한 단계를 응답에 담아줄 것** (`failed_step`: `setup` | `clone` | `checkout` | `patch` | `install` | `build` | `test`).
+  지금은 AI가 로그 문자열을 뒤져 원인을 추정한다. 이 방식은 실제로 틀렸다 — sandbox 스크립트가 서두에
+  `apt-get install`을 출력하기 때문에 모든 실패가 `dependency_install_failed`로 분류됐다
+  (docs/evaluation-design.md 14.3). 단계 마커 기준으로 고쳤지만, 로그 형식이 바뀌면 또 깨진다.
+  실패한 단계를 sandbox가 직접 알려주면 추정이 사라진다. 외부 sandbox는 우리 스크립트를 쓰지 않으므로
+  마커가 없어 특히 필요하다.
 - Refiner 패치 재실행: `patch_diff`가 오면 `refiner_patch.diff`로 마운트해 clone/checkout 직후 `git apply`한다. 적용 실패는 검증 실패와 원인이 달라 전용 종료 코드 88로 구분한다. 외부 sandbox HTTP API에는 아직 패치 필드가 없어 `sandbox_patch_unsupported`로 돌려준다 (백엔드 상의 항목).
 - Judge Agent에 전달할 실행 결과와 evidence 생성
 
