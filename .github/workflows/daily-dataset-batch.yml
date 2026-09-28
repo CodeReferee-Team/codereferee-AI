@@ -82,6 +82,15 @@ jobs:
         if: steps.existing.outputs.skip != 'true'
         run: python3 ai-core/tests/dataset_quality.py
 
+      # 2026-09-26에 배치를 중단시킨 96.8% 중복이 다시 쌓이지 않게 막는다.
+      # 스케줄을 되살리기 전에 이 단계가 통과해야 한다. docs/evaluation-design.md ②-7 참고.
+      - name: Check dataset duplication
+        if: steps.existing.outputs.skip != 'true'
+        run: |
+          python3 scripts/measure_dataset_duplication.py \
+            datasets/codereferee/generated/batches \
+            --max-duplication 5
+
       - name: Run repository validation unit tests
         if: steps.existing.outputs.skip != 'true'
         working-directory: ai-core
