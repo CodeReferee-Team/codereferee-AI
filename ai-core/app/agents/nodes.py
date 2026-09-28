@@ -389,13 +389,69 @@ def _no_entrypoint_category(preflight: RepositoryPreflightReport) -> str:
     return "unsupported_project_stack"
 
 
+# sandbox 스크립트가 찍는 단계 마커. 마지막으로 도달한 단계가 실패한 단계다.
+# 로그 전체를 substring으로 뒤지면 안 된다. 서두의 `apt-get install`이 모든 실패를
+# dependency_install_failed로 만들었다(코퍼스 파일럿이 실제 로그에서 찾은 버그).
+_STAGE_MARKERS = (
+    ("[codereferee] installing sandbox clone tools", "sandbox_not_executed"),
+    ("[codereferee] cloning repository", "repository_not_accessible"),
+    ("[codereferee] applying refiner patch", "sandbox_nonzero_exit"),
+    ("[codereferee] resolving commit", "ref_not_found"),
+    ("[codereferee] detecting project stack", "stack"),
+)
+
+# pip이 실제로 찍는 해결 실패 문구만 본다. "install"은 성공 로그에도 나온다.
+_DEPENDENCY_SIGNS = (
+    "no matching distribution found",
+    "could not find a version that satisfies",
+    "resolutionimpossible",
+    "npm err!",
+    "could not resolve dependencies",
+)
+# 테스트 실패임이 문구 자체로 확실한 경우.
+_TEST_SIGNS = ("failures ===", "short test summary", "assertionerror", "[test]")
+# 그 밖에는 테스트를 가리키는 말과 실패를 가리키는 말이 함께 있어야 테스트 실패로 본다.
+# "failed" 단독으로 판단하면 "gradle publish failed"도 테스트 실패가 된다.
+_TEST_TOKENS = ("test", "pytest", "spec")
+_FAILURE_TOKENS = ("fail", "error")
+# 컴파일 실패가 테스트 실패보다 구체적이다. 먼저 본다.
+# 전용 카테고리는 없으므로 원인을 단정하지 않고 일반 실패로 남긴다.
+_COMPILE_SIGNS = ("error compiling", "syntaxerror", "indentationerror")
+
+
 def _nonzero_exit_category(result: SandboxResult) -> str:
     text = f"{result.stderr} {result.stdout}".lower()
-    if "docker build" in text or "dockerfile" in text:
+    if result.exit_code == 86:
+        return "no_manifest_detected"
+    if result.exit_code == 87:
+        return "unsupported_project_stack"
+
+    stage, position = "", -1
+    for marker, category in _STAGE_MARKERS:
+        found = text.rfind(marker)
+        if found > position:
+            stage, position = category, found
+    if position < 0:
+        # 마커가 없다 = 우리 스크립트가 만든 로그가 아니다(외부 sandbox HTTP 응답).
+        # 이때는 준비 과정 서두가 섞여 있지 않으므로 전체를 봐도 된다.
+        return _category_from_keywords(text)
+    if stage != "stack":
+        return stage
+
+    # 스택 검출 이후 구간만 본다. 그 앞은 준비 과정이다.
+    return _category_from_keywords(text[position:])
+
+
+def _category_from_keywords(text: str) -> str:
+    if "docker" in text:
         return "docker_build_failed"
-    if "install" in text or "npm err" in text or "pip" in text:
+    if any(sign in text for sign in _DEPENDENCY_SIGNS):
         return "dependency_install_failed"
-    if "test" in text or "pytest" in text or "assert" in text:
+    if any(sign in text for sign in _COMPILE_SIGNS):
+        return "sandbox_nonzero_exit"
+    if any(sign in text for sign in _TEST_SIGNS):
+        return "test_failure"
+    if any(t in text for t in _TEST_TOKENS) and any(f in text for f in _FAILURE_TOKENS):
         return "test_failure"
     return "sandbox_nonzero_exit"
 
