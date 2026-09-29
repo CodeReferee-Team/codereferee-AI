@@ -10,7 +10,7 @@ from app.agents.evidence import (
 )
 from app.agents.source_context import drop_progress_lines, failure_region
 from app.agents.llm import llm, parse_json_strict
-from app.agents.patching import build_diff, inspect_diff, inspect_rewrite
+from app.agents.patching import apply_edits, build_diff, inspect_diff, inspect_rewrite
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
 from app.config import get_settings
@@ -113,26 +113,32 @@ def refiner_node(state: AgentState) -> AgentState:
     else:
         state.refiner_report = validate_report(RefinerReport, fallback)
 
-    _diff_from_patched_files(state)
+    _diff_from_edits(state)
     _record_patch_inspection(state)
     return state
 
 
-def _diff_from_patched_files(state: AgentState) -> None:
-    """모델이 준 파일 전문에서 diff를 만든다.
+def _diff_from_edits(state: AgentState) -> None:
+    """모델이 준 편집 목록을 적용해 diff를 만든다.
 
-    모델 출력의 patch_diff는 쓰지 않는다. 전문은 백엔드로 나가면 안 되므로 diff로 바꾼 뒤 버리고
-    경로만 남긴다.
+    치환은 우리가 하므로 모델이 파일의 다른 부분을 건드릴 수 없다. 전문을 받던 방식에서는
+    모델이 뒤를 잘라먹어 멀쩡한 코드가 지워졌다(docs/evaluation-design.md 14.7).
     """
-    patched = state.refiner_report.pop("patched_files", None)
-    if not isinstance(patched, dict) or not patched:
+    edits = state.refiner_report.pop("edits", None)
+    if not isinstance(edits, list) or not edits:
         return
-    diff = build_diff(state.source_files, patched)
-    unknown = sorted(set(patched) - set(state.source_files))
-    if unknown:
-        # 보여주지 않은 파일의 내용은 지어낸 것이다. 반영하지 않는다.
-        state.events.append(f"Refiner: ignored files not in evidence ({', '.join(unknown)})")
-    state.refiner_report["patched_paths"] = sorted(set(patched) & set(state.source_files))
+    outcome = apply_edits(state.source_files, [dict(edit) for edit in edits])
+    if outcome.rejected:
+        state.events.append(f"Refiner: edits rejected ({', '.join(outcome.rejected)})")
+    if not outcome.patched:
+        state.metrics["patch_check"] = {
+            "accepted": False,
+            "reason_code": "edits_not_applicable",
+            "reason": ", ".join(outcome.rejected) or "no edit changed a file",
+        }
+        return
+    diff = build_diff(state.source_files, outcome.patched)
+    state.refiner_report["patched_paths"] = sorted(outcome.patched)
     if diff:
         rewrite = inspect_rewrite(diff, state.source_files)
         if not rewrite.accepted:
@@ -153,7 +159,11 @@ def _record_patch_inspection(state: AgentState) -> None:
     """생성된 패치를 내용 기준으로 먼저 거른다. 적용 검사(git apply)는 워크플로가 레포를 받은 뒤 한다."""
     diff = state.refiner_report.get("patch_diff")
     if not diff:
-        state.metrics["patch_check"] = {"accepted": False, "reason_code": "patch_absent"}
+        # 앞 단계가 구체적인 이유를 남겼으면 덮지 않는다. patch_absent로 덮으면
+        # 편집이 왜 거부됐는지(앵커 불일치, 재작성 등)가 사라진다.
+        existing = state.metrics.get("patch_check") or {}
+        if not existing.get("reason_code"):
+            state.metrics["patch_check"] = {"accepted": False, "reason_code": "patch_absent"}
         return
     verdict = inspect_diff(str(diff))
     state.metrics["patch_check"] = {

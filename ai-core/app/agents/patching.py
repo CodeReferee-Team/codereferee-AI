@@ -161,3 +161,45 @@ def inspect_rewrite(diff: str, original: dict[str, str]) -> PatchVerdict:
                 sorted(removed_by_path),
             )
     return PatchVerdict(True, touched_paths=sorted(removed_by_path))
+
+
+@dataclass
+class EditOutcome:
+    patched: dict[str, str] = field(default_factory=dict)
+    rejected: list[str] = field(default_factory=list)
+
+
+def apply_edits(original: dict[str, str], edits: list[dict[str, object]]) -> EditOutcome:
+    """내용으로 앵커한 편집을 적용한다.
+
+    `find`가 파일에 정확히 한 번 나타날 때만 바꾼다. 여러 번이면 어디를 말하는지 알 수 없고,
+    없으면 모델이 본 적 없는 내용을 지어낸 것이다. 둘 다 거부한다.
+    치환은 우리가 하므로 파일의 다른 부분은 바뀔 수 없다.
+    """
+    outcome = EditOutcome(patched=dict())
+    working = dict(original)
+    for index, edit in enumerate(edits):
+        path = str(edit.get("path") or "")
+        find = edit.get("find") or []
+        replace = edit.get("replace")
+        replace = replace if isinstance(replace, list) else []
+        if path not in working:
+            outcome.rejected.append(f"edit_path_unknown:{path or f'#{index}'}")
+            continue
+        if not isinstance(find, list) or not find:
+            outcome.rejected.append(f"edit_anchor_empty:{path}")
+            continue
+
+        content = working[path]
+        anchor = "\n".join(str(line) for line in find)
+        count = content.count(anchor)
+        if count == 0:
+            outcome.rejected.append(f"edit_anchor_not_found:{path}")
+            continue
+        if count > 1:
+            outcome.rejected.append(f"edit_anchor_ambiguous:{path}")
+            continue
+        working[path] = content.replace(anchor, "\n".join(str(line) for line in replace), 1)
+
+    outcome.patched = {path: text for path, text in working.items() if text != original.get(path)}
+    return outcome

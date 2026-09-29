@@ -105,12 +105,21 @@ class CriticReport(StrictAgentReport):
         return _require_non_blank_items(value)
 
 
+class SourceEdit(StrictAgentReport):
+    """내용으로 앵커하는 편집. 줄 번호를 쓰지 않아 off-by-one이 생길 수 없다."""
+
+    path: str = Field(min_length=1)
+    # 바꿀 원본 줄. 파일에 정확히 한 번 나타나야 한다.
+    find: list[str] = Field(min_length=1)
+    # 그 자리에 넣을 줄. 비우면 삭제다.
+    replace: list[str]
+
+
 class RefinerReport(StrictAgentReport):
     summary: str = Field(min_length=1)
-    # 고친 파일의 전문. 경로 -> 내용. 모델은 diff를 쓰지 않는다.
-    # diff 형식(context 줄, hunk 헤더)을 모델이 맞추지 못해 적용 불가능한 패치가 나왔다.
-    # docs/evaluation-design.md 14.5.
-    patched_files: dict[str, str] | None = None
+    # 고칠 부분만 담는 편집 목록. 모델은 diff도 파일 전문도 쓰지 않는다.
+    # diff는 형식을 못 맞추고(14.5), 전문은 끝까지 쓰지 못해 멀쩡한 코드가 지워졌다(14.7).
+    edits: list[SourceEdit] | None = None
     # 위 전문에서 우리가 difflib으로 만든다. 모델 출력이 아니다.
     patch_diff: str | None = None
     patch_guidance: list[str] = Field(min_length=1)

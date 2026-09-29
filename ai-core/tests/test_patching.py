@@ -389,13 +389,16 @@ class RewriteGuardTests(unittest.TestCase):
         self.assertTrue(patching.inspect_rewrite(diff, original).accepted)
 
     def test_refiner_node_drops_a_rewrite(self) -> None:
+        # 편집 방식에서도 큰 삭제는 막는다. 모델이 넓은 구간을 지우라고 할 수는 있다.
         from app.agents import nodes
         from app.models import AgentState, JobStatus
 
         state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.failed)
         state.source_files = dict(self.original)
-        state.refiner_report = {"patched_files": {"mod.py": "".join(f"line {i}\n" for i in range(60))}}
-        nodes._diff_from_patched_files(state)
+        doomed = [f"line {i}" for i in range(40, 80)]
+        state.refiner_report = {"edits": [{"path": "mod.py", "find": doomed, "replace": []}]}
+        nodes._diff_from_edits(state)
+        nodes._record_patch_inspection(state)
         self.assertIsNone(state.refiner_report["patch_diff"])
         self.assertEqual(state.metrics["patch_check"]["reason_code"], "patch_rewrites_file")
 
@@ -416,3 +419,84 @@ class RealWorldRewriteTests(unittest.TestCase):
         patched = {"conf.py": "a = 1\n\ndef broken():\n    pass\n"}
         diff = patching.build_diff(original, patched)
         self.assertTrue(patching.inspect_rewrite(diff, original).accepted)
+
+
+class ApplyEditsTests(unittest.TestCase):
+    """치환은 우리가 한다. 모델은 바꿀 줄만 지목한다."""
+
+    def setUp(self) -> None:
+        self.original = {"calc.py": "def add(a, b):\n    return a - b\n\ndef sub(a, b):\n    return a - b\n"}
+
+    def test_unique_anchor_is_replaced(self) -> None:
+        out = patching.apply_edits(
+            self.original, [{"path": "calc.py", "find": ["def add(a, b):", "    return a - b"],
+                             "replace": ["def add(a, b):", "    return a + b"]}]
+        )
+        self.assertEqual(out.rejected, [])
+        self.assertIn("return a + b", out.patched["calc.py"])
+        # 다른 함수는 그대로다.
+        self.assertIn("def sub(a, b):\n    return a - b", out.patched["calc.py"])
+
+    def test_ambiguous_anchor_is_refused(self) -> None:
+        # "    return a - b"는 두 번 나온다. 어디를 말하는지 알 수 없다.
+        out = patching.apply_edits(self.original, [{"path": "calc.py", "find": ["    return a - b"], "replace": ["x"]}])
+        self.assertEqual(out.patched, {})
+        self.assertEqual(out.rejected, ["edit_anchor_ambiguous:calc.py"])
+
+    def test_missing_anchor_is_refused(self) -> None:
+        out = patching.apply_edits(self.original, [{"path": "calc.py", "find": ["not here"], "replace": ["x"]}])
+        self.assertEqual(out.rejected, ["edit_anchor_not_found:calc.py"])
+
+    def test_unknown_path_is_refused(self) -> None:
+        out = patching.apply_edits(self.original, [{"path": "other.py", "find": ["a"], "replace": ["b"]}])
+        self.assertEqual(out.rejected, ["edit_path_unknown:other.py"])
+
+    def test_empty_replace_deletes_the_lines(self) -> None:
+        out = patching.apply_edits(
+            self.original, [{"path": "calc.py", "find": ["def sub(a, b):", "    return a - b"], "replace": []}]
+        )
+        self.assertNotIn("def sub", out.patched["calc.py"])
+
+    def test_edits_cannot_touch_lines_they_did_not_list(self) -> None:
+        # 전문 방식에서 모델이 뒤를 잘라먹어 멀쩡한 코드가 지워졌다. 편집 방식에서는 불가능하다.
+        out = patching.apply_edits(
+            self.original, [{"path": "calc.py", "find": ["def add(a, b):"], "replace": ["def add(a, b, c=0):"]}]
+        )
+        diff = patching.build_diff(self.original, out.patched)
+        self.assertTrue(patching.inspect_rewrite(diff, self.original).accepted)
+        self.assertEqual(len([l for l in diff.splitlines() if l.startswith("-") and not l.startswith("---")]), 1)
+
+    def test_one_bad_edit_does_not_block_a_good_one(self) -> None:
+        out = patching.apply_edits(
+            self.original,
+            [
+                {"path": "nope.py", "find": ["a"], "replace": ["b"]},
+                {"path": "calc.py", "find": ["def add(a, b):"], "replace": ["def add(a, b, c=0):"]},
+            ],
+        )
+        self.assertEqual(out.rejected, ["edit_path_unknown:nope.py"])
+        self.assertIn("def add(a, b, c=0):", out.patched["calc.py"])
+
+
+class PatchCheckReasonTests(unittest.TestCase):
+    """거부 이유는 덮이지 않아야 한다. patch_absent로 덮으면 왜 거부됐는지 사라진다."""
+
+    def test_specific_rejection_survives_the_inspection_step(self) -> None:
+        from app.agents import nodes
+        from app.models import AgentState, JobStatus
+
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.failed)
+        state.source_files = {"calc.py": "x = 1\n"}
+        state.refiner_report = {"edits": [{"path": "calc.py", "find": ["nope"], "replace": ["y"]}]}
+        nodes._diff_from_edits(state)
+        nodes._record_patch_inspection(state)
+        self.assertEqual(state.metrics["patch_check"]["reason_code"], "edits_not_applicable")
+
+    def test_absent_patch_still_reports_patch_absent(self) -> None:
+        from app.agents import nodes
+        from app.models import AgentState, JobStatus
+
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.failed)
+        state.refiner_report = {"summary": "nothing to fix"}
+        nodes._record_patch_inspection(state)
+        self.assertEqual(state.metrics["patch_check"]["reason_code"], "patch_absent")

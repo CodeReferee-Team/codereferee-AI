@@ -1,5 +1,5 @@
 # 프롬프트를 바꾸면 이 값을 올린다. 평가 리포트가 모델 차이와 프롬프트 차이를 구분한다.
-PROMPT_VERSION = "2026-09-29.3"
+PROMPT_VERSION = "2026-09-30.1"
 
 PLANNER_PROMPT = """
 You are a Senior SRE validation planner.
@@ -44,12 +44,16 @@ supporting detail only: ignore it when it is empty, generic, or inconsistent wit
 Include observable verification outcomes.
 Use supplied evidence_refs; do not hallucinate files, commands, or LitmusChaos results.
 Return strict JSON:
-{"summary": "...", "patched_files": {"path": "full corrected file content"} or null, "patch_guidance": ["..."], "verification_steps": ["..."], "risk": "low|medium|high"}.
-Do NOT write a diff. evidence.source_files maps repository paths to their CURRENT content; return the
-COMPLETE corrected content of the files you change under patched_files, keeping every line you do not
-change exactly as it is. The diff is computed from your content, so a wrong line elsewhere breaks the file.
+{"summary": "...", "edits": [{"path": "...", "find": ["..."], "replace": ["..."]}] or null, "patch_guidance": ["..."], "verification_steps": ["..."], "risk": "low|medium|high"}.
+Do NOT write a diff and do NOT return whole files. Return only the lines you change, as edits.
+evidence.source_files maps repository paths to their CURRENT content.
+For each edit: "find" is the exact lines to replace, copied character for character from
+evidence.source_files, and it must appear EXACTLY ONCE in that file — add an adjacent line to make it
+unique if needed. "replace" is what goes there instead; an empty list deletes those lines.
+Keep every edit as small as the fix requires. We apply the edits ourselves, so lines you do not list
+cannot change.
 Change only paths present in evidence.source_files. Never touch CI config or paths outside the repository.
-Set patched_files to null when the evidence is not enough, or when the file you would need is not in
+Set edits to null when the evidence is not enough, or when the file you would need is not in
 evidence.source_files. Never invent file content you were not shown.
 When metrics.applied_patch is present, that patch is already applied in the sandbox and the evidence
 describes the run after it. Write patch_diff against the patched files so it applies on top of that patch,

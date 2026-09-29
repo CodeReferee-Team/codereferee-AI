@@ -160,8 +160,8 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertNotIn("source_files", events.result_event(state))
 
 
-class RefinerFileToDiffTests(unittest.TestCase):
-    """모델이 준 전문은 diff로 바꾼 뒤 버린다. 파일 내용이 백엔드로 나가면 안 된다."""
+class RefinerEditsToDiffTests(unittest.TestCase):
+    """모델은 바꿀 줄만 준다. 치환은 우리가 하므로 다른 부분이 바뀔 수 없다."""
 
     def _state(self):
         from app.models import AgentState, JobStatus
@@ -170,38 +170,46 @@ class RefinerFileToDiffTests(unittest.TestCase):
         state.source_files = {"calc.py": "def add(a, b):\n    return a - b\n"}
         return state
 
-    def test_patched_content_becomes_a_diff(self) -> None:
+    def test_edit_becomes_a_diff(self) -> None:
         from app.agents import nodes
 
         state = self._state()
         state.refiner_report = {
             "summary": "fix sign",
-            "patched_files": {"calc.py": "def add(a, b):\n    return a + b\n"},
+            "edits": [{"path": "calc.py", "find": ["    return a - b"], "replace": ["    return a + b"]}],
             "patch_guidance": ["fix"],
             "verification_steps": ["run tests"],
             "risk": "low",
         }
-        nodes._diff_from_patched_files(state)
+        nodes._diff_from_edits(state)
         self.assertIn("-    return a - b", state.refiner_report["patch_diff"])
+        self.assertIn("+    return a + b", state.refiner_report["patch_diff"])
         self.assertEqual(state.refiner_report["patched_paths"], ["calc.py"])
-        # 전문은 리포트에 남지 않는다.
-        self.assertNotIn("patched_files", state.refiner_report)
+        self.assertNotIn("edits", state.refiner_report)
 
-    def test_invented_file_is_ignored_and_recorded(self) -> None:
+    def test_edit_on_a_file_we_never_showed_is_rejected(self) -> None:
         from app.agents import nodes
 
         state = self._state()
-        state.refiner_report = {"patched_files": {"secret.py": "x = 1\n"}}
-        nodes._diff_from_patched_files(state)
-        self.assertIsNone(state.refiner_report["patch_diff"])
-        self.assertTrue(any("ignored files not in evidence" in e for e in state.events))
+        state.refiner_report = {"edits": [{"path": "secret.py", "find": ["x = 1"], "replace": ["x = 2"]}]}
+        nodes._diff_from_edits(state)
+        self.assertEqual(state.metrics["patch_check"]["reason_code"], "edits_not_applicable")
+        self.assertTrue(any("edit_path_unknown" in e for e in state.events))
 
-    def test_no_patched_files_leaves_the_report_alone(self) -> None:
+    def test_anchor_that_does_not_exist_is_rejected(self) -> None:
+        from app.agents import nodes
+
+        state = self._state()
+        state.refiner_report = {"edits": [{"path": "calc.py", "find": ["nonexistent line"], "replace": ["x"]}]}
+        nodes._diff_from_edits(state)
+        self.assertTrue(any("edit_anchor_not_found" in e for e in state.events))
+
+    def test_no_edits_leaves_the_report_alone(self) -> None:
         from app.agents import nodes
 
         state = self._state()
         state.refiner_report = {"summary": "no fix", "patch_diff": None}
-        nodes._diff_from_patched_files(state)
+        nodes._diff_from_edits(state)
         self.assertIsNone(state.refiner_report["patch_diff"])
 
 
