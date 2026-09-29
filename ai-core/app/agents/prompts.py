@@ -1,5 +1,5 @@
 # 프롬프트를 바꾸면 이 값을 올린다. 평가 리포트가 모델 차이와 프롬프트 차이를 구분한다.
-PROMPT_VERSION = "2026-09-30.2"
+PROMPT_VERSION = "2026-09-30.3"
 
 PLANNER_PROMPT = """
 You are a Senior SRE validation planner.
@@ -58,6 +58,9 @@ nothing and the edit is thrown away. Use the log only to locate which lines of s
 Example, for a file whose content contains "def broken(:" followed by "    pass":
 {"edits": [{"path": "documentation/conf.py", "find": ["def broken(:"], "replace": ["def broken():"]}]}
 Change only paths present in evidence.source_files. Never touch CI config or paths outside the repository.
+For a dependency that cannot be installed, delete the offending requirement line or drop its version
+constraint. Do not write a version number you have not seen in the evidence: you cannot know which
+versions exist, and a guessed version fails the same way.
 Set edits to null when the evidence is not enough, or when the file you would need is not in
 evidence.source_files. Never invent file content you were not shown.
 When metrics.applied_patch is present, that patch is already applied in the sandbox and the evidence

@@ -153,3 +153,33 @@ def _build_evidence_refs(state: AgentState, category: str) -> dict[str, str]:
             refs["log.stderr"] = truncate_log(_relevant_log(result.stderr).strip(), 400)
         refs["log.combined"] = truncate_log(_relevant_log(result.log), 600)
     return {key: value for key, value in refs.items() if str(value).strip()}
+
+
+def build_refiner_evidence(state: AgentState) -> dict[str, Any]:
+    """Refiner가 편집을 쓰는 데 필요한 것만 담는다.
+
+    전체 packet에서는 evidence_refs, sre_metrics, secondary_signals가 59%를 차지하는데 편집과
+    아무 상관이 없다. 8B가 그 조각을 리포트로 되받아 적는 것을 관측했다(sre_metrics만 담긴 응답).
+    판정은 규칙이 내므로 judge가 권위 있는 서술이다.
+    """
+    result = state.execution_result
+    critic = state.critic_feedback
+    return {
+        "schema_version": "agent-evidence.refiner.v1",
+        "repository_url": state.repository_url,
+        "failure_category": classify_failure_category(state),
+        "judge": {
+            "status": state.judge_report.get("status"),
+            "reason_category": state.judge_report.get("reason_category"),
+            "reason": state.judge_report.get("reason"),
+        },
+        "critic": {
+            "root_cause": critic.get("root_cause"),
+            "recommended_action": critic.get("recommended_action"),
+        },
+        "execution": {
+            "exit_code": result.exit_code if result else None,
+            "log_excerpt": truncate_log(_relevant_log(result.log)) if result else "",
+        },
+        "source_files": dict(state.source_files),
+    }

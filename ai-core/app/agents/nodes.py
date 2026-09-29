@@ -1,9 +1,11 @@
+import json
 from typing import Any
 
 from pydantic import ValidationError
 
 from app.agents.evidence import (
     build_evidence_packet,
+    build_refiner_evidence,
     classify_failure_category,
     render_evidence_packet,
     truncate_log,
@@ -95,7 +97,7 @@ def critic_node(state: AgentState) -> AgentState:
 
 def refiner_node(state: AgentState) -> AgentState:
     state.events.append("Refiner: remediation guidance prepared")
-    packet = build_evidence_packet(state)
+    packet = build_refiner_evidence(state)
     fallback = _fallback_refiner(state)
     if llm.enabled:
         state.refiner_report = _invoke_validated_report(
@@ -114,8 +116,62 @@ def refiner_node(state: AgentState) -> AgentState:
         state.refiner_report = validate_report(RefinerReport, fallback)
 
     _diff_from_edits(state)
+    if llm.enabled:
+        _retry_rejected_edits(state, packet)
     _record_patch_inspection(state)
     return state
+
+
+# 재요청은 한 번만 한다. 같은 실수를 반복하는 모델에 호출을 계속 쓸 이유가 없다.
+RETRYABLE_EDIT_REJECTIONS = ("edit_anchor_not_found", "edit_anchor_ambiguous", "edit_path_unknown")
+
+
+def _retry_rejected_edits(state: AgentState, packet: dict[str, object]) -> None:
+    """편집이 거부되면 그 이유를 들고 한 번만 다시 묻는다.
+
+    거부 이유는 우리가 파일과 대조해 만든 결정적 신호다(앵커가 없다/여럿이다/모르는 파일이다).
+    모델에게 무엇이 어긋났는지 알려주면 고칠 수 있다. 스키마 수리와 같은 구조다.
+    """
+    check = state.metrics.get("patch_check") or {}
+    if check.get("reason_code") != "edits_not_applicable":
+        return
+    reason = str(check.get("reason") or "")
+    if not any(code in reason for code in RETRYABLE_EDIT_REJECTIONS):
+        return
+
+    state.events.append(f"Refiner: retrying edits after {reason}")
+    retry = _invoke_validated_report(
+        role="Refiner",
+        schema=RefinerReport,
+        system_prompt=REFINER_PROMPT,
+        user_prompt=(
+            "Your previous edits were thrown away: {reason}\n"
+            "edit_anchor_not_found means the lines in find do not exist in the file. "
+            "edit_anchor_ambiguous means they appear more than once, so add an adjacent line. "
+            "edit_path_unknown means that path is not in evidence.source_files.\n"
+            "Copy find character for character from evidence.source_files below. Do not use log text.\n"
+            "Previous find values: {anchors}\n"
+            "Repository: {repository_url}\nEvidence packet:\n{evidence}"
+        ),
+        values={
+            "reason": reason,
+            "anchors": json.dumps(check.get("attempted_anchors") or [], ensure_ascii=False)[:600],
+            "repository_url": state.repository_url,
+            "evidence": render_evidence_packet(packet),
+        },
+        fallback=state.refiner_report or _fallback_refiner(state),
+        events=state.events,
+    )
+    if not retry.get("edits"):
+        return
+    # 재시도 결과로 갈아끼운 뒤 같은 검증을 다시 지난다.
+    state.refiner_report = retry
+    state.metrics.pop("patch_check", None)
+    _diff_from_edits(state)
+    outcome = (state.metrics.get("patch_check") or {}).get("reason_code")
+    state.events.append(
+        "Refiner: retry produced an applicable edit" if not outcome else f"Refiner: retry still rejected ({outcome})"
+    )
 
 
 def _diff_from_edits(state: AgentState) -> None:

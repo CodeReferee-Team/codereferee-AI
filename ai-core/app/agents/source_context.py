@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from pathlib import Path as pathlib_Path
 
 MAX_FILES = 3
 # 의존성 실패 로그에는 파일 경로가 없다. pip은 패키지 이름만 말한다. 고칠 파일은 매니페스트다.
@@ -47,6 +48,8 @@ _PATH_PATTERNS = (
     re.compile(r"Compiling '([^']+)'"),                # compileall
     re.compile(r"([\w./\-]+\.\w{1,4}):\d+"),           # pytest, gcc, eslint
     re.compile(r"FAILED ([\w./\-]+\.\w{1,4})"),        # pytest 요약
+    # compileall의 IndentationError는 "(conf.py, line 220)"처럼 파일명만 준다.
+    re.compile(r"\(([\w./\-]+\.\w{1,4}), line \d+\)"),
 )
 
 # 사용자 레포 파일이 아닌 것.
@@ -121,7 +124,11 @@ def read_files(repo_path: Path, paths: list[str]) -> dict[str, str]:
     for path in paths:
         candidate = (root / path).resolve()
         if not candidate.is_relative_to(root) or not candidate.is_file():
-            continue
+            # compileall은 파일명만 주기도 한다("conf.py, line 220"). 레포에서 찾아본다.
+            candidate = _resolve_basename(root, path)
+            if candidate is None:
+                continue
+            path = str(candidate.relative_to(root))
         try:
             content = candidate.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
@@ -130,6 +137,15 @@ def read_files(repo_path: Path, paths: list[str]) -> dict[str, str]:
             continue
         collected[path] = content
     return collected
+
+
+def _resolve_basename(root: pathlib_Path, path: str) -> pathlib_Path | None:
+    """파일명만 주어진 경우 레포에서 찾는다. 같은 이름이 여러 개면 어느 것인지 알 수 없으므로 포기한다."""
+    name = Path(path).name
+    if name != path:
+        return None
+    matches = [p for p in root.rglob(name) if p.is_file() and ".git" not in p.parts]
+    return matches[0] if len(matches) == 1 else None
 
 
 def collect(
