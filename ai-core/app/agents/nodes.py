@@ -2,7 +2,13 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.agents.evidence import build_evidence_packet, classify_failure_category, render_evidence_packet
+from app.agents.evidence import (
+    build_evidence_packet,
+    classify_failure_category,
+    render_evidence_packet,
+    truncate_log,
+)
+from app.agents.source_context import failure_region
 from app.agents.llm import llm, parse_json_strict
 from app.agents.patching import build_diff, inspect_diff
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
@@ -201,13 +207,13 @@ def _fallback_judge(state: AgentState) -> dict[str, object]:
 
     result = state.execution_result or SandboxResult(exit_code=None, stderr="No sandbox execution")
     if result.timed_out:
-        return {"status": "Fail", "reason_category": "timeout", "reason": "Sandbox execution timed out.", "evidence": [result.log]}
+        return {"status": "Fail", "reason_category": "timeout", "reason": "Sandbox execution timed out.", "evidence": _log_evidence(result)}
     if result.exit_code != 0:
-        return {"status": "Fail", "reason_category": _nonzero_exit_category(result), "reason": result.stderr.strip() or "Sandbox returned non-zero exit code.", "evidence": [result.log]}
+        return {"status": "Fail", "reason_category": _nonzero_exit_category(result), "reason": _failure_line(result) or "Sandbox returned non-zero exit code.", "evidence": _log_evidence(result)}
     if result.service_check_attempted and not _service_smoke_passed(result):
-        return {"status": "Fail", "reason_category": "service_smoke_failed", "reason": "Service smoke check failed after sandbox execution.", "evidence": [result.log]}
+        return {"status": "Fail", "reason_category": "service_smoke_failed", "reason": "Service smoke check failed after sandbox execution.", "evidence": _log_evidence(result)}
     if result.browser_check_attempted and not result.browser_loaded:
-        return {"status": "Fail", "reason_category": "browser_smoke_failed", "reason": "Browser smoke check failed after service startup.", "evidence": [result.log]}
+        return {"status": "Fail", "reason_category": "browser_smoke_failed", "reason": "Browser smoke check failed after service startup.", "evidence": _log_evidence(result)}
 
     failure, warnings = _measured_policy_findings(state, result)
     state.metrics["policy_warnings"] = warnings
@@ -215,13 +221,13 @@ def _fallback_judge(state: AgentState) -> dict[str, object]:
         state.events.append(f"Judge: warning {warning}")
     if failure:
         category, _, detail = failure.partition(": ")
-        return {"status": "Fail", "reason_category": category, "reason": detail or failure, "evidence": [result.log]}
+        return {"status": "Fail", "reason_category": category, "reason": detail or failure, "evidence": _log_evidence(result)}
     passed_category = "chaos_recovered_within_budget" if result.chaos_observation else "all_checks_passed"
     return {
         "status": "Pass",
         "reason_category": passed_category,
         "reason": "Repository passed preflight and sandbox smoke validation.",
-        "evidence": [result.log],
+        "evidence": _log_evidence(result),
     }
 
 
@@ -438,6 +444,27 @@ _FAILURE_TOKENS = ("fail", "error")
 _COMPILE_SIGNS = ("error compiling", "syntaxerror", "indentationerror")
 
 
+# 판정 근거로 남기는 로그 길이. 이보다 길면 판정 이유가 로그 덤프가 된다.
+MAX_EVIDENCE_LOG_CHARS = 600
+MAX_REASON_CHARS = 200
+
+
+def _log_evidence(result: SandboxResult) -> list[str]:
+    """실패 지점 이후만, 길이를 제한해 근거로 남긴다."""
+    excerpt = truncate_log(failure_region(result.log).strip(), MAX_EVIDENCE_LOG_CHARS)
+    return [excerpt] if excerpt else [f"exit_code={result.exit_code}"]
+
+
+def _failure_line(result: SandboxResult) -> str:
+    """실패 지점 이후의 첫 의미 있는 줄. 단계 마커와 진행 표시는 건너뛴다."""
+    for line in failure_region(result.stderr or result.log).splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith(("[CodeReferee]", "Listing", "Compiling", "detected_stack=")):
+            continue
+        return stripped[:MAX_REASON_CHARS]
+    return ""
+
+
 def _nonzero_exit_category(result: SandboxResult) -> str:
     text = f"{result.stderr} {result.stdout}".lower()
     if result.exit_code == 86:
@@ -496,7 +523,7 @@ def _fallback_critic(state: AgentState) -> dict[str, object]:
         return {
             "issue": "Repository exceeded the bounded sandbox execution window.",
             "root_cause": "Sandbox execution timed out before validation completed.",
-            "evidence": [result.log],
+            "evidence": _log_evidence(result),
             "recommended_action": "Reduce blocking startup/test work, add timeout-safe startup behavior, and re-run validation from the same commit.",
         }
     if result and result.exit_code not in (0, None):
@@ -510,14 +537,14 @@ def _fallback_critic(state: AgentState) -> dict[str, object]:
         return {
             "issue": "Service smoke validation failed after the process started.",
             "root_cause": f"HTTP/browser service check failed with http_status={result.http_status} and browser_loaded={result.browser_loaded}.",
-            "evidence": [result.log],
+            "evidence": _log_evidence(result),
             "recommended_action": "Fix the app health endpoint or start command, then verify the service returns a successful HTTP status and browser probe loads.",
         }
     if result and result.browser_check_attempted and not result.browser_loaded:
         return {
             "issue": "Browser smoke validation failed.",
             "root_cause": "The service did not load successfully in the browser probe.",
-            "evidence": [result.log],
+            "evidence": _log_evidence(result),
             "recommended_action": "Fix client startup/rendering and verify the endpoint loads in a headless browser.",
         }
     return {

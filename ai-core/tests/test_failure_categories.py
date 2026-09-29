@@ -130,3 +130,44 @@ class NonTestStepFailureTests(unittest.TestCase):
     def test_test_word_plus_failure_word_is_a_test_failure(self) -> None:
         result = SandboxResult(exit_code=1, stderr="1 failed", stdout="running tests...\n")
         self.assertEqual(nodes._nonzero_exit_category(result), "test_failure")
+
+
+class JudgeEvidenceBoundsTests(unittest.TestCase):
+    """판정 근거에 로그 전문을 넣으면 준비 과정이 근거가 된다. Critic이 그걸 베꼈다."""
+
+    def test_reason_is_the_first_meaningful_failure_line(self) -> None:
+        log = PREAMBLE + "*** Error compiling './six.py'...\nSyntaxError: invalid syntax\n"
+        result = _result(log)
+        self.assertEqual(nodes._failure_line(result), "*** Error compiling './six.py'...")
+
+    def test_reason_skips_stage_markers_and_progress_lines(self) -> None:
+        log = PREAMBLE + "Listing './docs'...\nCompiling './a.py'...\nBoom: real failure\n"
+        self.assertEqual(nodes._failure_line(_result(log)), "Boom: real failure")
+
+    def test_evidence_drops_the_preamble_and_is_bounded(self) -> None:
+        log = PREAMBLE + "x" * 5000
+        evidence = nodes._log_evidence(_result(log))
+        self.assertEqual(len(evidence), 1)
+        self.assertNotIn("apt-get install", evidence[0])
+        # truncate_log이 잘림 표시를 덧붙이므로 상한에 그 길이를 더해 비교한다.
+        self.assertLessEqual(len(evidence[0]), nodes.MAX_EVIDENCE_LOG_CHARS + 40)
+        self.assertIn("truncated", evidence[0])
+
+    def test_evidence_is_never_empty(self) -> None:
+        # SandboxResult.log는 로그가 비어도 실행 요약을 담는다. 근거가 빈 리스트로 나가지 않는다.
+        evidence = nodes._log_evidence(SandboxResult(exit_code=3))
+        self.assertEqual(len(evidence), 1)
+        self.assertIn("exit_code=3", evidence[0])
+
+    def test_judge_report_does_not_carry_the_preamble(self) -> None:
+        from app.models import AgentState, JobStatus, RepositoryPreflightReport
+
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.running)
+        state.preflight_report = RepositoryPreflightReport(
+            repository_url="https://github.com/o/r", cloneable=True, executable=True
+        )
+        state.execution_result = _result(PREAMBLE + "SyntaxError: invalid syntax\n")
+        report = nodes._fallback_judge(state)
+        blob = str(report)
+        self.assertNotIn("apt-get install", blob)
+        self.assertIn("SyntaxError", blob)
