@@ -140,9 +140,11 @@ def _build_evidence_refs(state: AgentState, category: str) -> dict[str, str]:
         refs["exec.browser_loaded"] = f"browser_loaded={result.browser_loaded}"
         refs["exec.service_check_applicable"] = f"service_check_applicable={result.service_check_attempted}"
         refs["exec.browser_check_applicable"] = f"browser_check_applicable={result.browser_check_attempted}"
-        if result.stdout.strip():
-            refs["log.stdout"] = truncate_log(result.stdout.strip(), 400)
-        if result.stderr.strip():
-            refs["log.stderr"] = truncate_log(result.stderr.strip(), 400)
-        refs["log.combined"] = truncate_log(result.log, 600)
+        # 로그는 전부 실패 단계 이후만 쓴다. 앞에서 자르면 준비 과정(apt-get)이 채우고,
+        # 이 값들은 secondary_signals로도 들어가 서두가 packet에 여러 번 반복된다.
+        if failure_region(result.stdout).strip():
+            refs["log.stdout"] = truncate_log(failure_region(result.stdout).strip(), 400)
+        if failure_region(result.stderr).strip():
+            refs["log.stderr"] = truncate_log(failure_region(result.stderr).strip(), 400)
+        refs["log.combined"] = truncate_log(failure_region(result.log), 600)
     return {key: value for key, value in refs.items() if str(value).strip()}

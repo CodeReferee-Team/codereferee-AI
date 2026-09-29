@@ -224,3 +224,22 @@ class FailureRegionTests(unittest.TestCase):
         state.execution_result = SandboxResult(exit_code=1, stderr=COMPILEALL_LOG_WITH_PREAMBLE)
         excerpt = build_evidence_packet(state)["execution"]["log_excerpt"]
         self.assertNotIn("apt-get install", excerpt)
+
+
+class EvidenceRefsTests(unittest.TestCase):
+    """로그를 담는 모든 자리에 같은 규칙을 적용한다. refs는 secondary_signals로도 복제된다."""
+
+    def test_no_evidence_field_carries_the_apt_preamble(self) -> None:
+        import json
+
+        from app.agents.evidence import build_evidence_packet, render_evidence_packet
+        from app.models import AgentState, JobStatus, SandboxResult
+
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.failed)
+        state.execution_result = SandboxResult(
+            exit_code=1, stderr=COMPILEALL_LOG_WITH_PREAMBLE, stdout=COMPILEALL_LOG_WITH_PREAMBLE
+        )
+        rendered = render_evidence_packet(build_evidence_packet(state))
+        self.assertNotIn("apt-get install", rendered)
+        self.assertNotIn("debconf", rendered)
+        self.assertIn("SyntaxError", rendered)

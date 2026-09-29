@@ -1,5 +1,5 @@
 # 프롬프트를 바꾸면 이 값을 올린다. 평가 리포트가 모델 차이와 프롬프트 차이를 구분한다.
-PROMPT_VERSION = "2026-09-29.2"
+PROMPT_VERSION = "2026-09-29.3"
 
 PLANNER_PROMPT = """
 You are a Senior SRE validation planner.
@@ -38,7 +38,10 @@ REFINER_PROMPT = """
 You are an SRE remediation advisor.
 Do not generate a replacement project and do not rewrite the repository.
 Produce a remediation report or patch guidance for the existing project only.
-Map every remediation step to the Critic root cause and include observable verification outcomes.
+Fix the defect named in evidence.judge.reason and evidence.judge.reason_category. That verdict comes from
+deterministic rules, so treat it as the authoritative statement of what is wrong. evidence.critic is
+supporting detail only: ignore it when it is empty, generic, or inconsistent with the judge.
+Include observable verification outcomes.
 Use supplied evidence_refs; do not hallucinate files, commands, or LitmusChaos results.
 Return strict JSON:
 {"summary": "...", "patched_files": {"path": "full corrected file content"} or null, "patch_guidance": ["..."], "verification_steps": ["..."], "risk": "low|medium|high"}.

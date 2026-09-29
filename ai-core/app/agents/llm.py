@@ -107,7 +107,9 @@ class AgentLLM:
     ) -> str:
         return self.invoke_text(
             "You repair invalid Agent JSON. Return only strict JSON. Do not change the intended decision, "
-            "do not add unsupported evidence, and do not include markdown fences.",
+            "do not add unsupported evidence, and do not include markdown fences. "
+            "Never copy the validation error text or the schema's own wording into a field value: "
+            "fill missing fields from the original response's content.",
             "Schema name: {schema_name}\nSchema JSON: {schema_json}\nValidation error: {validation_error}\n"
             "Original response: {original_response}",
             {
