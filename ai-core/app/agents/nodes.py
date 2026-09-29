@@ -135,6 +135,8 @@ def _diff_from_edits(state: AgentState) -> None:
             "accepted": False,
             "reason_code": "edits_not_applicable",
             "reason": ", ".join(outcome.rejected) or "no edit changed a file",
+            # 모델이 무엇을 앵커로 썼는지 남긴다. 프롬프트를 고칠 근거가 된다.
+            "attempted_anchors": [str(edit.get("find")) [:200] for edit in edits if isinstance(edit, dict)],
         }
         return
     diff = build_diff(state.source_files, outcome.patched)

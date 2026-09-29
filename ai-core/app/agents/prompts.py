@@ -1,5 +1,5 @@
 # 프롬프트를 바꾸면 이 값을 올린다. 평가 리포트가 모델 차이와 프롬프트 차이를 구분한다.
-PROMPT_VERSION = "2026-09-30.1"
+PROMPT_VERSION = "2026-09-30.2"
 
 PLANNER_PROMPT = """
 You are a Senior SRE validation planner.
@@ -52,6 +52,11 @@ evidence.source_files, and it must appear EXACTLY ONCE in that file — add an a
 unique if needed. "replace" is what goes there instead; an empty list deletes those lines.
 Keep every edit as small as the fix requires. We apply the edits ourselves, so lines you do not list
 cannot change.
+Copy "find" from evidence.source_files ONLY. Never copy it from a log excerpt: log output contains
+caret markers, error messages and interpreter framing that are not in the file, so such a find matches
+nothing and the edit is thrown away. Use the log only to locate which lines of source_files to fix.
+Example, for a file whose content contains "def broken(:" followed by "    pass":
+{"edits": [{"path": "documentation/conf.py", "find": ["def broken(:"], "replace": ["def broken():"]}]}
 Change only paths present in evidence.source_files. Never touch CI config or paths outside the repository.
 Set edits to null when the evidence is not enough, or when the file you would need is not in
 evidence.source_files. Never invent file content you were not shown.
