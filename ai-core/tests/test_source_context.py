@@ -282,3 +282,35 @@ class NoiseFilterTests(unittest.TestCase):
         evidence = nodes._log_evidence(SandboxResult(exit_code=1, stderr=log))[0]
         self.assertIn("SyntaxError", evidence)
         self.assertNotIn("Listing", evidence)
+
+
+class ManifestAttachmentTests(unittest.TestCase):
+    """의존성 실패 로그에는 파일 경로가 없다. pip은 패키지 이름만 말한다."""
+
+    def _state(self, category: str, log: str):
+        from app.models import AgentState, JobStatus, SandboxResult
+
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.failed)
+        state.execution_result = SandboxResult(exit_code=1, stderr=log)
+        state.judge_report = {"reason_category": category}
+        return state
+
+    def test_dependency_failure_asks_for_the_manifest(self) -> None:
+        from unittest import mock
+
+        from app.workflow import repository_validation as workflow
+
+        log = "[CodeReferee] detecting project stack\nERROR: No matching distribution found for nope-zzz\n"
+        with mock.patch.object(source_context, "collect", return_value={}) as collect:
+            workflow.attach_source_files(self._state("dependency_install_failed", log))
+        requested = collect.call_args.args[1]
+        self.assertIn("requirements.txt", requested)
+
+    def test_source_failure_keeps_using_the_log_paths(self) -> None:
+        from unittest import mock
+
+        from app.workflow import repository_validation as workflow
+
+        with mock.patch.object(source_context, "collect", return_value={}) as collect:
+            workflow.attach_source_files(self._state("sandbox_nonzero_exit", COMPILEALL_LOG))
+        self.assertEqual(collect.call_args.args[1], ["documentation/conf.py"])

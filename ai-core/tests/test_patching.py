@@ -500,3 +500,29 @@ class PatchCheckReasonTests(unittest.TestCase):
         state.refiner_report = {"summary": "nothing to fix"}
         nodes._record_patch_inspection(state)
         self.assertEqual(state.metrics["patch_check"]["reason_code"], "patch_absent")
+
+
+class EditPathNormalisationTests(unittest.TestCase):
+    """모델은 로그에서 본 형태로 경로를 쓴다. ./src/a.py, /tmp/repository/src/a.py 등."""
+
+    def setUp(self) -> None:
+        self.original = {"src/iniconfig/__init__.py": "def broken(:\n    pass\n"}
+
+    def test_dot_slash_prefix_resolves(self) -> None:
+        out = patching.apply_edits(
+            self.original,
+            [{"path": "./src/iniconfig/__init__.py", "find": ["def broken(:"], "replace": ["def broken():"]}],
+        )
+        self.assertEqual(out.rejected, [])
+        self.assertIn("def broken():", out.patched["src/iniconfig/__init__.py"])
+
+    def test_container_prefix_resolves(self) -> None:
+        out = patching.apply_edits(
+            self.original,
+            [{"path": "/tmp/repository/src/iniconfig/__init__.py", "find": ["def broken(:"], "replace": ["ok"]}],
+        )
+        self.assertEqual(out.rejected, [])
+
+    def test_a_genuinely_unknown_path_is_still_refused(self) -> None:
+        out = patching.apply_edits(self.original, [{"path": "./other.py", "find": ["x"], "replace": ["y"]}])
+        self.assertEqual(out.rejected, ["edit_path_unknown:./other.py"])

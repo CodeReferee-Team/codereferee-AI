@@ -384,6 +384,9 @@ def attach_source_files(state: AgentState, applied_patch: str | None = None) -> 
     if result is None or state.status != JobStatus.failed:
         return
     paths = source_context.extract_paths(result.log)
+    if state.judge_report.get("reason_category") == "dependency_install_failed" or not paths:
+        # pip은 패키지 이름만 말한다. 고칠 파일은 매니페스트이므로 직접 붙인다.
+        paths = list(source_context.MANIFEST_CANDIDATES) + [p for p in paths if p not in source_context.MANIFEST_CANDIDATES]
     if not paths:
         return
     state.source_files = source_context.collect(

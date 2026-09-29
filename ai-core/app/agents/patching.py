@@ -169,6 +169,15 @@ class EditOutcome:
     rejected: list[str] = field(default_factory=list)
 
 
+def _normalise_edit_path(path: str) -> str:
+    cleaned = path.strip()
+    if cleaned.startswith("/tmp/repository/"):
+        cleaned = cleaned[len("/tmp/repository/") :]
+    while cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    return cleaned.lstrip("/")
+
+
 def apply_edits(original: dict[str, str], edits: list[dict[str, object]]) -> EditOutcome:
     """내용으로 앵커한 편집을 적용한다.
 
@@ -178,14 +187,18 @@ def apply_edits(original: dict[str, str], edits: list[dict[str, object]]) -> Edi
     """
     outcome = EditOutcome(patched=dict())
     working = dict(original)
+    # 모델이 "./src/a.py"나 "/tmp/repository/src/a.py"처럼 쓴다. 로그에서 본 형태를 그대로 옮기는 것이다.
+    lookup = {_normalise_edit_path(key): key for key in working}
     for index, edit in enumerate(edits):
         path = str(edit.get("path") or "")
         find = edit.get("find") or []
         replace = edit.get("replace")
         replace = replace if isinstance(replace, list) else []
-        if path not in working:
+        resolved = path if path in working else lookup.get(_normalise_edit_path(path), "")
+        if not resolved:
             outcome.rejected.append(f"edit_path_unknown:{path or f'#{index}'}")
             continue
+        path = resolved
         if not isinstance(find, list) or not find:
             outcome.rejected.append(f"edit_anchor_empty:{path}")
             continue

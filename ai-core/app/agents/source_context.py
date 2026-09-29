@@ -18,6 +18,14 @@ import tempfile
 from pathlib import Path
 
 MAX_FILES = 3
+# 의존성 실패 로그에는 파일 경로가 없다. pip은 패키지 이름만 말한다. 고칠 파일은 매니페스트다.
+MANIFEST_CANDIDATES = (
+    "requirements.txt",
+    "requirements-dev.txt",
+    "pyproject.toml",
+    "package.json",
+    "Pipfile",
+)
 # 이보다 큰 파일은 주지 않는다. 자르면 적용 불가능한 diff가 나온다.
 MAX_FILE_CHARS = 20_000
 # sandbox 컨테이너 안의 clone 위치. 로그에 절대 경로로 찍힌다.
