@@ -17,6 +17,12 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# 수정 패치가 지울 수 있는 줄의 상한. 이보다 크면 수리가 아니라 재작성이다.
+# 작은 모델은 파일 전문을 재현하라고 하면 일부를 조용히 빠뜨린다(7,038자 -> 4,567자를 관측).
+# 그렇게 만들어진 diff는 실제 내용에서 뽑은 것이라 git apply를 통과하므로 여기서 막아야 한다.
+MAX_REMOVED_LINE_RATIO = 0.2
+MAX_REMOVED_LINES_FLOOR = 20
+
 # 누적 diff 상한. 이만큼 고쳐야 한다면 자동 수정이 아니라 사람이 볼 문제다.
 MAX_DIFF_BYTES = 1_000_000
 # 우리가 실행할 패치가 건드리면 안 되는 경로.
@@ -123,3 +129,32 @@ def build_diff(original: dict[str, str], patched: dict[str, str]) -> str:
         )
         chunks.append("".join(diff))
     return "".join(chunks)
+
+
+def inspect_rewrite(diff: str, original: dict[str, str]) -> PatchVerdict:
+    """수리인지 재작성인지 본다.
+
+    모델이 파일 전문을 다 쓰지 못하고 뒤를 잘라먹으면, 그 내용으로 만든 diff는 멀쩡한 코드를
+    대량 삭제하는 패치가 된다. 실제 내용에서 뽑았으므로 `git apply`는 통과한다. 크기로 막는다.
+    """
+    removed_by_path: dict[str, int] = {}
+    current = ""
+    for line in diff.splitlines():
+        if line.startswith("--- "):
+            current = line[4:].strip()
+            if current.startswith("a/"):
+                current = current[2:]
+        elif line.startswith("-") and not line.startswith("---"):
+            removed_by_path[current] = removed_by_path.get(current, 0) + 1
+
+    for path, removed in removed_by_path.items():
+        total = len(original.get(path, "").splitlines()) or 1
+        allowed = max(MAX_REMOVED_LINES_FLOOR, int(total * MAX_REMOVED_LINE_RATIO))
+        if removed > allowed:
+            return PatchVerdict(
+                False,
+                "patch_rewrites_file",
+                f"{path}에서 {removed}줄을 지운다. 전체 {total}줄 기준 상한 {allowed}줄을 넘는다.",
+                sorted(removed_by_path),
+            )
+    return PatchVerdict(True, touched_paths=sorted(removed_by_path))

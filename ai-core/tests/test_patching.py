@@ -305,3 +305,40 @@ class BuildDiffTests(unittest.TestCase):
         )
         self.assertEqual(sorted(patching.touched_paths(diff)), ["calc.py", "util.py"])
         self.assertTrue(patching.check_applies(diff, self.repo).accepted)
+
+
+class RewriteGuardTests(unittest.TestCase):
+    """작은 모델은 파일 전문을 재현하라면 뒤를 잘라먹는다. 그 diff는 git apply를 통과한다."""
+
+    def setUp(self) -> None:
+        self.original = {"mod.py": "".join(f"line {i}\n" for i in range(100))}
+
+    def test_small_repair_is_accepted(self) -> None:
+        patched = {"mod.py": self.original["mod.py"].replace("line 50\n", "line fifty\n")}
+        diff = patching.build_diff(self.original, patched)
+        self.assertTrue(patching.inspect_rewrite(diff, self.original).accepted)
+
+    def test_truncated_file_is_rejected(self) -> None:
+        # 모델이 뒤 40%를 빠뜨린 경우. 유효한 diff지만 멀쩡한 코드를 지운다.
+        patched = {"mod.py": "".join(f"line {i}\n" for i in range(60))}
+        diff = patching.build_diff(self.original, patched)
+        verdict = patching.inspect_rewrite(diff, self.original)
+        self.assertFalse(verdict.accepted)
+        self.assertEqual(verdict.reason_code, "patch_rewrites_file")
+
+    def test_small_file_gets_an_absolute_floor(self) -> None:
+        # 3줄 파일에서 2줄을 고치는 것은 비율로는 크지만 정상적인 수리다.
+        original = {"tiny.py": "a\nb\nc\n"}
+        diff = patching.build_diff(original, {"tiny.py": "a\nB\nC\n"})
+        self.assertTrue(patching.inspect_rewrite(diff, original).accepted)
+
+    def test_refiner_node_drops_a_rewrite(self) -> None:
+        from app.agents import nodes
+        from app.models import AgentState, JobStatus
+
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.failed)
+        state.source_files = dict(self.original)
+        state.refiner_report = {"patched_files": {"mod.py": "".join(f"line {i}\n" for i in range(60))}}
+        nodes._diff_from_patched_files(state)
+        self.assertIsNone(state.refiner_report["patch_diff"])
+        self.assertEqual(state.metrics["patch_check"]["reason_code"], "patch_rewrites_file")

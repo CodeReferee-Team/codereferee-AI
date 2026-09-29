@@ -10,7 +10,7 @@ from app.agents.evidence import (
 )
 from app.agents.source_context import drop_progress_lines, failure_region
 from app.agents.llm import llm, parse_json_strict
-from app.agents.patching import build_diff, inspect_diff
+from app.agents.patching import build_diff, inspect_diff, inspect_rewrite
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
 from app.config import get_settings
@@ -133,6 +133,19 @@ def _diff_from_patched_files(state: AgentState) -> None:
         # 보여주지 않은 파일의 내용은 지어낸 것이다. 반영하지 않는다.
         state.events.append(f"Refiner: ignored files not in evidence ({', '.join(unknown)})")
     state.refiner_report["patched_paths"] = sorted(set(patched) & set(state.source_files))
+    if diff:
+        rewrite = inspect_rewrite(diff, state.source_files)
+        if not rewrite.accepted:
+            # 모델이 파일 뒤를 잘라먹은 경우다. 적용되더라도 멀쩡한 코드를 지운다.
+            state.events.append(f"Refiner: patch rejected as a rewrite: {rewrite.reason}")
+            state.metrics["patch_check"] = {
+                "accepted": False,
+                "reason_code": rewrite.reason_code,
+                "reason": rewrite.reason,
+                "touched_paths": rewrite.touched_paths,
+            }
+            state.refiner_report["patch_diff"] = None
+            return
     state.refiner_report["patch_diff"] = diff or None
 
 
