@@ -679,3 +679,56 @@ unified diff는 context 줄을 원문과 한 글자도 다르지 않게 적고, 
 바뀐다. 파일 상한이 이미 20,000자라 전문을 주고받는 것이 가능하다.
 
 이것을 적용하고 파일럿을 다시 돌려 14.1 표를 갱신한다.
+
+
+### 14.6 파일 전문을 받아 diff를 우리가 만든다 (2026-09-29)
+
+14.5의 제안을 구현했다. 모델은 `patched_files`에 고친 파일 전문을 담고, `patching.build_diff`가
+`difflib.unified_diff`로 diff를 만든다. context 줄과 hunk 헤더가 틀릴 수 없다.
+
+통제된 조건(정확한 root_cause를 사람이 써서 넣음)에서 8B가 결함 줄만 제거한 전문을 돌려주고,
+생성된 diff가 정확히 그 부분만 제거했다.
+
+```diff
+--- a/documentation/conf.py
++++ b/documentation/conf.py
+@@ -215,6 +215,3 @@
+-
+-def broken(:
+-    pass
+```
+
+`evidence.source_files`에 없는 경로는 무시한다. 보여주지 않은 파일의 내용은 지어낸 것이다.
+전문은 diff로 바꾼 뒤 리포트에서 버리고 경로만 남긴다. 파일 내용이 백엔드 result 이벤트로
+나가면 안 된다.
+
+#### 그런데 파이프라인 전체로는 여전히 0이었다. 원인은 준비 과정 로그였다
+
+Critic이 `[CodeReferee] installing sandbox clone tools / debconf: unable to initialize frontend`을
+근본 원인으로 적고 있었다. 그 근본 원인을 받은 Refiner는 파일을 그대로 돌려줬다.
+
+로그가 evidence로 들어가는 경로를 넷 찾았다. 전부 앞에서부터 잘려 apt 서두가 채우고 있었다.
+
+| 경로 | 문제 |
+| --- | --- |
+| `execution.log_excerpt` | 앞에서 잘려 서두가 채움 |
+| `evidence_refs`의 `log.stdout` / `log.stderr` / `log.combined` | `secondary_signals`로 복제되어 같은 서두가 packet에 네 번 반복 |
+| `_fallback_judge`의 `reason` | `result.stderr` 전문 |
+| `_fallback_judge`의 `evidence` | `result.log` 전문 |
+
+`source_context.failure_region`으로 네 자리 모두 실패 단계 이후만 쓰게 했고, judge의 reason은
+실패 지점 이후 첫 의미 있는 줄 200자, evidence는 600자로 제한했다.
+
+**14.3의 분류기 버그와 뿌리가 같다.** sandbox 스크립트의 `apt-get install` 서두가 로그 앞을
+채우는 것이다. 분류기에서 한 번, evidence에서 네 번 물렸다. 근본 해결은 sandbox가 실패한 단계를
+구조화해서 내려주는 것이고 `docs/sandbox.md`에 요청 항목으로 적었다.
+
+부수 효과로 백엔드 result 이벤트의 페이로드가 줄었다. 판정 이유가 로그 덤프가 아니게 됐다.
+
+#### 8B의 스키마 앵무새
+
+Critic 출력이 스키마 검증에 실패하면 수리 재시도에서 `root_cause`에 `"Field required"`,
+Refiner의 `summary`에 `"This is a summary"`가 나왔다. 검증 오류 문구와 스키마 예시를 필드 값으로
+베낀 것이다. 수리 프롬프트에 베끼지 말라고 명시했고, 더 중요한 것은 Refiner가 Critic 산문에
+의존하지 않게 한 것이다. Judge는 규칙 기반이라 항상 정확하므로, `judge.reason`과
+`reason_category`를 권위 있는 서술로 쓰고 Critic은 보조로만 쓴다(PROMPT_VERSION 2026-09-29.3).
