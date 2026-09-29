@@ -314,3 +314,19 @@ class ManifestAttachmentTests(unittest.TestCase):
         with mock.patch.object(source_context, "collect", return_value={}) as collect:
             workflow.attach_source_files(self._state("sandbox_nonzero_exit", COMPILEALL_LOG))
         self.assertEqual(collect.call_args.args[1], ["documentation/conf.py"])
+
+
+class CaretLineTests(unittest.TestCase):
+    """캐럿 줄은 열 위치 표시다. 파일에 없는 줄이라 앵커로 쓰면 반드시 거부된다."""
+
+    def test_caret_only_line_is_dropped(self) -> None:
+        log = 'File "./a.py", line 3\n    def broken(:\n               ^\nSyntaxError: invalid syntax\n'
+        cleaned = source_context.drop_progress_lines(log)
+        self.assertNotIn("               ^", cleaned)
+        self.assertIn("def broken(:", cleaned)
+        self.assertIn("SyntaxError", cleaned)
+
+    def test_a_line_containing_a_caret_in_code_is_kept(self) -> None:
+        # 비트 XOR 연산자가 있는 코드 줄은 지우면 안 된다.
+        log = "    checksum = a ^ b\n"
+        self.assertIn("checksum = a ^ b", source_context.drop_progress_lines(log))

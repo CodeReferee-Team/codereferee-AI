@@ -176,6 +176,8 @@ def run_case(repository_url: str, fault: Fault) -> dict:
     record["refiner_summary"] = state.refiner_report.get("summary")
     fix_diff = state.refiner_report.get("patch_diff")
     record["patch_check"] = state.metrics.get("patch_check")
+    # 재요청이 실제로 발동했는지 보려면 이벤트가 필요하다.
+    record["events"] = [e for e in state.events if e.startswith("Refiner:")]
     if not fix_diff:
         record["outcome"] = "no_patch"
         record["elapsed_seconds"] = round(time.monotonic() - started, 1)

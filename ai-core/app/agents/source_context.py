@@ -112,9 +112,19 @@ def drop_progress_lines(log: str) -> str:
         line
         for line in log.splitlines()
         # *** 로 시작하는 줄은 compileall의 오류 표시다. 진행 표시와 구분해 남긴다.
-        if not line.startswith(_PROGRESS_PREFIXES)
+        if not line.startswith(_PROGRESS_PREFIXES) and not _is_caret_line(line)
     ]
     return "\n".join(kept)
+
+
+def _is_caret_line(line: str) -> bool:
+    """문법 오류의 열 위치를 가리키는 캐럿 줄. 파일에는 없는 줄이다.
+
+    Refiner가 이것을 파일 내용으로 착각해 앵커에 넣는 것을 두 번 관측했다(재요청 후에도 반복).
+    오류 메시지 줄은 남으므로 정보는 잃지 않는다.
+    """
+    stripped = line.strip()
+    return bool(stripped) and set(stripped) == {"^"}
 
 
 def read_files(repo_path: Path, paths: list[str]) -> dict[str, str]:
