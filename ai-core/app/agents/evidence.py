@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.agents.source_context import failure_region
+from app.agents.source_context import drop_progress_lines, failure_region
 from app.models import AgentState
 
 MAX_LOG_CHARS = 1200
@@ -55,7 +55,7 @@ def build_evidence_packet(state: AgentState) -> dict[str, Any]:
             "service_check_applicable": getattr(result, "service_check_attempted", False),
             "browser_check_applicable": getattr(result, "browser_check_attempted", False),
             # 실패 단계 이후만 발췌한다. 준비 과정을 원인으로 읽는 일이 있었다.
-            "log_excerpt": truncate_log(failure_region(result.log)),
+            "log_excerpt": truncate_log(_relevant_log(result.log)),
         }
     return packet
 
@@ -66,6 +66,11 @@ def render_evidence_packet(packet: dict[str, Any]) -> str:
 
 def flatten_evidence_packet(packet: dict[str, Any]) -> str:
     return render_evidence_packet(packet).casefold()
+
+
+def _relevant_log(log: str) -> str:
+    """실패 단계 이후에서 진행 표시를 뺀 부분. evidence의 모든 로그 필드가 이것을 쓴다."""
+    return drop_progress_lines(failure_region(log))
 
 
 def truncate_log(log: str, limit: int = MAX_LOG_CHARS) -> str:
@@ -142,9 +147,9 @@ def _build_evidence_refs(state: AgentState, category: str) -> dict[str, str]:
         refs["exec.browser_check_applicable"] = f"browser_check_applicable={result.browser_check_attempted}"
         # 로그는 전부 실패 단계 이후만 쓴다. 앞에서 자르면 준비 과정(apt-get)이 채우고,
         # 이 값들은 secondary_signals로도 들어가 서두가 packet에 여러 번 반복된다.
-        if failure_region(result.stdout).strip():
-            refs["log.stdout"] = truncate_log(failure_region(result.stdout).strip(), 400)
-        if failure_region(result.stderr).strip():
-            refs["log.stderr"] = truncate_log(failure_region(result.stderr).strip(), 400)
-        refs["log.combined"] = truncate_log(failure_region(result.log), 600)
+        if _relevant_log(result.stdout).strip():
+            refs["log.stdout"] = truncate_log(_relevant_log(result.stdout).strip(), 400)
+        if _relevant_log(result.stderr).strip():
+            refs["log.stderr"] = truncate_log(_relevant_log(result.stderr).strip(), 400)
+        refs["log.combined"] = truncate_log(_relevant_log(result.log), 600)
     return {key: value for key, value in refs.items() if str(value).strip()}

@@ -8,7 +8,7 @@ from app.agents.evidence import (
     render_evidence_packet,
     truncate_log,
 )
-from app.agents.source_context import failure_region
+from app.agents.source_context import drop_progress_lines, failure_region
 from app.agents.llm import llm, parse_json_strict
 from app.agents.patching import build_diff, inspect_diff
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
@@ -451,7 +451,9 @@ MAX_REASON_CHARS = 200
 
 def _log_evidence(result: SandboxResult) -> list[str]:
     """실패 지점 이후만, 길이를 제한해 근거로 남긴다."""
-    excerpt = truncate_log(failure_region(result.log).strip(), MAX_EVIDENCE_LOG_CHARS)
+    excerpt = truncate_log(
+        drop_progress_lines(failure_region(result.log)).strip(), MAX_EVIDENCE_LOG_CHARS
+    )
     return [excerpt] if excerpt else [f"exit_code={result.exit_code}"]
 
 

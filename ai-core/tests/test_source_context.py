@@ -243,3 +243,34 @@ class EvidenceRefsTests(unittest.TestCase):
         self.assertNotIn("apt-get install", rendered)
         self.assertNotIn("debconf", rendered)
         self.assertIn("SyntaxError", rendered)
+
+
+class NoiseFilterTests(unittest.TestCase):
+    """compileall은 디렉터리마다 진행 표시를 찍는다. 발췌를 그것으로 채우면 오류가 밀려난다."""
+
+    def test_progress_lines_are_dropped_but_error_marker_lines_kept(self) -> None:
+        log = "Listing './.git'...\nCompiling './a.py'...\n***   File \"./a.py\", line 2\nSyntaxError: bad\n"
+        cleaned = source_context.drop_progress_lines(log)
+        self.assertNotIn("Listing", cleaned)
+        self.assertIn('***   File "./a.py", line 2', cleaned)
+        self.assertIn("SyntaxError", cleaned)
+
+    def test_only_error_line_paths_are_used_when_available(self) -> None:
+        # setup.py는 성공한 파일이다. 자리를 채우려고 섞으면 무관한 파일이 Refiner에게 간다.
+        paths = source_context.extract_paths(COMPILEALL_LOG)
+        self.assertEqual(paths, ["documentation/conf.py"])
+
+    def test_paths_are_still_found_when_no_line_looks_like_an_error(self) -> None:
+        log = "Compiling './a.py'...\nCompiling './b.py'...\n"
+        self.assertEqual(source_context.extract_paths(log), ["a.py", "b.py"])
+
+    def test_judge_evidence_keeps_the_real_error_not_the_listing(self) -> None:
+        from app.agents import nodes
+        from app.models import SandboxResult
+
+        log = ("[CodeReferee] detecting project stack\ndetected_stack=python\n"
+               + "".join(f"Listing './dir{i}'...\n" for i in range(200))
+               + "***   File \"./conf.py\", line 219\nSyntaxError: invalid syntax\n")
+        evidence = nodes._log_evidence(SandboxResult(exit_code=1, stderr=log))[0]
+        self.assertIn("SyntaxError", evidence)
+        self.assertNotIn("Listing", evidence)

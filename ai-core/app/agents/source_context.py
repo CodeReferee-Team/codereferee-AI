@@ -59,7 +59,9 @@ def extract_paths(log: str, limit: int = MAX_FILES) -> list[str]:
                 if path and path not in target:
                     target.append(path)
 
-    ordered = ranked + [path for path in fallback if path not in ranked]
+    # 오류 줄에서 찾은 경로가 있으면 그것만 쓴다. compileall은 성공한 파일도 전부 출력하므로
+    # 자리를 채우려고 fallback을 섞으면 무관한 파일이 들어간다.
+    ordered = ranked or fallback
     return ordered[:limit]
 
 
@@ -88,6 +90,20 @@ def failure_region(log: str) -> str:
     """
     position = max((log.rfind(marker) for marker in _STAGE_MARKER_TEXTS), default=-1)
     return log[position:] if position > 0 else log
+
+
+# compileall이 디렉터리마다 찍는 진행 표시. 600자 발췌를 이것으로 채우면 실제 오류가 밀려난다.
+_PROGRESS_PREFIXES = ("Listing '", "Compiling '")
+
+
+def drop_progress_lines(log: str) -> str:
+    kept = [
+        line
+        for line in log.splitlines()
+        # *** 로 시작하는 줄은 compileall의 오류 표시다. 진행 표시와 구분해 남긴다.
+        if not line.startswith(_PROGRESS_PREFIXES)
+    ]
+    return "\n".join(kept)
 
 
 def read_files(repo_path: Path, paths: list[str]) -> dict[str, str]:
