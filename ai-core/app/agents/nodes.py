@@ -4,7 +4,7 @@ from pydantic import ValidationError
 
 from app.agents.evidence import build_evidence_packet, classify_failure_category, render_evidence_packet
 from app.agents.llm import llm, parse_json_strict
-from app.agents.patching import inspect_diff
+from app.agents.patching import build_diff, inspect_diff
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
 from app.config import get_settings
@@ -107,8 +107,27 @@ def refiner_node(state: AgentState) -> AgentState:
     else:
         state.refiner_report = validate_report(RefinerReport, fallback)
 
+    _diff_from_patched_files(state)
     _record_patch_inspection(state)
     return state
+
+
+def _diff_from_patched_files(state: AgentState) -> None:
+    """모델이 준 파일 전문에서 diff를 만든다.
+
+    모델 출력의 patch_diff는 쓰지 않는다. 전문은 백엔드로 나가면 안 되므로 diff로 바꾼 뒤 버리고
+    경로만 남긴다.
+    """
+    patched = state.refiner_report.pop("patched_files", None)
+    if not isinstance(patched, dict) or not patched:
+        return
+    diff = build_diff(state.source_files, patched)
+    unknown = sorted(set(patched) - set(state.source_files))
+    if unknown:
+        # 보여주지 않은 파일의 내용은 지어낸 것이다. 반영하지 않는다.
+        state.events.append(f"Refiner: ignored files not in evidence ({', '.join(unknown)})")
+    state.refiner_report["patched_paths"] = sorted(set(patched) & set(state.source_files))
+    state.refiner_report["patch_diff"] = diff or None
 
 
 def _record_patch_inspection(state: AgentState) -> None:

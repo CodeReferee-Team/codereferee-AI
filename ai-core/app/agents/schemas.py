@@ -107,7 +107,11 @@ class CriticReport(StrictAgentReport):
 
 class RefinerReport(StrictAgentReport):
     summary: str = Field(min_length=1)
-    # 실제 unified diff. 만들지 못하면 None이고 patch_guidance만 남는다.
+    # 고친 파일의 전문. 경로 -> 내용. 모델은 diff를 쓰지 않는다.
+    # diff 형식(context 줄, hunk 헤더)을 모델이 맞추지 못해 적용 불가능한 패치가 나왔다.
+    # docs/evaluation-design.md 14.5.
+    patched_files: dict[str, str] | None = None
+    # 위 전문에서 우리가 difflib으로 만든다. 모델 출력이 아니다.
     patch_diff: str | None = None
     patch_guidance: list[str] = Field(min_length=1)
     verification_steps: list[str] = Field(min_length=1)

@@ -257,3 +257,51 @@ class PatchRoundTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BuildDiffTests(unittest.TestCase):
+    """모델은 고친 파일 전문을 주고, diff는 우리가 만든다. docs/evaluation-design.md 14.5."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self._tmp.name)
+        _git(self.repo, "init", "-q")
+        _git(self.repo, "config", "user.email", "t@example.com")
+        _git(self.repo, "config", "user.name", "t")
+        self.original = "def add(a, b):\n    return a - b\n"
+        (self.repo / "calc.py").write_text(self.original, encoding="utf-8")
+        _git(self.repo, "add", "calc.py")
+        _git(self.repo, "commit", "-qm", "init")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_generated_diff_applies_to_the_repository(self) -> None:
+        patched = {"calc.py": "def add(a, b):\n    return a + b\n"}
+        diff = patching.build_diff({"calc.py": self.original}, patched)
+        verdict = patching.check_applies(diff, self.repo)
+        self.assertTrue(verdict.accepted, verdict.reason)
+
+    def test_unchanged_file_produces_no_diff(self) -> None:
+        diff = patching.build_diff({"calc.py": self.original}, {"calc.py": self.original})
+        self.assertEqual(diff, "")
+
+    def test_file_we_never_showed_is_ignored(self) -> None:
+        # 보여주지 않은 파일의 내용은 지어낸 것이다.
+        diff = patching.build_diff({"calc.py": self.original}, {"secret.py": "x = 1\n"})
+        self.assertEqual(diff, "")
+
+    def test_missing_trailing_newline_still_applies(self) -> None:
+        diff = patching.build_diff({"calc.py": self.original}, {"calc.py": "def add(a, b):\n    return a + b"})
+        self.assertTrue(patching.check_applies(diff, self.repo).accepted)
+
+    def test_multiple_files_are_combined_into_one_diff(self) -> None:
+        (self.repo / "util.py").write_text("v = 1\n", encoding="utf-8")
+        _git(self.repo, "add", "util.py")
+        _git(self.repo, "commit", "-qm", "util")
+        diff = patching.build_diff(
+            {"calc.py": self.original, "util.py": "v = 1\n"},
+            {"calc.py": "def add(a, b):\n    return a + b\n", "util.py": "v = 2\n"},
+        )
+        self.assertEqual(sorted(patching.touched_paths(diff)), ["calc.py", "util.py"])
+        self.assertTrue(patching.check_applies(diff, self.repo).accepted)

@@ -147,3 +147,48 @@ class WorkflowWiringTests(unittest.TestCase):
         state.source_files = {"documentation/conf.py": "x = 1\n"}
         # 소스 전문이 응답 페이로드로 나가면 안 된다.
         self.assertNotIn("source_files", events.result_event(state))
+
+
+class RefinerFileToDiffTests(unittest.TestCase):
+    """모델이 준 전문은 diff로 바꾼 뒤 버린다. 파일 내용이 백엔드로 나가면 안 된다."""
+
+    def _state(self):
+        from app.models import AgentState, JobStatus
+
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.failed)
+        state.source_files = {"calc.py": "def add(a, b):\n    return a - b\n"}
+        return state
+
+    def test_patched_content_becomes_a_diff(self) -> None:
+        from app.agents import nodes
+
+        state = self._state()
+        state.refiner_report = {
+            "summary": "fix sign",
+            "patched_files": {"calc.py": "def add(a, b):\n    return a + b\n"},
+            "patch_guidance": ["fix"],
+            "verification_steps": ["run tests"],
+            "risk": "low",
+        }
+        nodes._diff_from_patched_files(state)
+        self.assertIn("-    return a - b", state.refiner_report["patch_diff"])
+        self.assertEqual(state.refiner_report["patched_paths"], ["calc.py"])
+        # 전문은 리포트에 남지 않는다.
+        self.assertNotIn("patched_files", state.refiner_report)
+
+    def test_invented_file_is_ignored_and_recorded(self) -> None:
+        from app.agents import nodes
+
+        state = self._state()
+        state.refiner_report = {"patched_files": {"secret.py": "x = 1\n"}}
+        nodes._diff_from_patched_files(state)
+        self.assertIsNone(state.refiner_report["patch_diff"])
+        self.assertTrue(any("ignored files not in evidence" in e for e in state.events))
+
+    def test_no_patched_files_leaves_the_report_alone(self) -> None:
+        from app.agents import nodes
+
+        state = self._state()
+        state.refiner_report = {"summary": "no fix", "patch_diff": None}
+        nodes._diff_from_patched_files(state)
+        self.assertIsNone(state.refiner_report["patch_diff"])

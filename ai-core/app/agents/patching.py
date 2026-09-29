@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import difflib
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -93,3 +94,32 @@ def check_applies(diff: str, repo_path: Path) -> PatchVerdict:
     # 오류 메시지는 재생성 요청에 그대로 붙인다. 무엇이 어긋났는지 알려야 모델이 고친다.
     message = (result.stderr or result.stdout).strip()
     return PatchVerdict(False, "patch_does_not_apply", message, verdict.touched_paths)
+
+
+def build_diff(original: dict[str, str], patched: dict[str, str]) -> str:
+    """고친 파일 전문에서 unified diff를 만든다.
+
+    모델에게 diff를 쓰게 하면 context 줄과 hunk 헤더를 틀린다(docs/evaluation-design.md 14.5).
+    전문을 받아 우리가 만들면 그 둘이 틀릴 수 없다.
+
+    original에 없는 경로는 무시한다. 우리가 보여준 파일만 고칠 수 있다.
+    """
+    chunks: list[str] = []
+    for path in sorted(patched):
+        before = original.get(path)
+        after = patched[path]
+        if before is None or not isinstance(after, str) or before == after:
+            continue
+        # difflib은 마지막 줄의 개행 유무를 표시하지 못한다. 양쪽을 같은 규칙으로 맞춘다.
+        if not before.endswith("\n"):
+            before += "\n"
+        if not after.endswith("\n"):
+            after += "\n"
+        diff = difflib.unified_diff(
+            before.splitlines(keepends=True),
+            after.splitlines(keepends=True),
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+        )
+        chunks.append("".join(diff))
+    return "".join(chunks)

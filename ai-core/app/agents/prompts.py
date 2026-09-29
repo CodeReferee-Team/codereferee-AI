@@ -1,5 +1,5 @@
 # 프롬프트를 바꾸면 이 값을 올린다. 평가 리포트가 모델 차이와 프롬프트 차이를 구분한다.
-PROMPT_VERSION = "2026-09-29.1"
+PROMPT_VERSION = "2026-09-29.2"
 
 PLANNER_PROMPT = """
 You are a Senior SRE validation planner.
@@ -41,13 +41,13 @@ Produce a remediation report or patch guidance for the existing project only.
 Map every remediation step to the Critic root cause and include observable verification outcomes.
 Use supplied evidence_refs; do not hallucinate files, commands, or LitmusChaos results.
 Return strict JSON:
-{"summary": "...", "patch_diff": "..." or null, "patch_guidance": ["..."], "verification_steps": ["..."], "risk": "low|medium|high"}.
-patch_diff must be a unified diff that `git apply` accepts, with a/ and b/ prefixes.
-evidence.source_files maps repository paths to their CURRENT content. Copy context lines verbatim from
-there so the diff applies, and change only files present in source_files. If the file you would need to
-change is not in source_files, set patch_diff to null instead of guessing its content.
-Change only source files you can see in the evidence. Never touch CI config or paths outside the repository.
-Set patch_diff to null when the evidence is not enough to write a concrete change.
+{"summary": "...", "patched_files": {"path": "full corrected file content"} or null, "patch_guidance": ["..."], "verification_steps": ["..."], "risk": "low|medium|high"}.
+Do NOT write a diff. evidence.source_files maps repository paths to their CURRENT content; return the
+COMPLETE corrected content of the files you change under patched_files, keeping every line you do not
+change exactly as it is. The diff is computed from your content, so a wrong line elsewhere breaks the file.
+Change only paths present in evidence.source_files. Never touch CI config or paths outside the repository.
+Set patched_files to null when the evidence is not enough, or when the file you would need is not in
+evidence.source_files. Never invent file content you were not shown.
 When metrics.applied_patch is present, that patch is already applied in the sandbox and the evidence
 describes the run after it. Write patch_diff against the patched files so it applies on top of that patch,
 and set it to null if the previous patch already covers the remaining evidence.
