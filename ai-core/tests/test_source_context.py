@@ -18,6 +18,17 @@ Compiling './setup.py'...
 Compiling './six.py'...
 """
 
+COMPILEALL_LOG_WITH_PREAMBLE = """[CodeReferee] installing sandbox clone tools
+apt-get install -y --no-install-recommends git ca-certificates
+debconf: unable to initialize frontend: Dialog
+[CodeReferee] cloning repository
+Cloning into '/tmp/repository'...
+[CodeReferee] resolving commit
+a1b2c3d
+[CodeReferee] detecting project stack
+detected_stack=python
+""" + COMPILEALL_LOG
+
 PYTEST_LOG = """============================= FAILURES ==============================
 _________________________ test_add _________________________
 tests/test_calc.py:14: in test_add
@@ -192,3 +203,24 @@ class RefinerFileToDiffTests(unittest.TestCase):
         state.refiner_report = {"summary": "no fix", "patch_diff": None}
         nodes._diff_from_patched_files(state)
         self.assertIsNone(state.refiner_report["patch_diff"])
+
+
+class FailureRegionTests(unittest.TestCase):
+    """발췌는 실패 단계부터 시작해야 한다. 준비 과정이 원인으로 읽힌 적이 있다."""
+
+    def test_apt_preamble_is_dropped(self) -> None:
+        region = source_context.failure_region(COMPILEALL_LOG_WITH_PREAMBLE)
+        self.assertNotIn("apt-get install", region)
+        self.assertIn("SyntaxError", region)
+
+    def test_log_without_markers_is_returned_as_is(self) -> None:
+        self.assertEqual(source_context.failure_region(PYTEST_LOG), PYTEST_LOG)
+
+    def test_evidence_excerpt_starts_at_the_failing_stage(self) -> None:
+        from app.agents.evidence import build_evidence_packet
+        from app.models import AgentState, JobStatus, SandboxResult
+
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.failed)
+        state.execution_result = SandboxResult(exit_code=1, stderr=COMPILEALL_LOG_WITH_PREAMBLE)
+        excerpt = build_evidence_packet(state)["execution"]["log_excerpt"]
+        self.assertNotIn("apt-get install", excerpt)

@@ -26,6 +26,14 @@ _CONTAINER_PREFIX = "/tmp/repository/"
 # 실패 지점을 가리키는 표현. 이 줄에 있는 경로를 먼저 본다.
 _ERROR_HINTS = ("***", "error", "failed", "syntaxerror", "indentationerror", "e   ", "assert")
 
+# docker_runner의 검증 스크립트가 찍는 단계 마커.
+_STAGE_MARKER_TEXTS = (
+    "[CodeReferee] cloning repository",
+    "[CodeReferee] applying refiner patch",
+    "[CodeReferee] resolving commit",
+    "[CodeReferee] detecting project stack",
+)
+
 _PATH_PATTERNS = (
     re.compile(r'File "([^"]+)", line \d+'),          # 파이썬 트레이스백, compileall
     re.compile(r"Compiling '([^']+)'"),                # compileall
@@ -69,6 +77,17 @@ def _normalise(raw: str) -> str | None:
     if not path or path.startswith(_EXCLUDED_PREFIXES) or ".." in Path(path).parts:
         return None
     return path
+
+
+def failure_region(log: str) -> str:
+    """로그에서 실패한 단계 이후만 남긴다.
+
+    준비 과정(apt-get, clone)이 앞에 길게 붙으면 발췌가 그것으로 채워진다. Critic이
+    "[CodeReferee] installing sandbox clone tools"를 근본 원인으로 적은 적이 있다.
+    스크립트는 단계마다 마커를 찍고 실패 시 그 자리에서 멈추므로, 마지막 마커가 실패 단계다.
+    """
+    position = max((log.rfind(marker) for marker in _STAGE_MARKER_TEXTS), default=-1)
+    return log[position:] if position > 0 else log
 
 
 def read_files(repo_path: Path, paths: list[str]) -> dict[str, str]:
