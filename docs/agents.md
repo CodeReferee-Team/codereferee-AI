@@ -33,11 +33,20 @@ Planner Agent는 레포지토리 검증 계획을 세운다.
 
 ### Judge Agent
 
-Judge Agent는 Preflight, Sandbox 실행 결과, Metrics를 바탕으로 검증 성공 여부를 판단한다.
+Judge는 Preflight, Sandbox 실행 결과, Metrics를 바탕으로 Pass/Fail과 `reason_category`를 정한다.
+**규칙이 판정한다.** LLM은 판정에 관여하지 않는다.
 
 - 레포지토리 실행 가능 여부 판단
-- Sandbox 결과 분석
+- 구조화된 sandbox 결과(exit code, `failed_step`) 분석
 - Metrics 기반 Pass/Fail 판단
+- `reason_category` 결정 (정규 코드 목록은 `app/agents/schemas.py`)
+
+근거는 docs/judge-policy.md 8절이다. 같은 평가셋 34건에서 규칙은 판정 100%·카테고리 94.1%였고,
+LLM은 94.1%·58.8%였으며 레포 로그에 심어둔 지시에 2건 속았다. 심사받는 쪽이 심사자를 조종할 수
+있으면 심사가 아니다.
+
+Planner도 같은 이유로 기본값이 규칙이다. 비교 실험용으로 `JUDGE_USES_LLM`, `PLANNER_USES_LLM`
+스위치를 남겨 뒀고 기본값은 false다.
 
 ### Critic Agent
 
