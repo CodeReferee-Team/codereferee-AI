@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     sandbox_nano_cpus: int = 2_000_000_000
     sandbox_pids_limit: int = 512
     repository_clone_timeout_seconds: int = 30
+    # 판정은 규칙이 한다. 측정 결과 LLM은 판정 정확도가 같거나 낮고(100% vs 94%) 원인 분류는
+    # 훨씬 낮았으며(94.1% vs 58.8%), 레포 로그에 심어둔 지시에 흔들렸다(0건 vs 2건).
+    # docs/evaluation-design.md 12절. 비교 실험을 다시 돌릴 수 있도록 경로는 남겨 둔다.
+    judge_uses_llm: bool = False
+    planner_uses_llm: bool = False
     max_self_healing_retries: int = 3
     # 1MB가 넘는 diff는 수정 범위가 과도하다는 뜻이라 신뢰하기 어렵다.
     max_patch_diff_bytes: int = 1_000_000

@@ -10,12 +10,20 @@ from tests.agent_quality import evaluate_cases, load_cases, run_case
 
 class AgentQualityTests(unittest.TestCase):
     def test_strict_report_schemas_reject_empty_or_extra_fields(self) -> None:
-        valid_judge = {"status": "Fail", "reason": "timeout", "evidence": ["timed_out=True"]}
+        valid_judge = {
+            "status": "Fail",
+            "reason_category": "timeout",
+            "reason": "timeout",
+            "evidence": ["timed_out=True"],
+        }
         self.assertEqual(validate_report(JudgeReport, valid_judge)["status"], "Fail")
         with self.assertRaises(Exception):
-            validate_report(JudgeReport, {"status": "Pass", "reason": "", "evidence": []})
+            validate_report(JudgeReport, {"status": "Pass", "reason_category": "all_checks_passed", "reason": "", "evidence": []})
         with self.assertRaises(Exception):
-            validate_report(JudgeReport, {"status": "Pass", "reason": "ok", "evidence": ["ok"], "extra": "no"})
+            validate_report(
+                JudgeReport,
+                {"status": "Pass", "reason_category": "all_checks_passed", "reason": "ok", "evidence": ["ok"], "extra": "no"},
+            )
         with self.assertRaises(Exception):
             validate_report(RefinerReport, {"summary": "x", "patch_guidance": ["x"], "verification_steps": ["x"], "risk": "urgent"})
 
@@ -64,6 +72,8 @@ class AgentQualityTests(unittest.TestCase):
         self.assertIn("http_status=500", packet["primary_signal"])
 
     def test_invalid_llm_report_gets_one_schema_repair_before_fallback(self) -> None:
+        """판정은 규칙이 하므로 LLM을 쓰는 노드(Critic)에서 수리 경로를 확인한다."""
+
         class FakeLLM:
             enabled = True
 
@@ -71,20 +81,42 @@ class AgentQualityTests(unittest.TestCase):
                 self.repairs = 0
 
             def invoke_text(self, *_args, **_kwargs):
-                return '{"status":"Maybe","reason":"","evidence":[]}'
+                return '{"issue":"","root_cause":"","evidence":[]}'
 
             def invoke_schema_repair(self, **_kwargs):
                 self.repairs += 1
-                return '{"status":"Fail","reason":"No preflight report was produced.","evidence":["preflight_report=missing"]}'
+                return (
+                    '{"issue":"Repository intake failed before sandbox execution.",'
+                    '"root_cause":"Repository or requested ref is not reachable.",'
+                    '"evidence":["cloneable=false"],'
+                    '"recommended_action":"Verify the GitHub URL, branch, and visibility."}'
+                )
 
         fake = FakeLLM()
         state = AgentState(job_id="repair", repository_url="https://github.com/example/repo.git")
         with patch.object(nodes, "llm", fake):
-            result = nodes.judge_node(state)
+            result = nodes.critic_node(state)
 
         self.assertEqual(fake.repairs, 1)
+        self.assertIn("Critic: Agent schema repair accepted", result.events)
+
+    def test_judge_does_not_call_the_llm_even_when_it_is_configured(self) -> None:
+        """판정 주체는 규칙이다. 레포 로그에 심은 지시에 판정이 흔들리지 않게 한다."""
+
+        class ExplodingLLM:
+            enabled = True
+
+            def invoke_text(self, *_args, **_kwargs):
+                raise AssertionError("Judge must not call the LLM")
+
+            def invoke_schema_repair(self, **_kwargs):
+                raise AssertionError("Judge must not call the LLM")
+
+        state = AgentState(job_id="rules", repository_url="https://github.com/example/repo.git")
+        with patch.object(nodes, "llm", ExplodingLLM()):
+            result = nodes.judge_node(state)
         self.assertEqual(result.judge_report["status"], "Fail")
-        self.assertIn("Judge: Agent schema repair accepted", result.events)
+        self.assertEqual(result.judge_report["reason_category"], "sandbox_not_executed")
 
 
 if __name__ == "__main__":

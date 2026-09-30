@@ -6,6 +6,7 @@ from app.agents.evidence import build_evidence_packet, classify_failure_category
 from app.agents.llm import llm, parse_json_strict
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
+from app.config import get_settings
 from app.models import DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 
 
@@ -18,7 +19,7 @@ def planner_node(state: AgentState) -> AgentState:
     state.events.append("Planner: repository validation plan prepared")
     packet = build_evidence_packet(state)
     fallback = _fallback_plan(state)
-    if llm.enabled:
+    if llm.enabled and get_settings().planner_uses_llm:
         state.validation_plan = _invoke_validated_report(
             role="Planner",
             schema=PlannerReport,
@@ -40,7 +41,7 @@ def judge_node(state: AgentState) -> AgentState:
     state.events.append("Judge: repository validation result evaluated")
     packet = build_evidence_packet(state)
     fallback = _fallback_judge(state)
-    if llm.enabled:
+    if llm.enabled and get_settings().judge_uses_llm:
         report = _invoke_validated_report(
             role="Judge",
             schema=JudgeReport,
@@ -152,29 +153,121 @@ def _invoke_validated_report(
 def _fallback_judge(state: AgentState) -> dict[str, object]:
     preflight = state.preflight_report
     if preflight is None:
-        return {"status": "Fail", "reason": "No preflight report was produced.", "evidence": ["preflight_report=missing"]}
+        return {"status": "Fail", "reason_category": "sandbox_not_executed", "reason": "No preflight report was produced.", "evidence": ["preflight_report=missing"]}
     if not preflight.cloneable:
-        return {"status": "Fail", "reason": preflight.reason or "Repository cannot be cloned.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "cloneable=false")}
+        return {"status": "Fail", "reason_category": _preflight_category(preflight), "reason": preflight.reason or "Repository cannot be cloned.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "cloneable=false")}
     if not preflight.executable:
-        return {"status": "Fail", "reason": preflight.reason or "Repository has no detected executable path.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "executable=false")}
+        return {"status": "Fail", "reason_category": _no_entrypoint_category(preflight), "reason": preflight.reason or "Repository has no detected executable path.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "executable=false")}
 
     result = state.execution_result or SandboxResult(exit_code=None, stderr="No sandbox execution")
     if result.timed_out:
-        return {"status": "Fail", "reason": "Sandbox execution timed out.", "evidence": _sandbox_evidence(result)}
+        return {"status": "Fail", "reason_category": "timeout", "reason": "Sandbox execution timed out.", "evidence": _sandbox_evidence(result)}
     if result.exit_code != 0:
-        return {"status": "Fail", "reason": _sandbox_failure_reason(result), "evidence": _sandbox_evidence(result)}
+        return {"status": "Fail", "reason_category": _nonzero_exit_category(result), "reason": _sandbox_failure_reason(result), "evidence": _sandbox_evidence(result)}
     if result.service_check_attempted and not _service_smoke_passed(result):
-        return {"status": "Fail", "reason": "Service smoke check failed after sandbox execution.", "evidence": _sandbox_evidence(result)}
+        return {"status": "Fail", "reason_category": "service_smoke_failed", "reason": "Service smoke check failed after sandbox execution.", "evidence": _sandbox_evidence(result)}
     if result.browser_check_attempted and not result.browser_loaded:
-        return {"status": "Fail", "reason": "Browser smoke check failed after service startup.", "evidence": _sandbox_evidence(result)}
+        return {"status": "Fail", "reason_category": "browser_smoke_failed", "reason": "Browser smoke check failed after service startup.", "evidence": _sandbox_evidence(result)}
 
     failure, warnings = _measured_policy_findings(state, result)
     state.metrics["policy_warnings"] = warnings
     for warning in warnings:
         state.events.append(f"Judge: warning {warning}")
     if failure:
-        return {"status": "Fail", "reason": failure, "evidence": _sandbox_evidence(result)}
-    return {"status": "Pass", "reason": "Repository passed preflight and sandbox smoke validation.", "evidence": _sandbox_evidence(result)}
+        # 규칙이 만든 문장은 "카테고리: 설명" 형태다. 앞부분을 그대로 카테고리로 쓴다.
+        category, _, detail = failure.partition(": ")
+        return {"status": "Fail", "reason_category": category, "reason": detail or failure, "evidence": _sandbox_evidence(result)}
+    passed_category = "chaos_recovered_within_budget" if result.chaos_observation else "all_checks_passed"
+    return {"status": "Pass", "reason_category": passed_category, "reason": "Repository passed preflight and sandbox smoke validation.", "evidence": _sandbox_evidence(result)}
+
+
+def _preflight_category(preflight: RepositoryPreflightReport) -> str:
+    """clone 실패의 원인을 preflight가 남긴 문장에서 가른다."""
+    text = f"{preflight.reason} {' '.join(preflight.evidence)}".lower()
+    if "not found" in text or "404" in text:
+        return "repository_not_found"
+    if "ref" in text or "branch" in text or "commit" in text:
+        return "ref_not_found"
+    if "private" in text or "auth" in text or "permission" in text:
+        return "private_repository_not_supported"
+    if "invalid" in text or "not a github" in text or "url" in text:
+        return "invalid_repository_input"
+    return "repository_not_accessible"
+
+
+def _no_entrypoint_category(preflight: RepositoryPreflightReport) -> str:
+    """실행 경로가 없는 이유를 가른다. 매니페스트가 없는 것과 고를 수 없는 것은 다르다."""
+    text = f"{preflight.reason} {' '.join(preflight.evidence)}".lower()
+    if "empty" in text:
+        return "empty_repository"
+    if "monorepo" in text or "multiple" in text or "ambiguous" in text:
+        return "ambiguous_monorepo_path"
+    if "unsupported" in text or "stack" in text:
+        return "unsupported_project_stack"
+    return "no_manifest_detected"
+
+
+# sandbox가 구조화 결과로 알려주는 실패 단계 -> 판정 카테고리.
+# 로그 문자열을 뒤지는 것보다 정확하다. 외부 sandbox가 이 리포트를 보내지 않을 때만 키워드로 내려간다.
+_FAILED_STEP_CATEGORIES = {
+    "prepare": "sandbox_not_executed",
+    "clone": "repository_not_accessible",
+    "patch": "sandbox_nonzero_exit",
+    "detect": "no_manifest_detected",
+    "dependencies": "dependency_install_failed",
+}
+# 스크립트가 약속한 종료 코드. fix/unverifiable-repo가 89(검증할 테스트 없음)를 추가하면
+# 그 값을 no_tests_detected로 잇는다. 지금은 두 코드만 쓴다.
+_EXIT_CODE_CATEGORIES = {
+    86: "no_manifest_detected",
+    87: "unsupported_project_stack",
+}
+# pip이 실제로 찍는 해결 실패 문구만 본다. "install"은 성공 로그에도 나온다.
+_DEPENDENCY_SIGNS = (
+    "no matching distribution found",
+    "could not find a version that satisfies",
+    "resolutionimpossible",
+    "npm err!",
+    "could not resolve dependencies",
+)
+_TEST_SIGNS = ("failures ===", "short test summary", "assertionerror", "[test]")
+_TEST_TOKENS = ("test", "pytest", "spec")
+_FAILURE_TOKENS = ("fail", "error")
+# 컴파일 실패 전용 카테고리는 없다. 원인을 단정하지 않고 일반 실패로 남긴다.
+_COMPILE_SIGNS = ("error compiling", "syntaxerror", "indentationerror")
+
+
+def _nonzero_exit_category(result: SandboxResult) -> str:
+    """0이 아닌 종료를 판정 카테고리로 옮긴다.
+
+    sandbox가 보낸 구조화 결과(exit code, failed_step)를 먼저 본다. 그것이 없을 때만
+    로그 문구로 내려간다. 로그 전체를 substring으로 뒤지면 준비 과정 출력에 걸린다.
+    """
+    if category := _EXIT_CODE_CATEGORIES.get(result.exit_code):
+        return category
+
+    report = result.sandbox_report or {}
+    failed_step = str(report.get("failed_step") or "")
+    if category := _FAILED_STEP_CATEGORIES.get(failed_step):
+        return category
+    if failed_step == "smoke":
+        return _smoke_category(result)
+    return _smoke_category(result)
+
+
+def _smoke_category(result: SandboxResult) -> str:
+    text = f"{result.stderr} {result.stdout}".lower()
+    if "docker" in text:
+        return "docker_build_failed"
+    if any(sign in text for sign in _DEPENDENCY_SIGNS):
+        return "dependency_install_failed"
+    if any(sign in text for sign in _COMPILE_SIGNS):
+        return "sandbox_nonzero_exit"
+    if any(sign in text for sign in _TEST_SIGNS):
+        return "test_failure"
+    if any(t in text for t in _TEST_TOKENS) and any(f in text for f in _FAILURE_TOKENS):
+        return "test_failure"
+    return "sandbox_nonzero_exit"
 
 
 def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple[str | None, list[str]]:
