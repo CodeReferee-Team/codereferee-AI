@@ -136,7 +136,7 @@ def _state_for(repository_url: str, execution_result, fault_diff: str) -> AgentS
     return state
 
 
-def run_case(repository_url: str, fault: Fault) -> dict:
+def run_case(repository_url: str, fault: Fault, *, skip_critic: bool = False) -> dict:
     started = time.monotonic()
     record: dict[str, object] = {
         "repository_url": repository_url,
@@ -170,7 +170,10 @@ def run_case(repository_url: str, fault: Fault) -> dict:
 
     workflow.attach_source_files(state, applied_patch=fault_diff)
     record["source_files"] = sorted(state.source_files)
-    state = nodes.critic_node(state)
+    # Critic ablation: 자연어 원인 분석이 수정에 기여하는지 재려면 없이도 돌려봐야 한다.
+    record["critic_skipped"] = skip_critic
+    if not skip_critic:
+        state = nodes.critic_node(state)
     state = nodes.refiner_node(state)
     record["critic_root_cause"] = state.critic_feedback.get("root_cause")
     record["refiner_summary"] = state.refiner_report.get("summary")
@@ -232,6 +235,7 @@ def main() -> int:
     parser.add_argument("--append", action="store_true", help="기존 출력에 이어 붙인다")
     parser.add_argument("--repos", help="쉼표로 구분한 레포 이름 일부. 없으면 전부")
     parser.add_argument("--faults", help="쉼표로 구분한 결함 이름. 없으면 전부")
+    parser.add_argument("--skip-critic", action="store_true", help="Critic을 건너뛴다(ablation)")
     args = parser.parse_args()
 
     out = pathlib.Path(args.out)
@@ -252,7 +256,7 @@ def main() -> int:
         for repository_url in repositories:
             for fault in faults:
                 try:
-                    record = run_case(repository_url, fault)
+                    record = run_case(repository_url, fault, skip_critic=args.skip_critic)
                 except Exception as exc:  # 한 케이스의 실패로 배치 전체를 잃지 않는다
                     record = {
                         "repository_url": repository_url,
@@ -272,6 +276,7 @@ def main() -> int:
                 )
 
     summary = summarize(records)
+    summary["critic_skipped"] = bool(args.skip_critic)
     print("\n" + json.dumps(summary, ensure_ascii=False, indent=2))
     out.with_suffix(".summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

@@ -22,6 +22,20 @@ Repository URL
 
 ## 2. 주요 Agent
 
+### 역할 요약 (2026-09-30 갱신)
+
+| 단계 | 누가 | 하는 일 | 판정 권한 | 수정 권한 |
+| --- | --- | --- | --- | --- |
+| Planner | 규칙 | 검증 계획 | 없음 | 없음 |
+| **Judge** | **규칙** | Pass/Fail + `reason_category` | **있음** | 없음 |
+| 위치 특정 | 규칙 | 실패 로그에서 고칠 파일 추출 | 없음 | 없음 |
+| **Critic** | LLM | 실패 원인 분석 (자연어) | 없음 | 없음 |
+| **Refiner** | LLM | 수정안 생성 (어느 줄 → 무엇으로) | 없음 | **있음** |
+| 적용·재검증 | 규칙 | 편집 적용 → 게이트 → sandbox 재실행 | 없음 | 집행만 |
+
+판정과 수정을 다른 주체가 맡는다. 판정은 규칙이 하고(8절 judge-policy), 수정안은 모델이 만들고,
+적용과 재검증은 다시 코드가 한다. 모델이 "고쳤다"고 선언할 수 없다는 뜻이다.
+
 ### Planner Agent
 
 Planner Agent는 레포지토리 검증 계획을 세운다.
@@ -31,37 +45,51 @@ Planner Agent는 레포지토리 검증 계획을 세운다.
 - 필요한 메트릭 정의
 - 중단 조건 설정
 
+기본값은 규칙 기반이다. `PLANNER_USES_LLM=true`로 LLM 경로를 켤 수 있다.
+
 ### Judge Agent
 
-Judge Agent는 Preflight, Sandbox 실행 결과, Metrics를 바탕으로 검증 성공 여부를 판단한다.
+Judge는 Preflight, Sandbox 실행 결과, Metrics를 바탕으로 Pass/Fail과 `reason_category`를 정한다.
+**규칙이 판정한다.** LLM은 판정에 관여하지 않는다. 근거는 docs/judge-policy.md 8절이다 —
+같은 평가셋에서 규칙이 판정 100%·카테고리 94.1%였고, LLM은 94.1%·58.8%였으며 레포 로그에 심어둔
+지시에 2건 속았다.
 
 - 레포지토리 실행 가능 여부 판단
-- Sandbox 결과 분석
+- 구조화된 sandbox 결과(exit code, `failed_step`) 분석
 - Metrics 기반 Pass/Fail 판단
 
 ### Critic Agent
 
-Critic Agent는 Judge Agent가 Fail로 판단한 경우, 실패 원인과 신뢰성 문제를 분석한다.
+Critic Agent는 Judge가 Fail로 판단한 경우 실패 원인을 분석한다.
 
-- 실패 원인 분석
+- 실패 원인 분석 (자연어)
 - 로그와 메트릭 기반 근거 추출
-- 개선 방향 제안
+- 권장 조치 제시
+
+**고칠 파일을 찾는 일은 Critic이 하지 않는다.** 실패 로그에서 파일 경로를 뽑는 것은
+`app/agents/source_context.py`가 결정적으로 한다. 로그가 파일명을 말해주는데 모델에게 다시 묻는
+것은 틀릴 여지만 만든다.
+
+Critic의 기여는 측정했다(docs/evaluation-design.md 14.11). Critic을 끄면 수율이 75%에서 62.5%로
+내려갔다. 8건 중 1건 차이이므로 통계적으로 확정할 수는 없지만, 갈린 케이스에서 Critic이 없을 때
+모델이 엉뚱한 파일(`pyproject.toml`)을 겨냥했다. 원인 서술이 수정 대상을 좁히는 데 쓰인다.
 
 ### Refiner Agent
 
-Refiner Agent는 Critic Agent의 분석 결과를 바탕으로 수정 방향을 제안한다.
+Refiner Agent는 Critic의 분석과 Judge의 판정을 바탕으로 **실행 가능한 수정안**을 만든다.
 
 - 개선 요약 작성
-- 수정 가이드 제안
-- 실제 unified diff 제안 (`patch_diff`, 만들 근거가 없으면 `null`)
+- **편집 목록 생성**: 어느 파일의 어느 줄을 무엇으로 바꿀지
 - 재검증 절차 제안
 - 위험도 평가
 
-패치는 실행 전에 두 단계로 거른다. `inspect_diff`가 1MB 상한·보호 경로(`.github/`, `.git/`, CI 설정)·레포 밖 경로를 막고, `check_applies`가 얕게 clone한 레포에 `git apply --check`를 돌린다. 둘을 통과한 패치만 sandbox에서 적용해 재실행한다.
+Refiner는 diff를 쓰지 않고 파일 전문도 쓰지 않는다. 바꿀 줄(`find`)과 바꿀 내용(`replace`)만
+지목하고, diff 조립은 `app/agents/patching.py`가 한다. 근거는 docs/evaluation-design.md 14.5와
+14.7이다 — 8B 모델은 diff 형식(context 줄, hunk 헤더)을 맞추지 못했고, 파일 전문을 요구하면
+뒤를 잘라먹어 멀쩡한 코드 31줄이 지워졌다.
 
-재실행이 여전히 실패하면 그 실행 결과를 다시 판정해 다음 패치를 만들고, 새 패치를 누적 diff 뒤에 이어 붙여 다시 돌린다. 멈추는 조건은 네 가지다 — 재실행 통과, 라운드 상한(`MAX_SELF_HEALING_RETRIES`, 기본 3), 누적 diff 1MB 초과, 더 만들 패치가 없음. 라운드마다 `REFINING` progress를 `round`/`max_rounds`와 함께 보내고, 결과는 `metrics.patch_rounds`(라운드별)와 `metrics.patch_rerun`(마지막)에 남는다.
-
-재판정은 복사한 state에서 돌린다. 제출된 레포에 대한 판정이 최종 산출물이라 덮어쓰면 안 된다. 재실행이 통과해도 판정은 바뀌지 않는다 — 제출된 레포는 여전히 실패했고, 누적 diff는 "이 변경이면 고쳐진다"는 증거다.
+`find`는 파일에 정확히 한 번 나타나야 한다. 없으면 지어낸 것이고, 여럿이면 어디인지 알 수 없다.
+둘 다 거부한다. 지목하지 않은 줄은 바뀔 수 없다.
 
 ## 3. 관련 파일
 
