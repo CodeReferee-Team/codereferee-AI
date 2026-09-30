@@ -317,7 +317,8 @@ run_smoke_test() {
   case "$STACK" in
     python)
       python -m compileall -q . || return $?
-      [ -d tests ] || return 0
+      # 컴파일이 되는 것과 동작이 검증된 것은 다르다. 테스트가 없으면 통과로 끝내지 않는다.
+      [ -d tests ] || { echo "No tests directory to verify"; return 89; }
       python -m pip install --disable-pip-version-check pytest >/dev/null || return $?
       python -m pytest -q
       ;;
@@ -331,7 +332,11 @@ run_smoke_test() {
       else echo "No Maven wrapper and no system mvn"; return 87; fi
       ;;
     node)
-      npm run test --if-present
+      # --if-present는 test 스크립트가 없으면 아무것도 하지 않고 성공으로 끝낸다.
+      # 테스트가 하나도 없는 레포가 합격으로 나오므로 먼저 존재를 확인한다.
+      node -e 'const s=(require("./package.json").scripts||{});process.exit(s.test?0:1)' \
+        || { echo "package.json has no test script to verify"; return 89; }
+      npm test
       ;;
   esac
 }
@@ -356,6 +361,12 @@ echo "[CodeReferee] repository smoke validation completed"
 exit 0
 """
 
+
+# 스크립트가 쓰는 종료 코드. 사용자 레포의 결함과 "검증할 것이 없음"을 구분한다.
+NO_MANIFEST_EXIT_CODE = 86
+UNSUPPORTED_STACK_EXIT_CODE = 87
+PATCH_MISSING_EXIT_CODE = 88
+NOTHING_TO_VERIFY_EXIT_CODE = 89
 
 PATCH_FILENAME = "repository.patch"
 PATCH_CONTAINER_PATH = f"/workspace/{PATCH_FILENAME}"
