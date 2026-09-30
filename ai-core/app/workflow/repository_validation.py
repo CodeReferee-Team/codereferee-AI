@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from prometheus_client import Counter, Histogram
 
+from app.agents import source_context
 from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
 from app.models import (
     DEFAULT_SLO,
@@ -121,6 +122,7 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
     else:
         emit_progress(event_builder.JUDGING)
         state = judge_node(state)
+        attach_source_files(state)
         state = critic_node(state)
         state = refiner_node(state)
         state = _run_refinement_rounds(state, emit_progress)
@@ -202,6 +204,34 @@ def _preflight_passed(report) -> bool:
     return bool(report and report.cloneable and report.executable)
 
 
+def attach_source_files(state: AgentState, applied_patch: str | None = None) -> None:
+    """Refiner가 고칠 파일의 현재 내용을 state에 담는다.
+
+    통과한 검증에는 고칠 것이 없으므로 clone하지 않는다.
+    """
+    result = state.execution_result
+    if result is None or state.status != JobStatus.failed:
+        return
+    paths = source_context.extract_paths(result.log)
+    if state.judge_report.get("reason_category") == "dependency_install_failed" or not paths:
+        # pip은 패키지 이름만 말한다. 고칠 파일은 매니페스트이므로 직접 붙인다.
+        paths = list(source_context.MANIFEST_CANDIDATES) + [p for p in paths if p not in source_context.MANIFEST_CANDIDATES]
+    if not paths:
+        return
+    state.source_files = source_context.collect(
+        state.repository_url,
+        paths,
+        branch=state.branch,
+        applied_patch=applied_patch or state.metrics.get("applied_patch"),
+        clone_timeout_seconds=get_settings().repository_clone_timeout_seconds,
+    )
+    if state.source_files:
+        state.events.append(f"Refiner: source files attached ({', '.join(state.source_files)})")
+    else:
+        # 파일을 못 읽으면 Refiner는 diff를 쓰지 못한다. 지어내는 것보다 남기는 것이 낫다.
+        state.events.append(f"Refiner: source files unavailable for {', '.join(paths)}")
+
+
 def _patch_diff_from(refiner_report: dict[str, Any]) -> str | None:
     """Refiner가 낸 누적 diff. 결정적 fallback은 diff를 만들 수 없어 None이다."""
     diff = (refiner_report or {}).get("patch_diff")
@@ -245,6 +275,16 @@ def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
     max_rounds = settings.max_self_healing_retries
     if max_rounds <= 0 or state.preflight_report is None:
         return state
+
+    # 제출된 레포에 대한 판정이 최종 산출물이다. 라운드에서 패치를 적용해 통과했다고
+    # 제출된 코드가 통과한 것은 아니므로, 판정과 실행 결과를 되돌릴 수 있게 보관한다.
+    submitted = {
+        "judge_report": dict(state.judge_report),
+        "status": state.status,
+        "execution_result": state.execution_result,
+        "metrics": dict(state.metrics),
+        "sre_metrics": state.sre_metrics,
+    }
 
     for round_number in range(1, max_rounds + 1):
         if state.status != JobStatus.failed:
@@ -294,9 +334,32 @@ def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
             state.events.append(f"Refine: round {round_number} passed after applying the patch")
             break
 
+
+        attach_source_files(state, applied_patch=patch_diff)
         state = critic_node(state)
         state = refiner_node(state)
 
+    return _restore_submitted_verdict(state, submitted)
+
+
+def _restore_submitted_verdict(state: AgentState, submitted: dict[str, object]) -> AgentState:
+    """라운드가 덮어쓴 판정을 제출 시점 값으로 되돌린다.
+
+    패치를 적용해 통과한 것은 "이 변경이면 고쳐진다"는 증거이고, 제출된 코드가 통과한 것이 아니다.
+    심사 서비스가 "우리가 고쳐줬으니 합격"이라고 내보내면 심사가 아니게 된다.
+    검증된 패치는 refiner_report에, 라운드별 기록은 refine_rounds에 남는다.
+    """
+    verified = any(record.get("after_judge_status") == "Pass" for record in state.refine_rounds)
+    state.judge_report = submitted["judge_report"]
+    state.status = submitted["status"]
+    state.execution_result = submitted["execution_result"]
+    state.metrics = submitted["metrics"]
+    state.sre_metrics = submitted["sre_metrics"]
+    state.metrics["patch_verified"] = verified
+    if verified:
+        state.events.append(
+            "Refine: a patch made the sandbox pass; the verdict for the submitted commit is unchanged"
+        )
     return state
 
 

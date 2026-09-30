@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from app.agents import source_context
 from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
 from app.models import AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 from app.repository.preflight import _normalize_github_url
@@ -21,6 +22,12 @@ from app.models import RepositoryValidationRequest
 
 
 class RepositoryValidationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # attach_source_files가 실제 clone을 시도하면 단위 테스트가 네트워크에 의존한다.
+        self._collect = patch.object(source_context, "collect", return_value={})
+        self._collect.start()
+        self.addCleanup(self._collect.stop)
+
     def test_planner_builds_repository_validation_plan(self) -> None:
         state = AgentState(job_id="test", repository_url="https://github.com/example/project.git")
         result = planner_node(state)
@@ -746,12 +753,22 @@ class RefinementLoopTests(unittest.TestCase):
         self.assertEqual(queue.steps("REFINING"), [])
         self.assertIn("Refine: no patch diff produced, refinement loop stopped", state.events)
 
-    def test_patch_that_fixes_the_build_passes_on_first_round(self) -> None:
+    def test_a_working_patch_is_recorded_without_changing_the_verdict(self) -> None:
+        """패치가 통과해도 제출된 커밋의 판정은 바뀌지 않는다.
+
+        패치를 적용해 통과한 것은 "이 변경이면 고쳐진다"는 증거이고, 제출된 코드가 통과한 것이
+        아니다. 심사 서비스가 "우리가 고쳐줬으니 합격"이라고 내보내면 심사가 아니게 된다.
+        검증된 패치는 refiner_report에, 통과 사실은 metrics.patch_verified에 남는다.
+        """
         state, queue, calls = self._run(
             [SandboxResult(exit_code=1, stderr="boom"), SandboxResult(exit_code=0, stdout="ok")],
             diff="--- a/x\n+++ b/x\n",
         )
-        self.assertEqual(state.status, JobStatus.success)
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertTrue(state.metrics["patch_verified"])
+        self.assertTrue(
+            any("verdict for the submitted commit is unchanged" in event for event in state.events)
+        )
         self.assertEqual(len(state.refine_rounds), 1)
         self.assertEqual(state.refine_rounds[0]["before_judge_status"], "Fail")
         self.assertEqual(state.refine_rounds[0]["after_judge_status"], "Pass")
@@ -785,7 +802,12 @@ class RefinementLoopTests(unittest.TestCase):
         self.assertEqual(queue.steps("REFINING"), [])
         self.assertTrue(any("patch diff too large" in event for event in state.events))
 
-    def test_infra_error_during_rerun_reports_error(self) -> None:
+    def test_infra_error_during_rerun_keeps_the_submitted_verdict(self) -> None:
+        """재검증 중의 인프라 오류가 이미 내린 판정을 지우지 않는다.
+
+        제출된 커밋은 판정이 끝났다. 그 뒤 선택적인 재검증 단계에서 우리 sandbox가 실패한 것이므로
+        ERROR로 보고하면 "판정할 수 없었다"는 거짓이 된다. 오류는 이벤트와 라운드 기록에 남는다.
+        """
         state, _, _ = self._run(
             [
                 SandboxResult(exit_code=1, stderr="boom"),
@@ -793,8 +815,10 @@ class RefinementLoopTests(unittest.TestCase):
             ],
             diff="--- a/x\n+++ b/x\n",
         )
-        self.assertEqual(state.status, JobStatus.error)
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertFalse(state.metrics["patch_verified"])
         self.assertEqual(state.refine_rounds[-1]["after_judge_status"], None)
+        self.assertTrue(any("hit infra error" in event for event in state.events))
 
 
 if __name__ == "__main__":
