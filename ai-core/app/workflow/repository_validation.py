@@ -377,6 +377,10 @@ def _metrics_from_execution(state: AgentState) -> dict[str, object]:
     metrics.update(result.metrics)
     if result.schema_version:
         metrics["schema_version"] = result.schema_version
+    if result.observation_status:
+        metrics["observation_status"] = result.observation_status
+    if result.infra_error:
+        metrics["infra_error"] = result.infra_error
     if result.probe_transport:
         metrics["probe_transport"] = result.probe_transport
     if result.baseline:
