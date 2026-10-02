@@ -220,7 +220,9 @@ def _sandbox_contract_options(state: AgentState) -> dict[str, str]:
         options["chaos_mode"] = state.chaos_mode
     if state.deployment_profile:
         options["deployment_profile"] = state.deployment_profile
-    if state.request_id and (state.chaos_mode or state.deployment_profile):
+    # requestId is the cross-service correlation key.  It must accompany
+    # ordinary validations as well as profile-driven Chaos runs.
+    if state.request_id:
         options["request_id"] = state.request_id
     return options
 
