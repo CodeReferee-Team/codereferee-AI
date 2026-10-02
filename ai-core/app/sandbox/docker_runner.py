@@ -24,6 +24,9 @@ class SandboxRunner:
         branch: str | None = None,
         commit_sha: str | None = None,
         patch_diff: str | None = None,
+        chaos_mode: str | None = None,
+        deployment_profile: str | None = None,
+        request_id: str | None = None,
     ) -> SandboxResult:
         """Clone and smoke-test an existing repository.
 
@@ -34,7 +37,9 @@ class SandboxRunner:
         누적 diff를 넣는 경로이며, 사용자 레포에는 절대 push하지 않는다.
         """
         if self.settings.sandbox_base_url:
-            return self._run_repository_via_http(repository_url, branch, commit_sha, patch_diff)
+            return self._run_repository_via_http(
+                repository_url, branch, commit_sha, patch_diff, chaos_mode, deployment_profile, request_id
+            )
         return self._run_repository_via_local_docker(repository_url, branch, commit_sha, patch_diff)
 
     def _run_repository_via_http(
@@ -43,6 +48,9 @@ class SandboxRunner:
         branch: str | None = None,
         commit_sha: str | None = None,
         patch_diff: str | None = None,
+        chaos_mode: str | None = None,
+        deployment_profile: str | None = None,
+        request_id: str | None = None,
     ) -> SandboxResult:
         started_at = time.monotonic()
         endpoint = _join_url(self.settings.sandbox_base_url or "", self.settings.sandbox_repository_path)
@@ -58,6 +66,12 @@ class SandboxRunner:
         if patch_diff:
             payload["patchDiff"] = patch_diff
             payload["patch_diff"] = patch_diff
+        if chaos_mode:
+            payload["chaosMode"] = chaos_mode
+        if deployment_profile:
+            payload["deploymentProfile"] = deployment_profile
+        if request_id:
+            payload["requestId"] = request_id
         request = Request(
             endpoint,
             data=json.dumps(payload).encode("utf-8"),
@@ -175,6 +189,7 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
     service_check_attempted = _explicit_bool(data, "service_check_attempted", "serviceCheckAttempted")
     browser_check_attempted = _explicit_bool(data, "browser_check_attempted", "browserCheckAttempted")
     observation_status = data.get("observation_status", data.get("observationStatus"))
+    reported_infra_error = data.get("infra_error", data.get("infraError"))
     schema_version = data.get("schema_version", data.get("schemaVersion"))
     probe_transport = data.get("probe_transport", data.get("probeTransport"))
 
@@ -216,7 +231,11 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
         source=_json_object(data.get("source")),
         sandbox_report=_json_object(data.get("sandbox_report", data.get("sandboxReport"))),
         observation_status=str(observation_status) if observation_status else None,
-        infra_error=_infra_error_from_observation(observation_status),
+        infra_error=(
+            str(reported_infra_error)
+            if reported_infra_error
+            else _infra_error_from_observation(observation_status)
+        ),
     )
 
 
