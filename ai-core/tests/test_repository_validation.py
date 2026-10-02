@@ -255,6 +255,18 @@ class RepositoryValidationTests(unittest.TestCase):
             self.assertGreater(run_id, 0)
             self.assertGreater(patch_id, 0)
 
+    def test_response_serializes_for_backend_result_queue(self) -> None:
+        state = AgentState(
+            job_id="job-output",
+            request_id="request-output",
+            repository_url="https://github.com/example/project.git",
+            status=JobStatus.success,
+        )
+        payload = to_response(state, request_id=state.request_id).model_dump(mode="json")
+        self.assertEqual(payload["request_id"], "request-output")
+        self.assertEqual(payload["job_id"], "job-output")
+        self.assertEqual(payload["status"], "success")
+
     def test_sandbox_http_response_exposes_server_smoke(self) -> None:
         result = _sandbox_result_from_response(
             '{"exitCode":0,"durationMillis":10,"serverStarted":true,"serverUrl":"http://127.0.0.1:3000/",'
