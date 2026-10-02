@@ -598,6 +598,16 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(result.chaos_observation["type"], "pod_kill")
         self.assertTrue(result.source["real_execution_observed"])
 
+    def test_sandbox_http_response_preserves_infrastructure_status(self) -> None:
+        result = _sandbox_result_from_response(
+            '{"exitCode":null,"observationStatus":"infrastructure_error",'
+            '"infraError":"sandbox_execution_timeout","timedOut":true}',
+            started_at=0,
+        )
+        self.assertEqual(result.observation_status, "infrastructure_error")
+        self.assertEqual(result.infra_error, "sandbox_execution_timeout")
+        self.assertTrue(result.timed_out)
+
     def test_normalize_github_url_accepts_public_https_repo(self) -> None:
         self.assertEqual(
             _normalize_github_url("https://github.com/CodeReferee-Team/codereferee-AI"),

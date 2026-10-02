@@ -189,6 +189,7 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
     service_check_attempted = _explicit_bool(data, "service_check_attempted", "serviceCheckAttempted")
     browser_check_attempted = _explicit_bool(data, "browser_check_attempted", "browserCheckAttempted")
     observation_status = data.get("observation_status", data.get("observationStatus"))
+    reported_infra_error = data.get("infra_error", data.get("infraError"))
     schema_version = data.get("schema_version", data.get("schemaVersion"))
     probe_transport = data.get("probe_transport", data.get("probeTransport"))
 
@@ -230,7 +231,11 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
         source=_json_object(data.get("source")),
         sandbox_report=_json_object(data.get("sandbox_report", data.get("sandboxReport"))),
         observation_status=str(observation_status) if observation_status else None,
-        infra_error=_infra_error_from_observation(observation_status),
+        infra_error=(
+            str(reported_infra_error)
+            if reported_infra_error
+            else _infra_error_from_observation(observation_status)
+        ),
     )
 
 
