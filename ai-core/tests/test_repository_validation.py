@@ -79,6 +79,8 @@ class RepositoryValidationTests(unittest.TestCase):
                 repository_url="https://github.com/CodeReferee-Team/codereferee-AI",
                 branch="main",
                 request_id="req-queue",
+                chaos_mode="litmus_pod_delete",
+                deployment_profile="quickbyte-demo",
             ),
             queue=queue,
         )
@@ -87,6 +89,43 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(queue.payloads[0]["taskId"], state.job_id)
         self.assertEqual(queue.payloads[0]["repositoryUrl"], "https://github.com/CodeReferee-Team/codereferee-AI")
         self.assertEqual(queue.payloads[0]["branch"], "main")
+        self.assertEqual(queue.payloads[0]["chaosMode"], "litmus_pod_delete")
+        self.assertEqual(queue.payloads[0]["deploymentProfile"], "quickbyte-demo")
+
+    def test_process_next_passes_chaos_targeting_to_sandbox(self) -> None:
+        class FakeQueue:
+            def dequeue(self, *, block=False, timeout=0):
+                return {
+                    "taskId": "job-chaos",
+                    "repositoryUrl": "https://github.com/example/project",
+                    "branch": "main",
+                    "commitSha": None,
+                    "chaosMode": "litmus_pod_delete",
+                    "deploymentProfile": "quickbyte-demo",
+                }
+
+            def publish(self, event):
+                return 1
+
+        report = RepositoryPreflightReport(
+            repository_url="https://github.com/example/project.git",
+            cloneable=True,
+            executable=True,
+        )
+        with patch("app.workflow.repository_validation.repository_preflight_runner.run", return_value=report), patch(
+            "app.workflow.repository_validation.sandbox_runner.run_repository",
+            return_value=SandboxResult(exit_code=0),
+        ) as sandbox_run:
+            process_next_repository_validation(queue=FakeQueue())
+
+        sandbox_run.assert_called_once_with(
+            "https://github.com/example/project.git",
+            branch="main",
+            commit_sha=None,
+            chaos_mode="litmus_pod_delete",
+            deployment_profile="quickbyte-demo",
+            request_id="job-chaos",
+        )
 
     def test_process_next_repository_validation_dequeues_and_runs_preflight_failure(self) -> None:
         class FakeQueue:

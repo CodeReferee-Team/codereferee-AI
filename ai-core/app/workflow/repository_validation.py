@@ -32,6 +32,8 @@ def create_validation_state(request: RepositoryValidationRequest, job_id: str | 
         repository_url=str(request.repository_url),
         branch=request.branch,
         requested_commit_sha=request.commit_sha,
+        chaos_mode=request.chaos_mode,
+        deployment_profile=request.deployment_profile,
         status=JobStatus.queued,
     )
 
@@ -98,6 +100,7 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
             state.preflight_report.repository_url,
             branch=state.branch,
             commit_sha=state.requested_commit_sha,
+            **_sandbox_contract_options(state),
         )
         state.metrics = _metrics_from_execution(state)
         state.sre_metrics = _sre_metrics_from_execution(state)
@@ -160,6 +163,8 @@ def _queue_payload(state: AgentState) -> dict[str, str | None]:
         "repositoryUrl": state.repository_url,
         "branch": state.branch,
         "commitSha": state.requested_commit_sha,
+        "chaosMode": state.chaos_mode,
+        "deploymentProfile": state.deployment_profile,
         "submittedAt": None,
     }
 
@@ -170,6 +175,8 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
         repository_url = payload.get("repositoryUrl")
         branch = payload.get("branch")
         commit_sha = payload.get("commitSha")
+        chaos_mode = payload.get("chaosMode")
+        deployment_profile = payload.get("deploymentProfile")
         request_id = payload.get("taskId")
         source = "server"
     elif payload.get("type") == REPOSITORY_VALIDATION_TASK:
@@ -177,6 +184,8 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
         repository_url = payload.get("repository_url")
         branch = payload.get("branch")
         commit_sha = payload.get("commit_sha")
+        chaos_mode = payload.get("chaos_mode")
+        deployment_profile = payload.get("deployment_profile")
         request_id = payload.get("request_id") or payload.get("job_id")
         source = "ai"
     else:
@@ -190,6 +199,8 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
         branch=branch,
         commit_sha=commit_sha,
         request_id=request_id,
+        chaos_mode=chaos_mode,
+        deployment_profile=deployment_profile,
     )
     state = create_validation_state(request, job_id=job_id)
     if submitted_at := payload.get("submittedAt"):
@@ -200,6 +211,18 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
 
 def _preflight_passed(report) -> bool:
     return bool(report and report.cloneable and report.executable)
+
+
+def _sandbox_contract_options(state: AgentState) -> dict[str, str]:
+    """Pass optional external-Sandbox deployment context without changing legacy calls."""
+    options: dict[str, str] = {}
+    if state.chaos_mode:
+        options["chaos_mode"] = state.chaos_mode
+    if state.deployment_profile:
+        options["deployment_profile"] = state.deployment_profile
+    if state.request_id and (state.chaos_mode or state.deployment_profile):
+        options["request_id"] = state.request_id
+    return options
 
 
 def _patch_diff_from(refiner_report: dict[str, Any]) -> str | None:
@@ -271,6 +294,7 @@ def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
             branch=state.branch,
             commit_sha=state.requested_commit_sha,
             patch_diff=patch_diff,
+            **_sandbox_contract_options(state),
         )
         state.execution_result = result
         state.metrics = _metrics_from_execution(state)
