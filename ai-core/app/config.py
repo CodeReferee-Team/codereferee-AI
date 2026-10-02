@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     sandbox_nano_cpus: int = 2_000_000_000
     sandbox_pids_limit: int = 512
     repository_clone_timeout_seconds: int = 30
+    # 교체 Pod의 스케줄링과 이미지 pull에 드는 시간. 클러스터마다 달라 측정이 불가능하므로
+    # 설정으로 둔다. docs/judge-policy.md 6.5의 기대 복구 상한 계산식에 쓴다.
+    chaos_recovery_startup_allowance_seconds: float = 30.0
     max_self_healing_retries: int = 3
     # 1MB가 넘는 diff는 수정 범위가 과도하다는 뜻이라 신뢰하기 어렵다.
     max_patch_diff_bytes: int = 1_000_000

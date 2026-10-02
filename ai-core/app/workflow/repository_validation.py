@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from prometheus_client import Counter, Histogram
 
-from app.agents.nodes import critic_node, judge_node, planner_node, refiner_node
+from app.agents.nodes import chaos_aborted, chaos_recovered, critic_node, judge_node, planner_node, refiner_node
 from app.models import (
     DEFAULT_SLO,
     AgentState,
@@ -23,6 +23,8 @@ from app.storage.sqlite_store import job_store, record_validation_artifacts
 VALIDATION_COUNTER = Counter("codereferee_repository_validations_total", "Total repository validations", ["status"])
 SANDBOX_DURATION = Histogram("codereferee_repository_sandbox_duration_ms", "Repository sandbox duration in ms")
 REPOSITORY_VALIDATION_TASK = "repository_validation"
+# 카오스 응답임을 알리는 schema_version. chaos-v1에서 litmus-v1로 늘었고 앞으로도 늘 수 있다.
+CHAOS_SCHEMA_PREFIXES = ("chaos-", "litmus-")
 
 
 def create_validation_state(request: RepositoryValidationRequest, job_id: str | None = None) -> AgentState:
@@ -317,10 +319,14 @@ def _infra_error_reason(state: AgentState) -> str | None:
 
     observation = result.chaos_observation
     if not observation:
+        # 카오스를 요청했는데 관측이 없으면 판정 근거가 없다. 이 경우를 통과로 보내면
+        # 실험이 돌지 않았는데 합격했다고 보고하게 된다.
+        if str(result.schema_version or "").startswith(CHAOS_SCHEMA_PREFIXES):
+            return "chaos_evidence_missing"
         return None
-    if observation.get("aborted") or result.source.get("aborted"):
+    if chaos_aborted(observation) or result.source.get("aborted"):
         return "chaos_experiment_aborted"
-    if not result.baseline or "recovered" not in observation:
+    if not result.baseline or chaos_recovered(observation) is None:
         # 정상 상태 대비 편차로 판정하는데 baseline이나 복구 관측이 없으면 판정 근거가 없다.
         return "chaos_evidence_missing"
     return None
