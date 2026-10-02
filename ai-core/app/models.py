@@ -20,6 +20,8 @@ class RepositoryValidationRequest(BaseModel):
     branch: str | None = None
     commit_sha: str | None = None
     request_id: str | None = None
+    chaos_mode: str | None = None
+    deployment_profile: str | None = None
     max_retries: int | None = Field(default=None, ge=0, le=10)
 
 
@@ -171,6 +173,8 @@ class AgentState(BaseModel):
     repository_url: str
     branch: str | None = None
     requested_commit_sha: str | None = None
+    chaos_mode: str | None = None
+    deployment_profile: str | None = None
     resolved_commit_sha: str | None = None
     validation_plan: dict[str, Any] = Field(default_factory=dict)
     preflight_report: RepositoryPreflightReport | None = None
