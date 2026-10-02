@@ -758,14 +758,20 @@ class RefinementLoopTests(unittest.TestCase):
 
         return _node
 
-    def _run(self, sandbox_results, diff):
+    def _run(self, sandbox_results, diff, *, chaos_mode=None, deployment_profile=None):
         queue = RecordingQueue()
-        state = AgentState(job_id="refine", request_id="refine", repository_url="https://github.com/example/project")
+        state = AgentState(
+            job_id="refine",
+            request_id="refine",
+            repository_url="https://github.com/example/project",
+            chaos_mode=chaos_mode,
+            deployment_profile=deployment_profile,
+        )
         pending = list(sandbox_results)
         calls: list[dict] = []
 
-        def _sandbox(repository_url, branch=None, commit_sha=None, patch_diff=None):
-            calls.append({"patch_diff": patch_diff})
+        def _sandbox(repository_url, branch=None, commit_sha=None, patch_diff=None, **kwargs):
+            calls.append({"patch_diff": patch_diff, **kwargs})
             return pending.pop(0)
 
         with patch(
@@ -797,6 +803,18 @@ class RefinementLoopTests(unittest.TestCase):
         # 재검증 호출에만 diff가 실려야 한다. 최초 실행은 원본 코드를 봐야 한다.
         self.assertIsNone(calls[0]["patch_diff"])
         self.assertEqual(calls[1]["patch_diff"], "--- a/x\n+++ b/x\n")
+
+    def test_refinement_rerun_keeps_chaos_target_contract(self) -> None:
+        _, _, calls = self._run(
+            [SandboxResult(exit_code=1, stderr="boom"), SandboxResult(exit_code=0, stdout="ok")],
+            diff="--- a/x\n+++ b/x\n",
+            chaos_mode="litmus_pod_delete",
+            deployment_profile="quickbyte-demo",
+        )
+
+        self.assertEqual(calls[1]["chaos_mode"], "litmus_pod_delete")
+        self.assertEqual(calls[1]["deployment_profile"], "quickbyte-demo")
+        self.assertEqual(calls[1]["request_id"], "refine")
 
     def test_refining_progress_carries_round_and_max_rounds(self) -> None:
         _, queue, _ = self._run(
