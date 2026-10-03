@@ -34,7 +34,24 @@ GitHub 레포지토리 URL을 받아 "이 코드가 돌아가는가, 장애에�
 
 ### 1-5. 경계: preflight와 샌드박스
 
-preflight는 규칙만 돌린다. URL 형태 확인과 `git ls-remote` 한 번. clone도 실행도 하지 않는다. clone, 패치 적용, 빌드, 배포, 장애 주입은 전부 Kubernetes 샌드박스 안에서 일어난다. preflight가 반환하는 `detected_stack`이 `unknown until sandbox clone`인 것이 이 경계의 표시다.
+preflight는 규칙만 돌린다. URL 형태 확인과 `git ls-remote` 한 번. clone도 실행도 하지 않는다. clone, 패치 적용, 빌드, 배포, 장애 주입은 전부 샌드박스 안에서 일어난다. preflight가 반환하는 `detected_stack`이 `unknown until sandbox clone`인 것이 이 경계의 표시다.
+
+### 1-6. 샌드박스가 두 개인 이유, 그리고 하나로 합치는 방향
+
+샌드박스는 두 층으로 나뉜다. 묻는 질문이 다르다.
+
+| | 묻는 것 | 수단 | 현재 구현 |
+| --- | --- | --- | --- |
+| 1층 | 이 코드가 돌아가는가 | 스택 감지, 의존성 설치, 테스트, smoke | ai-core 안의 로컬 Docker |
+| 2층 | 장애에서 살아남는가 | 이미지 빌드, 배포, 장애 주입, 복구 관측 | codereferee-sandbox의 Kubernetes |
+
+순서가 있다. 빌드가 안 되는 코드를 장애 주입해볼 수는 없다.
+
+지금 이 두 층은 **순서가 아니라 교체 관계**다. 이게 문제다. `sandbox_base_url`이 설정되면 HTTP로 2층만 돌고 비어 있으면 로컬 Docker로 1층만 돈다(`docker_runner.py`의 `run_repository`). 프로덕션은 앞쪽이므로 지금 설정을 그대로 올리면 빌드와 테스트 검증이 조용히 빠진다. 오류도 나지 않는다. 그냥 하지 않는다.
+
+**방향은 통합이다.** 2층 샌드박스가 1층을 흡수하는 쪽이다. 비용이 거의 들지 않는다. 2층 호스트에는 이미 Docker 데몬이 있다. manifest가 `imagePullPolicy: IfNotPresent`만 걸고 push도 `kind load`도 하지 않는데 클러스터가 방금 빌드한 이미지를 집어오는 것이 그 증거다. 그러면 테스트 실행은 빌드 직후 `docker run <image> <test command>` 한 번이고 파드도 클러스터 왕복도 늘지 않는다.
+
+통합이 끝나면 AI는 샌드박스 코드를 들고 있지 않아도 된다. 그때 로컬 Docker 경로는 평가와 개발 전용으로 남긴다. 평가셋 34건을 클러스터 없이 노트북에서 돌릴 수 있어야 측정 반복이 유지되기 때문이다.
 
 ---
 
@@ -51,14 +68,14 @@ flowchart TD
     PL --> PASS{preflight<br/>통과?}
 
     PASS -->|아니오| GATE
-    PASS -->|예| SB[Sandbox 실행]
+    PASS -->|예| EX
 
-    subgraph SBX[Kubernetes 샌드박스]
-        SB --> P1["Phase 1<br/>clone / patch / build<br/>manifest / rollout"]
-        P1 --> P2["Phase 2<br/>baseline 관측<br/>장애 주입<br/>복구 관측"]
+    subgraph SBX["샌드박스"]
+        EX["1층 실행 검증<br/>clone · patch<br/>빌드 · 테스트"]
+        EX --> RS["2층 안정성 검증<br/>배포 · 장애 주입<br/>복구 관측"]
     end
 
-    P2 --> GATE{인프라 오류?}
+    RS --> GATE{인프라 오류?}
     GATE -->|예| ERR["status=error<br/>판정 생략"]
     GATE -->|아니오| J[Judge<br/>규칙]
 
@@ -86,14 +103,15 @@ flowchart TD
 | --- | --- | --- | --- | --- |
 | 1 | Preflight | 규칙 | URL 형태 확인, `git ls-remote`로 ref 도달 확인 | 샌드박스를 건너뛴다 |
 | 2 | Planner | LLM 또는 고정값 | 검증 목적, 범위, 필요 메트릭, 중단 조건 | 고정 계획으로 대체 |
-| 3 | Sandbox Phase 1 | 코드 (k8s) | clone, 패치 적용, 이미지 빌드, 배포, rollout 대기 | 종료 코드로 사유를 돌려준다 |
-| 4 | Sandbox Phase 2 | 코드 (k8s) | 정상 상태 관측, 장애 주입, 복구 관측 | `observation_status`로 구분 |
-| 5 | 인프라 오류 게이트 | 규칙 | 판정 가능 여부 확인 | `status=error`, 아래 전부 생략 |
-| 6 | Judge | 규칙 | Pass/Fail과 `reason_category` 결정 | — |
-| 7 | Critic | LLM | 실패 원인을 자연어로 설명 | 결정적 요약으로 대체 |
-| 8 | Refiner | LLM | 수정 편집 생성 | 가이드 문장만 남는다 |
-| 9 | 가드 | 코드 | 편집 적용 가능성, 훼손 여부, diff 안전성 | 사유 코드와 함께 거절 |
-| 10 | 재검증 루프 | 코드 | 패치를 얹어 재실행하고 다시 판정 | 최대 3라운드 |
+| 3 | 1층 실행 검증 | 코드 (로컬 Docker) | clone, 패치 적용, 스택 감지, 의존성 설치, 테스트, smoke | 종료 코드 86~89로 사유를 돌려준다 |
+| 4 | 2층 Phase 1 | 코드 (k8s) | clone, 패치 적용, 이미지 빌드, 배포, rollout 대기 | 배포 실패 사유를 돌려준다 |
+| 5 | 2층 Phase 2 | 코드 (k8s) | 정상 상태 관측, 장애 주입, 복구 관측 | `observation_status`로 구분 |
+| 6 | 인프라 오류 게이트 | 규칙 | 판정 가능 여부 확인 | `status=error`, 아래 전부 생략 |
+| 7 | Judge | 규칙 | Pass/Fail과 `reason_category` 결정 | — |
+| 8 | Critic | LLM | 실패 원인을 자연어로 설명 | 결정적 요약으로 대체 |
+| 9 | Refiner | LLM | 수정 편집 생성 | 가이드 문장만 남는다 |
+| 10 | 가드 | 코드 | 편집 적용 가능성, 훼손 여부, diff 안전성 | 사유 코드와 함께 거절 |
+| 11 | 재검증 루프 | 코드 | 패치를 얹어 재실행하고 다시 판정 | 최대 3라운드 |
 
 ### 3-2. Preflight
 
@@ -109,7 +127,23 @@ flowchart TD
 
 preflight 통과 여부와 무관하게 돌린다. 실패한 경우에도 "무엇을 검증하려 했는지"가 리포트에 남아야 하기 때문이다. LLM이 꺼져 있으면 `_fallback_plan`의 고정 계획을 쓴다.
 
-### 3-4. Sandbox Phase 1 — 배포까지
+### 3-4. 1층 샌드박스 — 빌드와 테스트
+
+`ai-core/app/sandbox/docker_runner.py`
+
+`sandbox_base_url`이 비어 있을 때 도는 경로다. ai-core가 셸 스크립트를 만들어 `codereferee/sandbox-multi:1` 컨테이너에 넣고 돌린다. clone, 패치 적용, 스택 감지, 의존성 설치, 테스트, smoke까지가 한 스크립트다.
+
+판정에 쓰이는 산출물이 여기서만 나온다.
+
+| 산출물 | 쓰이는 곳 |
+| --- | --- |
+| `sandbox_report`의 `detected_stack`, `outcome`, `failed_step`, `steps[]` | Judge의 실패 위치 특정 |
+| 종료 코드 86~89 | `no_manifest_detected`, `unsupported_project_stack`, 패치 실패, 검증 불가 |
+| 테스트 결과 | `test_failure`, `dependency_install_failed` |
+
+2층은 이 값을 만들지 않는다. 응답을 받는 칸은 이미 있다(`docker_runner.py`의 `sandbox_report` 파싱). 2층이 채우기만 하면 된다.
+
+### 3-5. 2층 샌드박스 Phase 1 — 배포까지
 
 `scripts/deploy_repository.py` (codereferee-sandbox)
 
@@ -131,7 +165,7 @@ preflight 통과 여부와 무관하게 돌린다. 실패한 경우에도 "무�
 
 **스택 자동 감지는 어디에도 없다.** 프로필이나 `validation.yaml`이 없는 레포는 현재 받을 수 없다. 설계상 비어 있는 자리다.
 
-### 3-5. Sandbox Phase 2 — 장애 주입
+### 3-6. 2층 샌드박스 Phase 2 — 장애 주입
 
 현재 여섯 가지 모드가 있다.
 
@@ -146,7 +180,7 @@ preflight 통과 여부와 무관하게 돌린다. 실패한 경우에도 "무�
 
 실험은 한 번에 하나만 돈다. 이미 돌고 있으면 409를 돌려준다. 끝나면 namespace를 지운다.
 
-### 3-6. 인프라 오류 게이트
+### 3-7. 인프라 오류 게이트
 
 `_infra_error_reason` · `ai-core/app/workflow/repository_validation.py`
 
@@ -164,7 +198,7 @@ preflight 통과 여부와 무관하게 돌린다. 실패한 경우에도 "무�
 
 이 중 `chaos_evidence_missing`은 조용히 통과하던 구멍을 막았다. 카오스 스키마로 왔는데 관측이 비어 있으면 이전에는 합격으로 나갔다. 실험이 돌지 않았는데 합격을 보고하는 셈이었다.
 
-### 3-7. Judge
+### 3-8. Judge
 
 `judge_node`와 `_fallback_judge` · `ai-core/app/agents/nodes.py`
 
@@ -182,13 +216,13 @@ preflight 통과 여부와 무관하게 돌린다. 실패한 경우에도 "무�
 grace + initial_delay + period × success_threshold + min_ready + 여유 30초
 ```
 
-### 3-8. Critic
+### 3-9. Critic
 
 `critic_node` · `ai-core/app/agents/nodes.py`
 
 Judge가 정한 판정을 받아 왜 그렇게 됐는지를 자연어로 쓴다. 판정을 바꾸지 않는다. LLM이 꺼져 있으면 증거를 조합한 결정적 요약을 쓴다.
 
-### 3-9. Refiner
+### 3-10. Refiner
 
 `refiner_node`와 `ai-core/app/agents/patching.py`
 
@@ -204,7 +238,7 @@ Judge가 정한 판정을 받아 왜 그렇게 됐는지를 자연어로 쓴다.
 
 Refiner에게는 증거에서 뽑은 원본 파일을 함께 준다. 이것이 수율의 결정 변수였다. `requirements.txt`를 주지 않은 상태에서는 모델이 로그에 찍힌 캐럿(`^`)과 `SyntaxError` 문장을 패치 내용으로 베꼈다.
 
-### 3-10. 가드 세 개
+### 3-11. 가드 세 개
 
 | 가드 | 막는 것 |
 | --- | --- |
@@ -214,7 +248,7 @@ Refiner에게는 증거에서 뽑은 원본 파일을 함께 준다. 이것이 �
 
 거절된 편집은 사유 코드와 함께 기록한다. 이 기록 때문에 파일럿 실패 7건 중 5건이 우리 쪽 문제였다는 사실이 보였다.
 
-### 3-11. 재검증 루프
+### 3-12. 재검증 루프
 
 `_run_refinement_rounds`
 
@@ -285,9 +319,9 @@ chaosMode, chaosTarget, deploymentProfile, patchDiff
 | --- | --- |
 | Preflight | 동작. 규칙만 |
 | Planner | 동작 |
-| 로컬 Docker 샌드박스 | 동작. 빌드와 테스트까지 |
-| Kubernetes 샌드박스 Phase 1 | 동작. 프로필이 있는 레포만 |
-| Kubernetes 샌드박스 Phase 2 | 6개 모드 구현, 실측 증거 7건 |
+| 1층 로컬 Docker 샌드박스 | 동작. 빌드와 테스트까지. 2층과 교체 관계라 동시에 돌지 않는다 |
+| 2층 Kubernetes Phase 1 | 동작. Dockerfile과 프로필이 있는 레포만. 테스트는 실행하지 않는다 |
+| 2층 Kubernetes Phase 2 | 6개 모드 구현, 실측 증거 7건 |
 | 인프라 오류 게이트 | 동작 |
 | Judge 규칙 | 32종 사유 코드, 카오스 규칙 9개 |
 | Critic | 동작 |
@@ -316,10 +350,10 @@ AI 쪽 변경은 브랜치 6개에 나뉘어 있고 전부 미머지다. 머지 
 
 | 항목 | 내용 |
 | --- | --- |
-| 스택 자동 감지 | 프로필도 `validation.yaml`도 없는 레포를 받을 방법이 없다 |
+| 샌드박스 통합 | 2층이 테스트 실행과 `sandbox_report`를 흡수해야 한다. 그때까지 `SANDBOX_BASE_URL`을 설정하면 1층 검증이 조용히 빠진다 |
+| 스택 자동 감지 | 프로필도 `validation.yaml`도 없는 레포를 받을 방법이 없다. Dockerfile이 없으면 2층은 시작도 못 한다 |
 | replica 기본값 | `apiReplicas: 1`에서는 Pod 하나를 죽이면 다운타임이 정상이다. 판정이 나오지 않는다. HA 프로필은 2다 |
 | 복구 상한 기준 | 실측 표본이 적다. `auto-deploy-litmus`는 상한 65초에 125.91초로 Fail이다 |
 | 평가셋 | T1-chaos가 전부 합성이다. 실측 증거 7건으로 교체해야 한다 |
-| 의존 서비스 | DB와 Redis가 필요한 레포를 어떻게 띄울지 미정 |
 | 빌드 보안 | 사용자 Dockerfile을 그대로 빌드하고 있다. 합의된 선택인지 확인이 필요하다 |
 | 샌드박스 이미지 배포 | 레지스트리에 없다. 각자 빌드해야 한다 |
