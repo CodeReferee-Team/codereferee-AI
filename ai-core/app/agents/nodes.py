@@ -7,7 +7,7 @@ from app.agents.llm import llm, parse_json_strict
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
 from app.config import get_settings
-from app.models import DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
+from app.models import SLO, DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 
 
 # 카오스 구간 p95가 baseline의 몇 배를 넘으면 경고할지. 출처 있는 값이 아니라 우리 관례다
@@ -310,6 +310,9 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
         return None, warnings
 
     # 카오스 실험이 아닌 실측 구간에는 SLO를 그대로 적용한다.
+    if (finding := _unmeasurable_reason(measured, slo)) is not None:
+        return finding, warnings
+
     error_rate = _as_float(measured.get("error_rate"))
     if error_rate is not None and slo.error_rate_max is not None and error_rate > slo.error_rate_max:
         return f"error_rate_slo_violation: error_rate {error_rate} exceeds {slo.error_rate_max}.", warnings
@@ -330,7 +333,70 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
     if p95 is not None and slo.p95_latency_ms_max is not None and p95 > slo.p95_latency_ms_max:
         return f"latency_slo_violation: p95 {p95}ms exceeds {slo.p95_latency_ms_max}ms.", warnings
 
-    return None, warnings
+    return _resource_reason(measured, slo), warnings
+
+
+# (사유 코드, 관측 키, SLO 임계 필드, 단위). 상한을 넘으면 Fail이다.
+_RESOURCE_CEILINGS = (
+    ("cpu_saturation", "cpu_usage_percent", "cpu_usage_percent_max", "%"),
+    ("unexpected_restart", "restart_count", "restart_count_max", " restarts"),
+    ("database_connection_errors", "db_connection_errors", "db_connection_errors_max", " errors"),
+    ("redis_connection_errors", "redis_connection_errors", "redis_connection_errors_max", " errors"),
+)
+# 이 중 하나라도 측정되면 판정할 근거가 있다고 본다.
+_JUDGEABLE_KEYS = ("error_rate", "availability", "p95_latency_ms", "p99_latency_ms", "cpu_usage_percent")
+
+
+def _unmeasurable_reason(measured: dict[str, object], slo: SLO) -> str | None:
+    """판정 근거가 될 지표가 하나도 없으면 통과로 보내지 않는다.
+
+    트래픽이 0건이면 가용성 100%와 오류율 0%는 아무것도 뜻하지 않는다. 키가 아예 없는
+    경우(sandbox가 그 지표를 안 보냄)와 키는 있는데 값이 null인 경우(측정에 실패함)를
+    구분해서, 뒤쪽만 Fail로 본다.
+    """
+    requests = _as_float(measured.get("request_count"))
+    if requests is not None and slo.request_count_min is not None and requests < slo.request_count_min:
+        return (
+            f"no_traffic_observed: request_count {requests} is below the minimum "
+            f"{slo.request_count_min}, so the other metrics describe nothing."
+        )
+
+    present = [key for key in _JUDGEABLE_KEYS if key in measured]
+    if present and all(_as_float(measured.get(key)) is None for key in present):
+        return (
+            "missing_metrics: the sandbox reported the metric keys but no values, "
+            "so none of the targets could be checked."
+        )
+    return None
+
+
+def _resource_reason(measured: dict[str, object], slo: SLO) -> str | None:
+    """자원 지표가 상한을 넘었는지. 운영자가 임계값을 정한 지표만 본다."""
+    for category, metric_key, slo_field, unit in _RESOURCE_CEILINGS:
+        observed = _as_float(measured.get(metric_key))
+        ceiling = getattr(slo, slo_field)
+        if observed is not None and ceiling is not None and observed > ceiling:
+            return f"{category}: {metric_key} {observed}{unit} exceeds {ceiling}{unit}."
+
+    ratio = _memory_usage_ratio(measured)
+    if ratio is not None and slo.memory_usage_ratio_max is not None and ratio > slo.memory_usage_ratio_max:
+        return (
+            f"memory_pressure: memory usage {round(ratio, 3)} of the limit exceeds "
+            f"{slo.memory_usage_ratio_max}."
+        )
+    return None
+
+
+def _memory_usage_ratio(measured: dict[str, object]) -> float | None:
+    """한도 대비 사용률. sandbox는 사용량과 한도를 MB로 따로 보낸다."""
+    if (ratio := _as_float(measured.get("memory_usage_ratio"))) is not None:
+        return ratio
+    used = _as_float(measured.get("memory_usage_mb"))
+    limit = _as_float(measured.get("memory_limit_mb"))
+    if used is None or not limit:
+        return None
+    return used / limit
+
 
 
 def _monthly_unavailability_budget_seconds(availability_percent_min: float | None) -> float | None:
