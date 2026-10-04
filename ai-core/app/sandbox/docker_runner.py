@@ -299,8 +299,14 @@ detect_stack() {
 install_dependencies() {
   case "$STACK" in
     python)
-      [ -f requirements.txt ] || return 0
-      python -m pip install --disable-pip-version-check -r requirements.txt >/dev/null
+      # requirements.txt만 보면 pyproject.toml 레포에는 아무것도 설치되지 않는다. 그러면 pytest가
+      # 패키지를 import하지 못해 수집 단계에서 깨지고, 멀쩡한 레포가 test_failure로 나간다.
+      if [ -f requirements.txt ]; then
+        python -m pip install --disable-pip-version-check -r requirements.txt >/dev/null || return $?
+      fi
+      if [ -f pyproject.toml ] || [ -f setup.py ]; then
+        python -m pip install --disable-pip-version-check . >/dev/null || return $?
+      fi
       ;;
     node)
       command -v npm >/dev/null 2>&1 || { echo "Node toolchain is not available in the sandbox image"; return 87; }

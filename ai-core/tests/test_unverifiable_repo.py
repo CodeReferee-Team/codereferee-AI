@@ -60,3 +60,24 @@ class FailureReasonTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PythonDependencyStepTests(unittest.TestCase):
+    """pyproject.toml만 있는 레포도 설치해야 한다.
+
+    requirements.txt만 보면 현대 Python 레포에는 아무것도 설치되지 않는다. 그러면 pytest가
+    패키지를 import하지 못해 수집 단계에서 깨지고, 멀쩡한 레포가 test_failure로 판정된다.
+    실측: pallets/itsdangerous가 exit 2 / "5 errors"로 불합격 처리됐다.
+    """
+
+    def setUp(self) -> None:
+        self.script = docker_runner._repository_validation_script(
+            "https://github.com/o/r", None, None, patch_file=""
+        )
+
+    def test_a_pyproject_only_repository_installs_itself(self) -> None:
+        self.assertIn("[ -f pyproject.toml ] || [ -f setup.py ]", self.script)
+        self.assertIn("python -m pip install --disable-pip-version-check .", self.script)
+
+    def test_requirements_is_still_installed(self) -> None:
+        self.assertIn("-r requirements.txt", self.script)
