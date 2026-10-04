@@ -24,6 +24,9 @@ class SandboxRunner:
         branch: str | None = None,
         commit_sha: str | None = None,
         patch_diff: str | None = None,
+        chaos_mode: str | None = None,
+        deployment_profile: str | None = None,
+        request_id: str | None = None,
     ) -> SandboxResult:
         """Clone and smoke-test an existing repository.
 
@@ -34,7 +37,18 @@ class SandboxRunner:
         누적 diff를 넣는 경로이며, 사용자 레포에는 절대 push하지 않는다.
         """
         if self.settings.sandbox_base_url:
-            return self._run_repository_via_http(repository_url, branch, commit_sha, patch_diff)
+            return self._run_repository_via_http(
+                repository_url, branch, commit_sha, patch_diff, chaos_mode, deployment_profile, request_id
+            )
+        if chaos_mode or deployment_profile:
+            # 로컬 Docker 경로는 쿠버네티스가 없어 장애를 주입할 수 없다. 그냥 빌드 검증을
+            # 돌려 통과로 내보내면, 안정성 검사를 요청한 사용자가 실험이 돌지 않았다는 것을
+            # 모른 채 합격을 받는다.
+            return SandboxResult(
+                exit_code=None,
+                stderr="Chaos execution requires the Kubernetes sandbox. Set SANDBOX_BASE_URL.",
+                infra_error="chaos_requires_remote_sandbox",
+            )
         return self._run_repository_via_local_docker(repository_url, branch, commit_sha, patch_diff)
 
     def _run_repository_via_http(
@@ -43,6 +57,9 @@ class SandboxRunner:
         branch: str | None = None,
         commit_sha: str | None = None,
         patch_diff: str | None = None,
+        chaos_mode: str | None = None,
+        deployment_profile: str | None = None,
+        request_id: str | None = None,
     ) -> SandboxResult:
         started_at = time.monotonic()
         endpoint = _join_url(self.settings.sandbox_base_url or "", self.settings.sandbox_repository_path)
@@ -58,6 +75,16 @@ class SandboxRunner:
         if patch_diff:
             payload["patchDiff"] = patch_diff
             payload["patch_diff"] = patch_diff
+        if chaos_mode:
+            payload["chaosMode"] = chaos_mode
+            payload["chaos_mode"] = chaos_mode
+        if deployment_profile:
+            # Sandbox는 프로필을 받으면 requestId로 namespace 이름을 만든다. 없으면 422다.
+            payload["deploymentProfile"] = deployment_profile
+            payload["deployment_profile"] = deployment_profile
+        if request_id:
+            payload["requestId"] = request_id
+            payload["request_id"] = request_id
         request = Request(
             endpoint,
             data=json.dumps(payload).encode("utf-8"),

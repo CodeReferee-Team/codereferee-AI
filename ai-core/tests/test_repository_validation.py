@@ -171,7 +171,15 @@ class RepositoryValidationTests(unittest.TestCase):
 
         self.assertIsNotNone(state)
         assert state is not None
-        sandbox_run.assert_called_once_with("https://github.com/example/project.git", branch="main", commit_sha=None)
+        # 카오스 옵션과 requestId가 샌드박스까지 간다(codereferee-server #8). 요청에 없으면 None이다.
+        sandbox_run.assert_called_once_with(
+            "https://github.com/example/project.git",
+            branch="main",
+            commit_sha=None,
+            chaos_mode=None,
+            deployment_profile=None,
+            request_id="job-pass",
+        )
         self.assertIn("Preflight: passed", state.events)
         self.assertTrue(state.metrics["preflight_passed"])
         self.assertTrue(state.metrics["sandbox_executed"])
@@ -725,8 +733,8 @@ class RefinementLoopTests(unittest.TestCase):
         pending = list(sandbox_results)
         calls: list[dict] = []
 
-        def _sandbox(repository_url, branch=None, commit_sha=None, patch_diff=None):
-            calls.append({"patch_diff": patch_diff})
+        def _sandbox(repository_url, branch=None, commit_sha=None, patch_diff=None, **options):
+            calls.append({"patch_diff": patch_diff, **options})
             return pending.pop(0)
 
         with patch(

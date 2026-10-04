@@ -32,6 +32,8 @@ def create_validation_state(request: RepositoryValidationRequest, job_id: str | 
         repository_url=str(request.repository_url),
         branch=request.branch,
         requested_commit_sha=request.commit_sha,
+        chaos_mode=request.chaos_mode,
+        deployment_profile=request.deployment_profile,
         status=JobStatus.queued,
     )
 
@@ -98,6 +100,9 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
             state.preflight_report.repository_url,
             branch=state.branch,
             commit_sha=state.requested_commit_sha,
+            chaos_mode=state.chaos_mode,
+            deployment_profile=state.deployment_profile,
+            request_id=state.request_id,
         )
         state.metrics = _metrics_from_execution(state)
         state.sre_metrics = _sre_metrics_from_execution(state)
@@ -160,6 +165,8 @@ def _queue_payload(state: AgentState) -> dict[str, str | None]:
         "repositoryUrl": state.repository_url,
         "branch": state.branch,
         "commitSha": state.requested_commit_sha,
+        "chaosMode": state.chaos_mode,
+        "deploymentProfile": state.deployment_profile,
         "submittedAt": None,
     }
 
@@ -190,6 +197,9 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
         branch=branch,
         commit_sha=commit_sha,
         request_id=request_id,
+        # 서버는 camelCase로, 우리 큐는 snake_case로 보낸다. 둘 다 받아야 두 경로가 호환된다.
+        chaos_mode=payload.get("chaosMode") or payload.get("chaos_mode"),
+        deployment_profile=payload.get("deploymentProfile") or payload.get("deployment_profile"),
     )
     state = create_validation_state(request, job_id=job_id)
     if submitted_at := payload.get("submittedAt"):
@@ -271,6 +281,9 @@ def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
             branch=state.branch,
             commit_sha=state.requested_commit_sha,
             patch_diff=patch_diff,
+            chaos_mode=state.chaos_mode,
+            deployment_profile=state.deployment_profile,
+            request_id=state.request_id,
         )
         state.execution_result = result
         state.metrics = _metrics_from_execution(state)

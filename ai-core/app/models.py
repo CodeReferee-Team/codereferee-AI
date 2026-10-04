@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator, model_validator
 
 
 class JobStatus(StrEnum):
@@ -15,12 +16,58 @@ class JobStatus(StrEnum):
     error = "error"
 
 
+# Sandbox가 받는 값은 닫힌 집합이다(codereferee-sandbox app/main.py).
+# 오타 하나가 서버와 Redis와 AI를 지나 마지막 호출에서 422로 드러나면 사용자가 받는 오류가
+# 쓸모없다. 받는 자리에서 거른다.
+CHAOS_MODES = frozenset(
+    {
+        "fixture",
+        "litmus_pod_delete",
+        "litmus_container_kill",
+        "deployment_scale_down",
+        "service_selector_blackhole",
+        "rollout_restart",
+    }
+)
+# 프로필을 주면 Sandbox가 레포를 직접 배포한다. litmus_container_kill은 그 경로가 없다.
+DEPLOYING_CHAOS_MODES = frozenset(
+    {"litmus_pod_delete", "deployment_scale_down", "service_selector_blackhole", "rollout_restart"}
+)
+# 프로필 이름은 Sandbox에서 profiles/{name}.json 경로 조회로 들어간다. 평범한 이름만 받는다.
+_PROFILE_NAME = re.compile(r"[a-z0-9-]+")
+
+
 class RepositoryValidationRequest(BaseModel):
     repository_url: HttpUrl
     branch: str | None = None
     commit_sha: str | None = None
     request_id: str | None = None
     max_retries: int | None = Field(default=None, ge=0, le=10)
+    # 카오스 실행 옵션. 서버가 Redis payload에 실어 보낸다(codereferee-server #8).
+    chaos_mode: str | None = None
+    deployment_profile: str | None = None
+
+    @field_validator("chaos_mode")
+    @classmethod
+    def _known_chaos_mode(cls, value: str | None) -> str | None:
+        if value is not None and value not in CHAOS_MODES:
+            raise ValueError(f"Unsupported chaos_mode: {value}. Expected one of {sorted(CHAOS_MODES)}")
+        return value
+
+    @field_validator("deployment_profile")
+    @classmethod
+    def _plain_profile_name(cls, value: str | None) -> str | None:
+        if value is not None and not _PROFILE_NAME.fullmatch(value):
+            raise ValueError("deployment_profile must match [a-z0-9-]+")
+        return value
+
+    @model_validator(mode="after")
+    def _profile_needs_a_deploying_mode(self) -> "RepositoryValidationRequest":
+        if self.deployment_profile and self.chaos_mode not in DEPLOYING_CHAOS_MODES:
+            raise ValueError(
+                "deployment_profile requires chaos_mode in " f"{sorted(DEPLOYING_CHAOS_MODES)}"
+            )
+        return self
 
 
 class CreateValidationResponse(BaseModel):
@@ -172,6 +219,8 @@ class AgentState(BaseModel):
     branch: str | None = None
     requested_commit_sha: str | None = None
     resolved_commit_sha: str | None = None
+    chaos_mode: str | None = None
+    deployment_profile: str | None = None
     validation_plan: dict[str, Any] = Field(default_factory=dict)
     preflight_report: RepositoryPreflightReport | None = None
     execution_result: SandboxResult | None = None
