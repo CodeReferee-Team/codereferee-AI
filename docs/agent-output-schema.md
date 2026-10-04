@@ -105,6 +105,7 @@ Refiner Agent는 기존 레포지토리를 개선하기 위한 수정 가이드�
 ```json
 {
   "summary": "Redis dependency failure is not handled safely.",
+  "patch_diff": "--- a/app/cache.py\n+++ b/app/cache.py\n@@ ...",
   "patch_guidance": [
     "Configure Redis command timeout.",
     "Add retry with exponential backoff.",
@@ -126,6 +127,12 @@ summary
 patch_guidance
 verification_steps
 risk: "low" | "medium" | "high"
+```
+
+선택 필드:
+
+```text
+patch_diff: git apply 가능한 unified diff. 만들 근거가 없으면 null
 ```
 
 ---
