@@ -128,7 +128,14 @@ def _invoke_validated_report(
     fallback: dict[str, Any],
     events: list[str],
 ) -> dict[str, Any]:
-    raw = llm.invoke_text(system_prompt, user_prompt, values)
+    try:
+        raw = llm.invoke_text(system_prompt, user_prompt, values)
+    except Exception as exc:
+        # 전송 실패(타임아웃, 연결 거부, 5xx). 판정은 규칙이 이미 냈고 여기서 만드는 것은
+        # 그 위에 얹는 서술과 수정안이다. 모델에 닿지 못했다고 작업 전체를 버리면
+        # 검증 결과가 LLM 가용성에 묶인다.
+        events.append(f"{role}: LLM unreachable, deterministic fallback selected: {_event_error(exc)}")
+        return validate_report(schema, fallback)
     try:
         return validate_report(schema, parse_json_strict(raw))
     except (ValueError, ValidationError) as exc:
