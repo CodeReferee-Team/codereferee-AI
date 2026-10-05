@@ -394,22 +394,19 @@
         "chaos_observation": {
           "type": "pod_kill",
           "recovered": true,
-          "kill_mode": "graceful",
-          "workload": {
-            "kind": "Deployment",
-            "name": "fixture-api",
-            "replicas_desired": 1,
-            "replicas_ready_before": 1,
-            "min_ready_seconds": 0,
-            "termination_grace_period_seconds": 30,
+          "target_configuration": {
+            "replicas": 1,
             "readiness_probe": {
               "initial_delay_seconds": 1,
               "period_seconds": 2,
               "success_threshold": 1,
               "failure_threshold": 3,
               "timeout_seconds": 1
-            }
-          }
+            },
+            "min_ready_seconds": 0,
+            "termination_grace_period_seconds": 30
+          },
+          "kill_method": "graceful"
         },
         "source": {
           "fixture": "fixture-api",
@@ -458,22 +455,19 @@
         "chaos_observation": {
           "type": "pod_kill",
           "recovered": true,
-          "kill_mode": "graceful",
-          "workload": {
-            "kind": "Deployment",
-            "name": "fixture-api",
-            "replicas_desired": 3,
-            "replicas_ready_before": 3,
-            "min_ready_seconds": 0,
-            "termination_grace_period_seconds": 30,
+          "target_configuration": {
+            "replicas": 3,
             "readiness_probe": {
               "initial_delay_seconds": 5,
               "period_seconds": 10,
               "success_threshold": 1,
               "failure_threshold": 3,
               "timeout_seconds": 1
-            }
-          }
+            },
+            "min_ready_seconds": 0,
+            "termination_grace_period_seconds": 30
+          },
+          "kill_method": "graceful"
         },
         "source": {
           "fixture": "fixture-api",

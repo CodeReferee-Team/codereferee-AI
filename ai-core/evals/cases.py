@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.models import SLO, AgentState, RepositoryPreflightReport, SandboxResult
+from app.sandbox.docker_runner import _sandbox_result_from_response
 from app.workflow import repository_validation as workflow
 
 AI_CORE = pathlib.Path(__file__).resolve().parents[1]
@@ -24,6 +25,10 @@ HUMAN_SLICES = {
     "T0-adv": FIXTURES / "agent_adversarial_cases.json",
     "T1-chaos": FIXTURES / "agent_chaos_cases.json",
 }
+# 실측 슬라이스. 케이스 본문을 적지 않고 sandbox가 실제로 보낸 파일을 그대로 읽는다.
+# 손으로 옮기면 합성 슬라이스가 그랬듯 계약 문서를 베껴 쓰게 된다.
+REAL_CHAOS_LABELS = FIXTURES / "agent_chaos_real_labels.json"
+REAL_CHAOS_EVIDENCE = FIXTURES / "chaos_actual"
 SYNTHETIC_SLICES = {
     "T1-sandbox": GENERATED / "sandbox_failures.jsonl",
     "T1-metrics": GENERATED / "metrics_judge_cases.jsonl",
@@ -109,7 +114,10 @@ class EvalCase:
         state = AgentState(job_id=self.id, repository_url=self.raw_state["repository_url"])
         if pf := self.raw_state.get("preflight_report"):
             state.preflight_report = RepositoryPreflightReport(**pf)
-        if ex := self.raw_state.get("execution_result"):
+        if body := self.raw_state.get("sandbox_response"):
+            # 운영과 같은 HTTP 파서를 통과시킨다. 필드 이름이 어긋나면 여기서 드러난다.
+            state.execution_result = _sandbox_result_from_response(body, 0.0)
+        elif ex := self.raw_state.get("execution_result"):
             state.execution_result = SandboxResult(**ex)
         # 워크플로와 같은 순서로 지표를 채워야 Judge가 운영과 동일한 입력을 본다.
         state.metrics = workflow._metrics_from_execution(state)
@@ -136,6 +144,36 @@ def _human_cases(slice_name: str) -> list[EvalCase]:
         )
         for c in raw
     ]
+
+
+def _real_chaos_cases() -> list[EvalCase]:
+    url = "https://github.com/phdcoco/QuickByte_Demo.git"
+    labels = json.loads(REAL_CHAOS_LABELS.read_text(encoding="utf-8"))
+    built: list[EvalCase] = []
+    for entry in labels:
+        path = REAL_CHAOS_EVIDENCE / f"{entry['id']}.json"
+        if not path.is_file():
+            raise FileNotFoundError(f"실측 증거 파일이 없다: {path}")
+        built.append(
+            EvalCase(
+                id=entry["id"],
+                slice="T1-chaos-real",
+                expected=dict(entry["label"]),
+                raw_state={
+                    "repository_url": url,
+                    "preflight_report": {
+                        "repository_url": url,
+                        "cloneable": True,
+                        "executable": True,
+                        "reason": "reachable",
+                    },
+                    "sandbox_response": path.read_text(encoding="utf-8"),
+                },
+                expected_warnings=entry.get("expected_warnings", []),
+                note=entry.get("note"),
+            )
+        )
+    return built
 
 
 def _sandbox_failure_case(row: dict[str, Any]) -> EvalCase:
@@ -245,7 +283,9 @@ def load(slices: list[str], *, per_category: int = 3, seed: int = 7) -> list[Eva
     """슬라이스 이름 목록을 받아 EvalCase 목록을 돌려준다."""
     loaded: list[EvalCase] = []
     for name in slices:
-        if name in HUMAN_SLICES:
+        if name == "T1-chaos-real":
+            loaded.extend(_real_chaos_cases())
+        elif name in HUMAN_SLICES:
             loaded.extend(_human_cases(name))
         elif name in SYNTHETIC_SLICES:
             loaded.extend(_synthetic_cases(name, per_category, seed))
@@ -255,4 +295,4 @@ def load(slices: list[str], *, per_category: int = 3, seed: int = 7) -> list[Eva
 
 
 def available() -> list[str]:
-    return sorted(HUMAN_SLICES) + sorted(SYNTHETIC_SLICES)
+    return sorted(HUMAN_SLICES) + ["T1-chaos-real"] + sorted(SYNTHETIC_SLICES)

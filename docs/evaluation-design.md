@@ -681,3 +681,80 @@ postgres_unavailable, redis_unavailable
 - 데이터셋 라벨을 정식 코드로 다시 찍는 작업이 필요하다. 평가 쪽 매핑은 임시 조치다
 - 로그에 라벨을 적는 생성기를 고쳐야 한다. 그 전에는 이 슬라이스로 모델을 학습시키면 안 된다
 - 표현 불가 11종 중 실제로 필요한 구분이 있으면 `REASON_CATEGORIES`에 추가를 논의한다. 지금은 `sandbox_nonzero_exit`으로 뭉쳐 나간다
+## 14. 실측 카오스 증거 슬라이스 (2026-10-04)
+
+### 14.1 왜 했는가
+
+T1-chaos 10건이 전부 합성이었다. 5.2절 표의 T1-chaos 판정 정확도 90.0%, false-pass 16.7%가 무엇 때문인지 밝히지 않은 채 기준선에 들어가 있었다. 심사 서비스에서 false-pass는 가장 나쁜 오류다.
+
+sandbox가 2026-10-01부터 Kubernetes에서 실제로 돌려 모은 증거가 7건 있다. 합성 데이터로 규칙을 맞추면 필드 이름이 어긋난다는 것을 이미 겪었으므로 실측을 기준으로 다시 쟀다.
+
+### 14.2 슬라이스 구성
+
+`T1-chaos-real` 7건. codereferee-sandbox의 `data/actual/`을 바이트 그대로 가져왔다.
+
+| 케이스 | 시나리오 | 복구 | 상한 | 기대 판정 |
+| --- | --- | --- | --- | --- |
+| `fixture-deployment-scale-down-001` | replica 0으로 축소 | 17.07초 | 63초 | Pass |
+| `fixture-rollout-restart-001` | 롤링 재시작 | 9.69초 | 63초 | Pass |
+| `fixture-service-selector-blackhole-001` | Service selector 차단 | 10.77초 | 63초 | Pass |
+| `quickbyte-auto-deploy-litmus-001` | Litmus Pod 삭제 | 125.91초 | 65초 | Fail |
+| `quickbyte-litmus-chaos-v1-001` | Litmus Pod 삭제 | 미기록 | 65초 | Pass |
+| `quickbyte-litmus-pod-delete-001` | 관측 전 산출물 | 없음 | — | Error |
+| `quickbyte-pod-kill-001` | kubectl Pod 삭제 | 58.84초 | 65초 | Pass |
+
+두 가지를 지켰다.
+
+- **케이스 본문을 손으로 옮기지 않는다.** 라벨만 `agent_chaos_real_labels.json`에 적고 증거는 파일을 그대로 읽는다. 옮겨 적으면 합성 슬라이스가 그랬듯 계약 문서를 베껴 쓰게 된다.
+- **운영과 같은 HTTP 파서를 통과시킨다.** `EvalCase.build_state`가 `sandbox_response`를 받으면 `_sandbox_result_from_response`로 파싱한다. 필드 이름이 어긋나면 여기서 드러난다.
+
+라벨은 judge-policy 6.2의 규칙 9개에서 손으로 도출했다. 구현을 보고 맞춘 것이 아니다.
+
+### 14.3 결과
+
+| 슬라이스 | 판정 정확도 | false-pass | 카테고리 | 경고 |
+| --- | --- | --- | --- | --- |
+| T1-chaos (수정 전) | 90.0% | 16.7% | 90.0% | 66.7% (2/3) |
+| T1-chaos (수정 후) | 100.0% | 0.0% | 100.0% | 100.0% (3/3) |
+| **T1-chaos-real** | **100.0%** | **0.0%** | **100.0%** | **100.0% (5/5)** |
+
+실측 7건은 규칙에서 도출한 라벨과 전부 일치했다. 판정, 카테고리, 경고 모두.
+
+주 지표는 변동이 없다. T0+T0-adv 34건에서 판정 100.0%, 카테고리 94.1%. 남은 불일치 2건은 `empty_repository`와 `docker_build_failed`를 더 거친 카테고리로 분류하는 기존 격차이고 카오스와 무관하다.
+
+### 14.4 합성 10건이 틀린 이유
+
+false-pass의 원인은 코드가 아니라 평가셋이었다. 합성 케이스 2건이 워크로드 설정을 `chaos_observation.workload`에 넣었는데, sandbox가 실제로 보내는 자리는 `chaos_observation.target_configuration`이다.
+
+| 합성이 쓴 이름 | sandbox가 보내는 이름 |
+| --- | --- |
+| `workload` | `target_configuration` |
+| `workload.replicas_desired` | `target_configuration.replicas` |
+| `kill_mode` | `kill_method` |
+
+그래서 `_expected_recovery_bound`가 probe 설정을 찾지 못해 `None`을 돌려주고, 규칙 4를 건너뛰고 Pass로 나갔다. 240초짜리 복구가 통과한 것이다. 같은 이유로 `chaos_single_replica_downtime`은 replica 수를 읽지 못해 규칙 7 경고가 붙지 않았다.
+
+합성 케이스는 judge-policy 6.5의 **요청 목록**을 보고 쓴 것이고, sandbox는 다른 이름으로 구현했다. 판정 코드는 실측에 맞춰 고쳤고 합성 케이스만 남겨져 있었다. 두 케이스를 실측 이름으로 고쳤다.
+
+### 14.5 규칙별 실측 커버리지
+
+| 규칙 | 내용 | 합성 | 실측 |
+| --- | --- | --- | --- |
+| 1 | 증거 없음 → Error | O | O |
+| 2 | 실험 중단 → Error | O | 없음 |
+| 3 | 복구 실패 → Fail | O | 없음 |
+| 4 | 복구 시간 상한 초과 → Fail | 수정 후 O | O |
+| 5 | 에러 버짓 소진 → Fail | O | 없음 |
+| 6 | 버짓 20% 소모 → 경고 | O | 없음 |
+| 7 | 단일 replica → 경고 | 수정 후 O | O |
+| 8 | p95 10배 초과 → 경고 | O | O |
+| 9 | 통과 | O | O |
+
+실측 7건은 전부 복구에 성공했다. 복구 실패, 실험 중단, 버짓 소진은 아직 실제로 관측된 적이 없다. **그래서 합성 슬라이스를 폐기하지 않고 둘 다 유지한다.** 실측은 필드 계약을 지키는 데 쓰고, 합성은 아직 일어나지 않은 상황을 지키는 데 쓴다.
+
+### 14.6 남은 것
+
+- `quickbyte-litmus-chaos-v1-001`은 `recovered_at`은 있는데 `recovery_seconds`가 없다. 규칙 4를 계산할 수 없어 통과로 간다. 복구에 걸린 시간을 모르면서 통과시키는 것이 맞는지는 정책 결정이 필요하다.
+- 복구 상한 65초의 근거가 약하다. 실측 표본이 7건이고 그중 복구 시간이 기록된 것은 5건이다. `auto-deploy-litmus`가 125.91초로 상한의 두 배인데, 상한이 낮은 것인지 그 실행이 실제로 느렸던 것인지 표본이 더 필요하다.
+- `T1-chaos-real`은 아직 주 지표가 아니다. `PRIMARY_SLICES`는 T0와 T0-adv만 본다. 실측 표본이 20건을 넘으면 포함을 검토한다.
+- 모든 실측 증거의 `target_configuration.replicas`가 1이다. HA 프로필(`apiReplicas: 2`)로 돌린 증거가 들어오면 규칙 7 경고가 빠지는 경로를 처음 측정할 수 있다.
