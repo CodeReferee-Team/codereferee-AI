@@ -269,3 +269,82 @@ LLM은 규칙이 할 수 없는 일에만 쓴다. Critic의 원인 서술과 Ref
 **비카오스 경로는 버짓이 아니라 임계값을 본다.** 카오스 규칙 5·6은 에러 버짓 소모량으로 판정하는데, 일반 실행은 `error_rate > error_rate_max`처럼 원값을 비교한다. 같은 축으로 맞추려면 비카오스 경로도 버짓 소모로 표현해야 한다.
 
 **버짓 소진율(burn rate) 경보는 적용하지 않는다.** SRE Workbook의 multiwindow·multi-burn-rate는 운영 중인 서비스를 지켜보며 경보를 내는 방법이다. 우리는 한 번 실행하고 한 번 판정하므로 창을 여러 개 둘 수 없다. 쓰지 않는 이유를 적어 둔다.
+
+## 10. 메트릭 명세 — 무엇을 어떻게 재는가
+
+3절 표와 6.2절 규칙은 **무엇이 위반인지**를 말하지만 **그 값이 어디서 오는지**를 말하지 않는다. 그래서 `cpu_usage_percent > 80`이라는 규칙이 있는데 실제로 오는 값은 null이고 `availability`는 probe가 끊긴 횟수를 재고 있다. 규칙과 측정이 따로 논다.
+
+이 절은 Judge가 소비하는 쪽의 계약이다. 지표를 만들어 보내는 쪽은 Sandbox와 관측 인프라이고 여기서는 **무엇을 받아야 판정할 수 있는지**만 못박는다.
+
+### 10.1 지표별 계약
+
+| 지표 | 출처 | 측정 구간 | 분모 | 없을 때 |
+| --- | --- | --- | --- | --- |
+| `availability` | HTTP probe 성공 비율 | baseline + 장애 + 복구 전체 | 그 구간에 보낸 전체 probe 수 | 미측정 |
+| `error_rate` | HTTP probe 실패 비율 | 위와 같음 | 위와 같음 | 미측정 |
+| `p95_latency_ms` | HTTP probe 응답 시간 | 위와 같음 | — | 미측정 |
+| `p50_latency_ms` | HTTP probe 응답 시간 | 위와 같음 | — | 미측정 (아직 오지 않음) |
+| `p99_latency_ms` | HTTP probe 응답 시간 | 위와 같음 | — | 미측정 (아직 오지 않음) |
+| `request_count` | probe 수 | 위와 같음 | — | 미측정 |
+| `cpu_usage_percent` | cAdvisor | 장애 구간 최대값 | — | 미측정 (아직 오지 않음) |
+| `memory_usage_mb` / `memory_limit_mb` | cAdvisor | 장애 구간 최대값 | — | 미측정 (아직 오지 않음) |
+| `restart_count` | kube-state-metrics 또는 Pod status | 실험 전체 | — | 미측정 |
+| `recovery_seconds` | 첫 성공 probe 시각 − 주입 시각 | — | — | 미측정 |
+| `db_connection_errors` / `redis_connection_errors` | 애플리케이션 로그 또는 probe | 실험 전체 | — | 미측정 |
+
+### 10.2 "없을 때"는 위반이 아니다
+
+**측정하지 못한 것과 위반한 것을 구분한다.** 값이 null이면 그 규칙을 건너뛴다. 없는 값으로 Fail을 내지 않는다.
+
+자원 지표에 기본 임계값을 두지 않은 것이 같은 원칙이다. 운영자가 임계값을 정하지 않았으면 그 지표는 판정하지 않는다. 근거 없는 상한으로 Fail을 내면 판정에 근거가 없다.
+
+`missing_metrics`는 **지표 키는 왔는데 값이 전부 null일 때**만 쓴다. 키가 아예 없는 것(그 지표를 보내지 않는 구성)과 다르다. 앞쪽은 측정에 실패한 것이고 뒤쪽은 측정 대상이 아닌 것이다.
+
+### 10.3 지금 오는 값과 규칙의 어긋남
+
+실측으로 확인했다.
+
+| 규칙이 보는 것 | 실제로 오는 것 |
+| --- | --- |
+| `cpu_usage_percent > 80` | null. Prometheus 연동 전이다 |
+| 메모리 사용률 `> 0.8` | null. 같음 |
+| `restart_count > 0` | null. 같음 |
+| `p95_latency_ms` | probe 타임아웃 값이 섞인다. 응답 시간이 아니라 "기다리다 포기한 시간"이 들어간다 |
+| `availability` | port-forward가 끊긴 것도 실패로 센다. 앱 가용성이 아니라 관측 경로의 가용성이다 |
+
+**사유 코드 33종 중 15종이 지금 도달 불가다.** 카오스 4종, SLO 3종, 자원 5종, 트래픽·측정 2종, 재시작 1종이다. 규칙은 있는데 입력이 없다.
+
+### 10.4 Judge가 Prometheus에 던질 질의
+
+관측 인프라가 서면 AI Core가 직접 조회한다. 아래는 요청하는 모양이고 실제 레이블은 배선 뒤에 맞춘다.
+
+```promql
+# 장애 구간 CPU 최대값 (컨테이너 기준, 코어 비율 -> 퍼센트)
+max_over_time(
+  rate(container_cpu_usage_seconds_total{namespace="$ns", pod=~"$pod"}[30s])[$window:]
+) * 100
+
+# 메모리 사용률
+max_over_time(
+  container_memory_working_set_bytes{namespace="$ns", pod=~"$pod"}[$window:]
+) / on(pod) container_spec_memory_limit_bytes{namespace="$ns", pod=~"$pod"}
+
+# 재시작 횟수
+max_over_time(kube_pod_container_status_restarts_total{namespace="$ns", pod=~"$pod"}[$window:])
+```
+
+`$window`는 실험 구간이고 `$ns`와 `$pod`는 Sandbox가 응답에 담아 보내는 `chaos_observation.namespace`와 대상 Pod 이름이다. 둘 다 이미 온다.
+
+**지연과 가용성은 Prometheus로 옮기지 않는다.** 애플리케이션에 메트릭 엔드포인트가 있다고 가정할 수 없기 때문이다. 사용자 레포는 무엇이든 올 수 있다. 외부에서 보낸 probe 결과가 유일하게 모든 레포에 통하는 측정이다.
+
+다만 probe를 측정 수단으로 쓰는 이상 10.3의 두 가지는 남는다. 타임아웃을 응답 시간으로 세지 않도록 분리해 보내고 관측 경로가 끊긴 것을 앱 실패와 구분해 보내야 한다. Sandbox 쪽 요청이다.
+
+### 10.5 경계
+
+| 범위 | 담당 |
+| --- | --- |
+| 클러스터에 cAdvisor·Node Exporter를 띄우고 Prometheus가 긁게 배선 | 관측 인프라 |
+| Judge가 Prometheus에 질의해 요약을 만들어 판정 입력에 넣기 | AI Core |
+| 제출량·판정 분포·단계별 전이·소요 시간 대시보드 | 백엔드 |
+
+이 문서가 정하는 것은 가운데 줄의 입력 계약뿐이다. 위아래 두 줄이 무엇을 만들어 주어야 하는지를 10.1과 10.4가 말한다.
