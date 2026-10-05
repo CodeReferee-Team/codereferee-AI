@@ -90,3 +90,43 @@ class LocalProviderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TransportFailureDegradesTests(unittest.TestCase):
+    """LLM에 닿지 못해도 작업 전체를 버리면 안 된다.
+
+    판정은 규칙이 이미 냈다. Critic의 서술과 Refiner의 수정안은 거기에 얹는 설명이다.
+    로컬 모델이 느려 타임아웃 하나 났다고 판정까지 잃으면, 검증 결과를 LLM 가용성에
+    묶는 셈이 된다.
+    """
+
+    def _failed_state(self):
+        from app.models import AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
+
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.failed)
+        state.preflight_report = RepositoryPreflightReport(
+            repository_url="https://github.com/o/r", cloneable=True, executable=True
+        )
+        state.execution_result = SandboxResult(exit_code=1, stderr="AssertionError")
+        return state
+
+    def test_critic_falls_back_when_the_model_is_unreachable(self) -> None:
+        from app.agents import nodes
+
+        state = self._failed_state()
+        with mock.patch.object(nodes.llm, "enabled", True), mock.patch.object(
+            nodes.llm, "invoke_text", side_effect=RuntimeError("Local LLM unreachable: timed out")
+        ):
+            state = nodes.critic_node(state)
+        self.assertTrue(state.critic_feedback.get("root_cause"))
+        self.assertTrue(any("unreachable" in event.lower() for event in state.events))
+
+    def test_refiner_falls_back_when_the_model_is_unreachable(self) -> None:
+        from app.agents import nodes
+
+        state = self._failed_state()
+        with mock.patch.object(nodes.llm, "enabled", True), mock.patch.object(
+            nodes.llm, "invoke_text", side_effect=RuntimeError("Local LLM unreachable: timed out")
+        ):
+            state = nodes.refiner_node(state)
+        self.assertTrue(state.refiner_report.get("summary"))

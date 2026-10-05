@@ -30,9 +30,66 @@ SYNTHETIC_SLICES = {
 }
 
 # 생성 데이터 라벨 중 인프라 문제로 재분류할 것들. judge-policy 6절 기준.
-INFRA_CATEGORIES = {"sandbox_environment_error", "rate_limited", "network_unreachable"}
+INFRA_CATEGORIES = {
+    "sandbox_environment_error",
+    "rate_limited",
+    "network_unreachable",
+    "docker_daemon_unavailable",
+}
 # 사용자 코드 탓인지 환경 탓인지 정할 수 없는 것. 판정 정확도에서 빼고 사람 검수로 보낸다.
-AMBIGUOUS_CATEGORIES = {"db_dependency_unavailable", "redis_dependency_unavailable"}
+# 종료 코드 137(OOMKilled)과 CPU 쿼터는 레포가 무거운 것인지 우리가 건 한도가 낮은 것인지
+# 증거만으로 가릴 수 없다. sandbox_memory_limit과 sandbox_nano_cpus가 우리 설정이기 때문이다.
+AMBIGUOUS_CATEGORIES = {
+    "db_dependency_unavailable",
+    "redis_dependency_unavailable",
+    "memory_limit_exceeded",
+    "cpu_quota_exceeded",
+}
+
+# 생성 데이터셋은 우리 reason_category보다 잘게 라벨링했고 같은 뜻에 이름이 둘인 경우도 있다
+# (dockerfile_missing과 missing_dockerfile). 이름만 다른 것은 정식 코드로 옮긴다.
+# 근거는 각 케이스의 종료 코드다. 추측으로 옮기지 않는다.
+CATEGORY_SYNONYMS = {
+    # exit 124, timed_out=True
+    "sandbox_timeout": "timeout",
+    # 의존성 해결 실패
+    "npm_install_failed": "dependency_install_failed",
+    "package_lock_mismatch": "dependency_install_failed",
+    # 테스트가 돌았고 실패했다
+    "pytest_failure": "test_failure",
+    "gradle_test_failed": "test_failure",
+    "maven_test_failed": "test_failure",
+    # exit 86 (manifest 없음)
+    "dockerfile_missing": "no_manifest_detected",
+    "missing_dockerfile": "no_manifest_detected",
+    "unsupported_stack": "unsupported_project_stack",
+    # exit 87 (러너나 실행 커맨드 없음). 데이터셋 생성 시점에는 89가 없어서 전부 87로 찍혔다.
+    "npm_test_missing": "unsupported_project_stack",
+    "missing_node_script": "unsupported_project_stack",
+    "no_smoke_command": "unsupported_project_stack",
+    "no_tests_detected": "unsupported_project_stack",
+    "gradle_permission_denied": "unsupported_project_stack",
+    "gradle_wrapper_permission_denied": "unsupported_project_stack",
+    "maven_permission_denied": "unsupported_project_stack",
+    "maven_wrapper_permission_denied": "unsupported_project_stack",
+}
+
+# 우리 분류로 표현할 수 없는 라벨. 데이터셋이 더 잘게 나눈 것이고, 규칙은 exit code와 구조화된
+# 결과만 보므로 이 구분을 만들 수 없다(judge-policy 8절). 정식 코드로 억지로 옮기면 정답을
+# 우리가 정하는 셈이 되므로 그대로 두고 틀린 것으로 센다. 카테고리 정확도의 상한이 이것이다.
+UNMAPPED_CATEGORIES = {
+    "syntax_error",
+    "pip_compile_error",
+    "entrypoint_crash",
+    "entrypoint_import_error",
+    "port_bind_failure",
+    "permission_denied_runtime",
+    "missing_env",
+    "missing_environment_config",
+    "missing_settings_gradle",
+    "postgres_unavailable",
+    "redis_unavailable",
+}
 
 
 @dataclass
@@ -83,13 +140,19 @@ def _human_cases(slice_name: str) -> list[EvalCase]:
 
 def _sandbox_failure_case(row: dict[str, Any]) -> EvalCase:
     category = row["expected_failure_type"]
+    execution = dict(row["execution_result"])
+    if category in INFRA_CATEGORIES:
+        # 운영 경로는 이때 infra_error를 채운다(docker_runner의 docker_daemon_unreachable).
+        # 데이터셋은 그 필드가 생기기 전에 만들어져 비어 있다. 판정이 운영에서 받는 입력을
+        # 평가에서도 받아야 한다. 아니면 만들 수 없는 답을 요구하게 된다.
+        execution.setdefault("infra_error", category)
     return EvalCase(
         id=row["case_id"],
         slice="T1-sandbox",
         expected={
             "verdict": "Error" if category in INFRA_CATEGORIES else row["expected_judge_status"],
             "stage": "sandbox",
-            "category": category,
+            "category": CATEGORY_SYNONYMS.get(category, category),
         },
         raw_state={
             "repository_url": "https://github.com/example/generated.git",
@@ -100,9 +163,10 @@ def _sandbox_failure_case(row: dict[str, Any]) -> EvalCase:
                 "detected_stack": row["preflight_report"].get("detected_stack"),
                 "reason": "reachable",
             },
-            "execution_result": row["execution_result"],
+            "execution_result": execution,
         },
         ambiguous=category in AMBIGUOUS_CATEGORIES,
+        note=f"category_unmapped={category}" if category in UNMAPPED_CATEGORIES else None,
     )
 
 

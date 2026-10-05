@@ -15,7 +15,14 @@ from app.agents.llm import llm, parse_json_strict
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
 from app.config import get_settings
-from app.models import DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
+from app.models import SLO, DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
+from app.sandbox.docker_runner import (
+    NO_MANIFEST_EXIT_CODE,
+    NOTHING_TO_VERIFY_EXIT_CODE,
+    PATCH_MISSING_EXIT_CODE,
+    UNSUPPORTED_STACK_EXIT_CODE,
+)
+from app.config import get_settings
 
 
 # 카오스 구간 p95가 baseline의 몇 배를 넘으면 경고할지. 출처 있는 값이 아니라 우리 관례다
@@ -255,7 +262,14 @@ def _invoke_validated_report(
     fallback: dict[str, Any],
     events: list[str],
 ) -> dict[str, Any]:
-    raw = llm.invoke_text(system_prompt, user_prompt, values)
+    try:
+        raw = llm.invoke_text(system_prompt, user_prompt, values)
+    except Exception as exc:
+        # 전송 실패(타임아웃, 연결 거부, 5xx). 판정은 규칙이 이미 냈고 여기서 만드는 것은
+        # 그 위에 얹는 서술과 수정안이다. 모델에 닿지 못했다고 작업 전체를 버리면
+        # 검증 결과가 LLM 가용성에 묶인다.
+        events.append(f"{role}: LLM unreachable, deterministic fallback selected: {_event_error(exc)}")
+        return validate_report(schema, fallback)
     try:
         return validate_report(schema, parse_json_strict(raw))
     except (ValueError, ValidationError) as exc:
@@ -286,6 +300,23 @@ def _fallback_judge(state: AgentState) -> dict[str, object]:
         return {"status": "Fail", "reason_category": _no_entrypoint_category(preflight), "reason": preflight.reason or "Repository has no detected executable path.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "executable=false")}
 
     result = state.execution_result or SandboxResult(exit_code=None, stderr="No sandbox execution")
+    if is_real_chaos_observation(result):
+        # 카오스 실행에는 일반 smoke 규칙을 적용하지 않는다. sandbox가 별도 서버 프로세스를 띄우지
+        # 않고 Kubernetes Service probe로 관측하므로 server_started=false와 http_status=null은
+        # 실패가 아니라 "그 검사를 하지 않았다"는 뜻이다. 실제 복구 성공이 "서비스 기동 실패"로
+        # 판정되던 것을 막는다.
+        failure, warnings = _measured_policy_findings(state, result)
+        state.metrics["policy_warnings"] = warnings
+        for warning in warnings:
+            state.events.append(f"Judge: warning {warning}")
+        if failure:
+            category, _, detail = failure.partition(": ")
+            return {"status": "Fail", "reason_category": category, "reason": detail or failure,
+                    "evidence": _sandbox_evidence(result)}
+        return {"status": "Pass", "reason_category": "chaos_recovered_within_budget",
+                "reason": "Chaos experiment recovered within the configured budget.",
+                "evidence": _sandbox_evidence(result)}
+
     if result.timed_out:
         return {"status": "Fail", "reason_category": "timeout", "reason": "Sandbox execution timed out.", "evidence": _sandbox_evidence(result)}
     if result.exit_code != 0:
@@ -396,6 +427,43 @@ def _smoke_category(result: SandboxResult) -> str:
     return "sandbox_nonzero_exit"
 
 
+def is_real_chaos_observation(result: SandboxResult) -> bool:
+    """실제 카오스 실험을 관측한 결과인가.
+
+    `source.real_execution_observed`를 조건에 넣지 않는다. 계약 문서에는 있지만 실제 Litmus
+    응답에는 그 필드가 없다(tests/fixtures/chaos_actual). 관측 성공 여부는 observationStatus가
+    말해준다.
+    """
+    return bool(result.chaos_observation) and result.observation_status == "observed"
+
+
+def chaos_recovered(observation: dict[str, object]) -> bool | None:
+    """복구했는지. 모르면 None.
+
+    Litmus 응답에는 `recovered` 불리언이 없고 `recovered_at`만 있다. 키가 없다고 판정 불가로
+    보내면 실제 실행이 전부 Error가 된다.
+    """
+    if "recovered" in observation:
+        return bool(observation["recovered"])
+    if observation.get("recovered_at"):
+        return True
+    return None
+
+
+def chaos_aborted(observation: dict[str, object]) -> bool:
+    """중단 조건이 발동했는가. 실측 응답은 {"triggered": false} 객체를 담는다."""
+    condition = observation.get("abort_condition")
+    if isinstance(condition, dict):
+        return bool(condition.get("triggered"))
+    return bool(observation.get("aborted"))
+
+
+def chaos_target_configuration(observation: dict[str, object]) -> dict[str, object]:
+    """워크로드 설정. 실측은 target_configuration에 담아 보낸다."""
+    config = observation.get("target_configuration")
+    return config if isinstance(config, dict) else {}
+
+
 def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple[str | None, list[str]]:
     """docs/judge-policy.md 6절 기준으로 실측 지표를 판정한다.
 
@@ -414,10 +482,26 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
     observation = result.chaos_observation
 
     if observation:
-        if observation.get("recovered") is False:
+        if chaos_recovered(observation) is False:
             return "chaos_not_recovered: chaos experiment never recovered to a serving state.", warnings
 
-        recovery = _as_float(measured.get("recovery_seconds"))
+        # 복구 시간은 chaos_observation에도 metrics에도 올 수 있다. 실측은 전자에 담아 보낸다.
+        recovery = _as_float(observation.get("recovery_seconds"))
+        if recovery is None:
+            recovery = _as_float(measured.get("recovery_seconds"))
+
+        bound = _expected_recovery_bound(observation)
+        if recovery is not None and bound is not None and recovery > bound:
+            return (
+                f"chaos_recovery_exceeds_expected_bound: recovery {recovery}s exceeds the bound "
+                f"{round(bound, 3)}s implied by the workload configuration.",
+                warnings,
+            )
+
+        if _as_float(chaos_target_configuration(observation).get("replicas")) == 1:
+            # replica가 1개면 다운타임은 문서화된 정상 동작이다. 구성 경고로만 남긴다.
+            warnings.append("chaos_single_replica_topology")
+
         allowance = _monthly_unavailability_budget_seconds(slo.availability_percent_min)
         if recovery is not None and allowance:
             if recovery >= allowance:
@@ -436,6 +520,9 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
         return None, warnings
 
     # 카오스 실험이 아닌 실측 구간에는 SLO를 그대로 적용한다.
+    if (finding := _unmeasurable_reason(measured, slo)) is not None:
+        return finding, warnings
+
     error_rate = _as_float(measured.get("error_rate"))
     if error_rate is not None and slo.error_rate_max is not None and error_rate > slo.error_rate_max:
         return f"error_rate_slo_violation: error_rate {error_rate} exceeds {slo.error_rate_max}.", warnings
@@ -456,7 +543,97 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
     if p95 is not None and slo.p95_latency_ms_max is not None and p95 > slo.p95_latency_ms_max:
         return f"latency_slo_violation: p95 {p95}ms exceeds {slo.p95_latency_ms_max}ms.", warnings
 
-    return None, warnings
+    return _resource_reason(measured, slo), warnings
+
+
+# (사유 코드, 관측 키, SLO 임계 필드, 단위). 상한을 넘으면 Fail이다.
+_RESOURCE_CEILINGS = (
+    ("cpu_saturation", "cpu_usage_percent", "cpu_usage_percent_max", "%"),
+    ("unexpected_restart", "restart_count", "restart_count_max", " restarts"),
+    ("database_connection_errors", "db_connection_errors", "db_connection_errors_max", " errors"),
+    ("redis_connection_errors", "redis_connection_errors", "redis_connection_errors_max", " errors"),
+)
+# 이 중 하나라도 측정되면 판정할 근거가 있다고 본다.
+_JUDGEABLE_KEYS = ("error_rate", "availability", "p95_latency_ms", "p99_latency_ms", "cpu_usage_percent")
+
+
+def _unmeasurable_reason(measured: dict[str, object], slo: SLO) -> str | None:
+    """판정 근거가 될 지표가 하나도 없으면 통과로 보내지 않는다.
+
+    트래픽이 0건이면 가용성 100%와 오류율 0%는 아무것도 뜻하지 않는다. 키가 아예 없는
+    경우(sandbox가 그 지표를 안 보냄)와 키는 있는데 값이 null인 경우(측정에 실패함)를
+    구분해서, 뒤쪽만 Fail로 본다.
+    """
+    requests = _as_float(measured.get("request_count"))
+    if requests is not None and slo.request_count_min is not None and requests < slo.request_count_min:
+        return (
+            f"no_traffic_observed: request_count {requests} is below the minimum "
+            f"{slo.request_count_min}, so the other metrics describe nothing."
+        )
+
+    present = [key for key in _JUDGEABLE_KEYS if key in measured]
+    if present and all(_as_float(measured.get(key)) is None for key in present):
+        return (
+            "missing_metrics: the sandbox reported the metric keys but no values, "
+            "so none of the targets could be checked."
+        )
+    return None
+
+
+def _resource_reason(measured: dict[str, object], slo: SLO) -> str | None:
+    """자원 지표가 상한을 넘었는지. 운영자가 임계값을 정한 지표만 본다."""
+    for category, metric_key, slo_field, unit in _RESOURCE_CEILINGS:
+        observed = _as_float(measured.get(metric_key))
+        ceiling = getattr(slo, slo_field)
+        if observed is not None and ceiling is not None and observed > ceiling:
+            return f"{category}: {metric_key} {observed}{unit} exceeds {ceiling}{unit}."
+
+    ratio = _memory_usage_ratio(measured)
+    if ratio is not None and slo.memory_usage_ratio_max is not None and ratio > slo.memory_usage_ratio_max:
+        return (
+            f"memory_pressure: memory usage {round(ratio, 3)} of the limit exceeds "
+            f"{slo.memory_usage_ratio_max}."
+        )
+    return None
+
+
+def _memory_usage_ratio(measured: dict[str, object]) -> float | None:
+    """한도 대비 사용률. sandbox는 사용량과 한도를 MB로 따로 보낸다."""
+    if (ratio := _as_float(measured.get("memory_usage_ratio"))) is not None:
+        return ratio
+    used = _as_float(measured.get("memory_usage_mb"))
+    limit = _as_float(measured.get("memory_limit_mb"))
+    if used is None or not limit:
+        return None
+    return used / limit
+
+
+
+def _expected_recovery_bound(observation: dict[str, object]) -> float | None:
+    """워크로드 설정에서 기대 복구 상한을 계산한다. docs/judge-policy.md 6.5.
+
+    bound = grace + initial_delay + period x success_threshold + startup_allowance
+    force 삭제는 grace를 기다리지 않는다. 설정이 없으면 None을 돌려 이 규칙을 건너뛴다.
+    근거 없는 상한으로 Fail을 내면 안 된다.
+    """
+    config = chaos_target_configuration(observation)
+    probe = config.get("readiness_probe")
+    if not isinstance(probe, dict):
+        return None
+    period = _as_float(probe.get("period_seconds"))
+    success_threshold = _as_float(probe.get("success_threshold"))
+    if period is None or success_threshold is None:
+        return None
+
+    initial_delay = _as_float(probe.get("initial_delay_seconds")) or 0.0
+    grace = 0.0
+    if str(observation.get("kill_method", "")).endswith("force"):
+        grace = 0.0
+    else:
+        grace = _as_float(config.get("termination_grace_period_seconds")) or 0.0
+    min_ready = _as_float(config.get("min_ready_seconds")) or 0.0
+    allowance = get_settings().chaos_recovery_startup_allowance_seconds
+    return grace + initial_delay + period * success_threshold + min_ready + allowance
 
 
 def _monthly_unavailability_budget_seconds(availability_percent_min: float | None) -> float | None:
@@ -541,11 +718,25 @@ def _fallback_refiner(state: AgentState) -> dict[str, object]:
     }
 
 
+# 스크립트가 약속한 종료 코드의 의미. 숫자만 문장에 넣으면 사용자가 원인을 알 수 없다.
+_EXIT_CODE_REASONS = {
+    NO_MANIFEST_EXIT_CODE: "No supported project manifest was detected.",
+    UNSUPPORTED_STACK_EXIT_CODE: "The repository stack has no runner available in the sandbox.",
+    PATCH_MISSING_EXIT_CODE: "The patch file was not present in the sandbox.",
+    NOTHING_TO_VERIFY_EXIT_CODE: (
+        "The repository has no tests to verify, so its stability could not be checked. "
+        "Compiling is not verification."
+    ),
+}
+
+
 def _sandbox_failure_reason(result: SandboxResult) -> str:
     """실패 이유를 한 문장으로. 로그 원문은 evidence 쪽에 따로 들어간다.
 
     스택을 모를 때 "unknown"을 문장에 넣으면 진단이 모호해지므로 생략한다.
     """
+    if known := _EXIT_CODE_REASONS.get(result.exit_code):
+        return known
     report = result.sandbox_report or {}
     stack = report.get("detected_stack")
     suffix = f" in the {stack} build" if stack and stack != "unknown" else ""
