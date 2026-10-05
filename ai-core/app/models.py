@@ -133,6 +133,15 @@ class SLO(BaseModel):
     p99_latency_ms_max: float | None = None
     error_rate_max: float | None = None
     throughput_rps_min: float | None = None
+    # 자원 지표 임계값. 담을 자리가 없으면 pydantic이 조용히 버려서, sandbox가 보낸
+    # CPU 96%와 데이터셋의 상한 80%가 둘 다 있는데도 판정이 비교하지 못했다.
+    # 기본값은 두지 않는다. 근거 없는 상한으로 Fail을 내면 안 되므로 운영자가 정해야 발동한다.
+    cpu_usage_percent_max: float | None = None
+    memory_usage_ratio_max: float | None = None
+    restart_count_max: float | None = None
+    db_connection_errors_max: float | None = None
+    redis_connection_errors_max: float | None = None
+    request_count_min: float | None = None
 
 
 # 기본 SLO 목표값. 관측값이 아니라 설정이며 운영자가 바꾸는 것을 전제로 한다.

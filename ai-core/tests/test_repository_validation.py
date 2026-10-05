@@ -496,13 +496,13 @@ class RepositoryValidationTests(unittest.TestCase):
     def test_judge_fails_when_chaos_experiment_never_recovered(self) -> None:
         state = judge_node(self._chaos_state("not-recovered", chaos_observation={"recovered": False}))
         self.assertEqual(state.status, JobStatus.failed)
-        self.assertIn("chaos_not_recovered", state.judge_report["reason"])
+        self.assertEqual(state.judge_report["reason_category"], "chaos_not_recovered")
 
     def test_judge_fails_when_chaos_downtime_exhausts_error_budget(self) -> None:
         # 99.9% 목표의 월간 허용 불가용 시간은 2,592초다. 그보다 긴 복구는 버짓 소진이다.
         state = judge_node(self._chaos_state("budget-out", metrics={"recovery_seconds": 3000.0}))
         self.assertEqual(state.status, JobStatus.failed)
-        self.assertIn("chaos_error_budget_exhausted", state.judge_report["reason"])
+        self.assertEqual(state.judge_report["reason_category"], "chaos_error_budget_exhausted")
 
     def test_judge_passes_with_warning_when_chaos_burns_significant_budget(self) -> None:
         # 버짓의 20%(518.4초)를 넘지만 소진은 아니다. 판정은 Pass, 경고만 남긴다.
@@ -525,7 +525,7 @@ class RepositoryValidationTests(unittest.TestCase):
         state.execution_result.chaos_observation = {}
         state = judge_node(state)
         self.assertEqual(state.status, JobStatus.failed)
-        self.assertIn("error_rate_slo_violation", state.judge_report["reason"])
+        self.assertEqual(state.judge_report["reason_category"], "error_rate_slo_violation")
 
     def test_judge_does_not_apply_slo_to_estimated_metrics(self) -> None:
         # 실측값이 없으면 duration_ms가 p95 대용으로 쓰인다. 여기에 SLO를 걸면 느린 빌드가 전부 Fail이 된다.
