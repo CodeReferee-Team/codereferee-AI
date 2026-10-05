@@ -247,36 +247,113 @@ def preflight_row(ctx: BatchContext, index: int, reason: str) -> dict[str, Any]:
     )
     return row
 
+# 실패 유형별로 그 도구가 실제로 찍는 문구와 종료 코드.
+#
+# 이전에는 stderr 기본값이 `spaced(failure)`였다. 라벨 dockerfile_missing인 케이스의
+# stderr가 "dockerfile missing"이어서 정답이 로그에 그대로 적혀 있었다. 로그를 읽는
+# 판정자는 공짜로 맞히고, 종료 코드만 보는 규칙은 맞힐 수 없다. 그리고 로그를 읽는 쪽이
+# LLM 판정이 레포에 심어둔 지시에 속은 경로다(docs/judge-policy.md 8절).
+#
+# 종료 코드는 sandbox 스크립트의 계약을 따른다. 86 manifest 없음, 87 러너 없음,
+# 89 검증할 것 없음, 126 실행 권한 없음, 137 OOM.
+SANDBOX_LOGS: dict[str, dict[str, Any]] = {
+    "dependency_install_failed": {
+        "stderr": "ERROR: Could not find a version that satisfies the requirement flask==99.0.0\n"
+        "ERROR: No matching distribution found for flask==99.0.0",
+    },
+    "pytest_failure": {
+        "stderr": "FAILED tests/test_app.py::test_smoke - assert 1 == 2\n1 failed, 3 passed in 0.41s",
+    },
+    "sandbox_timeout": {
+        "stderr": "Command timed out after 600 seconds",
+        "exit_code": None,
+        "timed_out": True,
+        "duration_ms": 600000,
+    },
+    "memory_limit_exceeded": {"stderr": "Killed", "exit_code": 137},
+    "cpu_quota_exceeded": {
+        "stderr": "cgroup cpu.stat: nr_throttled increased while the build was running",
+    },
+    "missing_env": {"stderr": 'KeyError: "SERVICE_TOKEN"'},
+    "entrypoint_import_error": {
+        "stderr": 'ImportError: cannot import name "app" from "main" (/tmp/repository/main.py)',
+    },
+    "port_bind_failure": {"stderr": "OSError: [Errno 98] Address already in use"},
+    "gradle_permission_denied": {"stderr": "/bin/sh: ./gradlew: Permission denied", "exit_code": 126},
+    "gradle_test_failed": {
+        "stderr": "> Task :test FAILED\nFAILURE: Build failed with an exception.\n"
+        "Execution failed for task ':test'.",
+    },
+    "maven_permission_denied": {"stderr": "/bin/sh: ./mvnw: Permission denied", "exit_code": 126},
+    "maven_test_failed": {
+        "stderr": "[ERROR] Tests run: 4, Failures: 1, Errors: 0, Skipped: 0\n[ERROR] BUILD FAILURE",
+    },
+    "npm_install_failed": {
+        "stderr": "npm ERR! code ERESOLVE\nnpm ERR! ERESOLVE unable to resolve dependency tree",
+    },
+    "npm_test_missing": {"stderr": "package.json has no test script to verify", "exit_code": 89},
+    "docker_build_failed": {
+        "stderr": 'ERROR: failed to solve: process "/bin/sh -c pip install -r requirements.txt" '
+        "did not complete successfully: exit code: 1",
+    },
+    "dockerfile_missing": {
+        "stderr": "No supported project manifest found",
+        "exit_code": 86,
+    },
+    "redis_unavailable": {
+        "stderr": "redis.exceptions.ConnectionError: Error 111 connecting to redis:6379. "
+        "Connection refused.",
+    },
+    "postgres_unavailable": {
+        "stderr": "psycopg2.OperationalError: could not connect to server: Connection refused\n"
+        '\tIs the server running on host "postgres" and accepting TCP/IP connections on port 5432?',
+    },
+    # 아래 세 문구는 sandbox 스크립트가 실제로 찍는 것과 같다(app/sandbox/docker_runner.py).
+    "unsupported_stack": {
+        "stderr": "Node toolchain is not available in the sandbox image",
+        "exit_code": 87,
+    },
+    "no_smoke_command": {
+        "stderr": "Repository has no Gradle wrapper (./gradlew)",
+        "exit_code": 87,
+    },
+    "permission_denied_runtime": {"stderr": "/bin/sh: ./run.sh: Permission denied", "exit_code": 126},
+    "syntax_error": {
+        "stderr": 'File "/tmp/repository/app/main.py", line 42\n    def broken(:\n'
+        "               ^\nSyntaxError: invalid syntax",
+    },
+    "package_lock_mismatch": {
+        "stderr": "npm ERR! code EUSAGE\nnpm ERR! npm ci can only install packages when your "
+        "package.json and package-lock.json are in sync",
+    },
+    "missing_settings_gradle": {
+        "stderr": "FAILURE: Build failed with an exception.\n* What went wrong:\n"
+        "Settings file 'settings.gradle' not found",
+    },
+    "docker_daemon_unavailable": {
+        "stderr": "Docker repository sandbox error: Error while fetching server API version",
+        "exit_code": None,
+        # 판정은 로그를 읽지 않는다. 이 신호가 있어야 Error로 끝낼 수 있다.
+        "infra_error": "docker_daemon_unreachable",
+    },
+}
+
+
 def sandbox_execution_for(failure: str, index: int) -> dict[str, Any]:
-    stderr = spaced(failure)
-    exit_code: int | None = 1
-    timed_out = False
-    duration_ms = 500 + (index * 17)
-    if failure == "sandbox_timeout":
-        stderr = "sandbox execution timed out"
-        exit_code = None
-        timed_out = True
-        duration_ms = 30000
-    elif failure == "docker_daemon_unavailable":
-        stderr = "Docker repository sandbox error: daemon unavailable"
-        exit_code = None
-    elif failure == "memory_limit_exceeded":
-        stderr = "process killed after exceeding memory limit"
-        exit_code = 137
-    elif failure == "cpu_quota_exceeded":
-        stderr = "execution exceeded CPU quota"
-        exit_code = 124
-    elif failure == "pytest_failure":
-        stderr = "FAILED tests/test_app.py::test_smoke"
-    elif failure == "syntax_error":
-        stderr = "SyntaxError: invalid syntax"
-    return {
-        "exit_code": exit_code,
+    if failure not in SANDBOX_LOGS:
+        # 라벨을 로그에 적어 메우지 않는다. 새 유형을 넣을 때 로그도 함께 쓰게 만든다.
+        raise KeyError(f"SANDBOX_LOGS에 {failure}의 로그와 종료 코드를 먼저 적어야 한다")
+    spec = SANDBOX_LOGS[failure]
+    execution = {
+        "exit_code": spec.get("exit_code", 1),
         "stdout": "",
-        "stderr": stderr,
-        "timed_out": timed_out,
-        "duration_ms": duration_ms,
+        "stderr": spec["stderr"],
+        "timed_out": spec.get("timed_out", False),
+        "duration_ms": spec.get("duration_ms", 500 + (index * 17)),
     }
+    if infra_error := spec.get("infra_error"):
+        execution["infra_error"] = infra_error
+    return execution
 
 
 def sandbox_row(ctx: BatchContext, index: int, failure: str) -> dict[str, Any]:
