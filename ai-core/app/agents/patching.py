@@ -22,6 +22,8 @@ from pathlib import Path
 # 실측으로 정한 값. 221줄 파일에서 32줄을 지우고 문법 오류 한 줄만 고친 패치가 20% 상한을
 # 통과해 "고쳤다"로 기록됐다. 재실행도 통과했다(compileall은 지워진 설정을 보지 않는다).
 # 수리는 국소적이어야 한다.
+# 우리가 정한 값이다. 8B 모델이 7,038자 파일을 4,567자로 잘라내 설정 31줄을 지운
+# 사고에서 역산했다. 그 패치는 가드 셋과 재실행을 모두 통과했다. docs/judge-policy.md 9.2.
 MAX_REMOVED_LINE_RATIO = 0.05
 MAX_REMOVED_LINES_FLOOR = 10
 

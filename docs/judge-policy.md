@@ -150,7 +150,16 @@ Sandbox v1이 실제 Kubernetes Pod Kill 실험 결과를 보내기 시작하면
 
 출처: [SRE Book Availability Table](https://sre.google/sre-book/availability-table/), 20% 기준은 [Example Error Budget Policy](https://sre.google/workbook/error-budget-policy/).
 
-현재 코드의 기본 SLO(`_default_slo`: p95 30000ms, availability 99.9%)와 이 문서 3절의 표(p95 300ms, availability 0.995)가 서로 다르다. 어느 쪽도 출처가 있는 값이 아니므로, 구현 시 하나의 설정으로 통합하고 기본값을 명시적으로 선언한다.
+#### 3절 표와 `DEFAULT_SLO`가 달랐던 이유
+
+3절 표는 p95 300ms에 availability 0.995를 쓰고 코드의 `DEFAULT_SLO`는 p95 30000ms에 99.9%를 쓴다. 100배 차이라 오래 모순으로 남아 있었는데, 세어 보니 둘은 서로 다른 것을 재고 있었다.
+
+- 3절 표는 **선언된 SLO**다. 운영자나 평가 데이터셋이 "이 서비스는 이래야 한다"고 정해 보내는 값이다
+- `DEFAULT_SLO`는 **선언이 없을 때의 대체값**이다. 지연 30초는 목표가 아니라 "빌드가 멈추지 않았다" 수준의 느슨한 선이다
+
+둘을 하나로 합치지 않는다. 합치면 선언하지 않은 레포에 300ms 목표가 붙어 대부분이 불합격한다. 대신 이름과 의도를 갈라 적는다.
+
+**지연은 선언된 SLO가 있을 때만 판정한다.** `DEFAULT_SLO`의 지연값은 판정 기준이 아니라 호출이 깨지지 않게 하는 자리다. 빌드가 멈춘 경우는 `timed_out`이 이미 따로 잡는다. 자원 지표(CPU·메모리·재시작·연결 오류)에 기본값을 두지 않은 것과 같은 원칙이다.
 
 ### 6.5 Sandbox에 추가로 요청할 evidence
 
@@ -217,3 +226,46 @@ LLM은 규칙이 할 수 없는 일에만 쓴다. Critic의 원인 서술과 Ref
 
 **백엔드 영향**: `judge_report`에 `reason_category` 필드가 새로 들어간다. 서버와 화면이 이 값을
 받는지 확인이 필요하다.
+
+## 9. 임계값의 출처
+
+판정에 쓰는 숫자가 어디서 왔는지 한곳에 모은다. 이 표가 없으면 다음 사람이 숫자를 보고 근거가 있는 줄 안다.
+
+### 9.1 출처가 있는 것
+
+| 값 | 쓰이는 곳 | 출처 |
+| --- | --- | --- |
+| 99.9% = 월 43.2분 | 에러 버짓 계산 | [SRE Book Availability Table](https://sre.google/sre-book/availability-table/) |
+| 버짓 20% 소모 시 경고 | 규칙 6 | [SRE Workbook Example Error Budget Policy](https://sre.google/workbook/error-budget-policy/) |
+| 100%를 목표로 삼지 않는다 | 6.4절 | [Embracing Risk](https://sre.google/sre-book/embracing-risk/) |
+| replica 1개의 다운타임은 결함이 아니다 | 규칙 7 | [Configure PDB](https://kubernetes.io/docs/tasks/run-application/configure-pdb/) |
+| 엔드포인트 전파 지연에 상한이 없다 | 오류 0건을 Pass 조건으로 쓰지 않는 근거 | [Pods and endpoint termination flow](https://kubernetes.io/docs/tutorials/services/pods-and-endpoint-termination-flow/) |
+| PDB는 Pod 삭제를 막지 않는다 | PDB를 판정 근거로 쓰지 않는 근거 | [Disruptions](https://kubernetes.io/docs/concepts/workloads/pods/disruptions/) |
+| grace·probe·minReady의 의미 | 기대 복구 상한 계산식 | [Pod lifecycle](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination-flow), [Probes](https://kubernetes.io/docs/concepts/workloads/pods/probes/), [Deployment](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#min-ready-seconds) |
+| 복구 시간을 등급으로 표기하지 않는다 | 6.3절 | [DORA FAQ](https://dora.dev/faq/) |
+
+### 9.2 우리가 정한 것
+
+출처가 없다. 운영하며 고를 값이고, 바꿀 때 근거를 남긴다.
+
+| 값 | 쓰이는 곳 | 왜 이 값인가 | 무엇이 있으면 근거가 생기나 |
+| --- | --- | --- | --- |
+| p95 **10배** | 규칙 8, 지연 저하 경고 | Sandbox가 p95만 보내서 임시로 쓰는 배수 | p50과 p99가 오면 임계값을 다시 정한다 |
+| 복구 여유 **30초** | 기대 복구 상한 | 교체 Pod 스케줄링과 이미지 pull 시간. 클러스터마다 다르다 | 같은 클러스터 실측 분포. 지금 표본 5건 |
+| 패치 **1MB** | `inspect_diff` | 이만큼 고쳐야 하면 자동 수정이 아니라 사람이 볼 문제다 | 거절된 패치의 크기 분포 |
+| 삭제 **5% 또는 10줄** | `inspect_rewrite` | 8B 모델이 7,038자 파일을 4,567자로 잘라낸 사고에서 역산 | 훼손 사례가 더 모이면 조정 |
+| 재검증 **3라운드** | 자동 수정 루프 | 파일럿에서 2라운드 안에 끝나거나 안 끝났다 | 라운드별 성공률 분포 |
+| 로그 **1200자**, 카오스 이벤트 **20건** | 증거 묶음 | 모델 컨텍스트와 비용 | 잘라낸 구간에 답이 있었는지 측정 |
+| 수정 대상 파일 **3개** | `source_context` | 컨텍스트 예산 | 같음 |
+
+### 9.3 Google SRE와 어긋나는 지점
+
+**지연을 p95 하나로 본다.** SRE Book은 p50과 p99·p99.9를 함께 보라고 권고한다([Service Level Objectives](https://sre.google/sre-book/service-level-objectives/)). p95 단일 임계값은 꼬리 지연을 숨긴다.
+
+맞추려면 **Sandbox가 p50과 p99를 보내야 한다.** AI 쪽만으로는 고칠 수 없다. 지금 오는 값은 p95뿐이다.
+
+**SLI를 비율로 정의하는 자리가 카오스 경로에만 있다.** SRE Workbook은 SLI를 "좋은 이벤트 / 유효한 이벤트"로 정의하라고 한다. 카오스 증거에는 `observation_window.error_rate_denominator`가 있어 분모가 무엇인지 말해 주는데, 비카오스 경로의 `availability`와 `error_rate`에는 그 설명이 없다. 같은 이름이 다른 분모를 가리킬 수 있다.
+
+**비카오스 경로는 버짓이 아니라 임계값을 본다.** 카오스 규칙 5·6은 에러 버짓 소모량으로 판정하는데, 일반 실행은 `error_rate > error_rate_max`처럼 원값을 비교한다. 같은 축으로 맞추려면 비카오스 경로도 버짓 소모로 표현해야 한다.
+
+**버짓 소진율(burn rate) 경보는 적용하지 않는다.** SRE Workbook의 multiwindow·multi-burn-rate는 운영 중인 서비스를 지켜보며 경보를 내는 방법이다. 우리는 한 번 실행하고 한 번 판정하므로 창을 여러 개 둘 수 없다. 쓰지 않는 이유를 적어 둔다.
