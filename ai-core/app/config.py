@@ -21,7 +21,9 @@ class Settings(BaseSettings):
     sandbox_image: str = "codereferee/sandbox-multi:1"
     sandbox_base_url: str | None = None
     sandbox_repository_path: str = "/repositories/validate"
-    sandbox_http_timeout_seconds: int = 60
+    # Repository build, Kubernetes rollout, and Litmus recovery can each take
+    # several minutes when the external Sandbox is enabled.
+    sandbox_http_timeout_seconds: int = 600
     sandbox_timeout_seconds: int = 600
     sandbox_memory_limit: str = "2g"
     sandbox_nano_cpus: int = 2_000_000_000

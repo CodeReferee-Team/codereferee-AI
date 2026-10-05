@@ -49,6 +49,8 @@ def build_evidence_packet(state: AgentState) -> dict[str, Any]:
             "http_status": result.http_status,
             "browser_loaded": result.browser_loaded,
             "page_title": result.page_title,
+            "observation_status": result.observation_status,
+            "infra_error": result.infra_error,
             "run_command": result.run_command,
             "service_check_applicable": getattr(result, "service_check_attempted", False),
             "browser_check_applicable": getattr(result, "browser_check_attempted", False),
