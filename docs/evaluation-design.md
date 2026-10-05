@@ -429,3 +429,143 @@ exit code: 0 통과, 1 회귀, 2 비교 불가.
 | 2026-09-23 | Sandbox v1(Chaos v1) 확인: LitmusChaos 아님, fixture-api 대상 Pod Kill. `feat/sandbox-chaos-evidence` 브랜치 미병합, `repository_validation.py` 충돌 1곳 |
 | 2026-09-23 | Chaos 판정 기준을 judge-policy 6절에 근거와 함께 추가. 고정 복구시간 임계값 대신 정상 상태 편차·에러 버짓·기대 복구 상한 3축 사용 |
 | 2026-09-23 | 평가셋에 T1-chaos 슬라이스 추가(10건). 경고 정확도를 별도 지표로 측정 |
+
+
+## 5. 구현 (2026-09-30)
+
+설계 ①②③을 구현했다. `ai-core/evals/`에 러너가 있고 `python -m evals.runner`로 돌린다.
+
+### 5.1 들어간 것
+
+- `evals/cases.py` — 사람이 라벨링한 슬라이스(T0 20건, T0-adv 14건, T1-chaos 10건)와 합성
+  슬라이스(T1-metrics, T1-sandbox)를 같은 라벨 체계로 읽는다. T1은 카테고리당 고정 seed 층화 샘플링.
+- `evals/metrics.py` — Wilson 95% 신뢰구간, 혼동행렬, macro-F1, 반복 실행의 최빈 판정과 일치율.
+- `evals/runner.py` — `run`과 `compare`. `--model none`은 LLM 없이 규칙만 채점한다(결정적, 무비용).
+- `evals/compare.py` — 회귀 게이트. 결정적 실행끼리는 조금이라도 나빠지면 exit 1, LLM 실행은
+  신뢰구간이 겹치지 않을 때만 회귀로 본다. 인젝션 false-pass는 1건이라도 나오면 무조건 exit 1.
+- `evals/baselines/fallback.json` — 커밋된 기준선. 집계만 담고 케이스별 원본은 실행 산출물에 남는다.
+
+### 5.2 현재 수치 (`--model none`, 이 PR 기준)
+
+| 슬라이스 | 판정 정확도 | false-pass | 카테고리 정확도 |
+| --- | --- | --- | --- |
+| 주 지표 (T0 + T0-adv) | 100.0% | 0.0% | 94.1% |
+| T0 | 100.0% | 0.0% | 90.0% |
+| T0-adv | 100.0% | 0.0% | 100.0% |
+| T1-chaos | 90.0% | 16.7% | 90.0% |
+| T1-metrics | 100.0% | 0.0% | 35.7% |
+| T1-sandbox | 97.2% | 0.0% | 5.6% |
+
+### 5.3 알려진 격차와 닫는 순서
+
+기준선은 **이 PR의 코드로 측정한 값**이다. 아래 격차는 이 PR의 범위가 아니며, 후속 PR이 닫는다.
+그때 게이트는 개선으로 보고한다.
+
+| 격차 | 원인 | 닫는 작업 |
+| --- | --- | --- |
+| T1-chaos 90%, false-pass 16.7% | 카오스 판정 규칙 4(기대 복구 상한)와 7(단일 replica)이 미구현 | 카오스 규칙 PR |
+| T1-metrics 카테고리 35.7% | SLO 기준표의 일부 항목(cpu, memory, restart, db/redis 연결 오류, request_count)이 모델에 없다 | 같은 PR |
+| T1-sandbox 카테고리 5.6% | **지표가 아니다.** 이 슬라이스 76건은 `reason_category` 라벨이 없다 | 라벨링 또는 지표에서 제외 |
+
+T1-sandbox의 카테고리 수치는 근거로 쓰면 안 된다. 라벨이 없는 슬라이스에서 나온 숫자다.
+
+### 5.4 회귀 게이트 사용법
+
+```bash
+python -m evals.runner run --model none --slices T0,T0-adv,T1-chaos,T1-metrics,T1-sandbox --per-category 2
+python -m evals.runner compare evals/baselines/fallback.json <리포트> --gate
+```
+
+`--per-category`와 `--seed`가 기준선과 같아야 한다. 다르면 표본이 달라져 비교 불가(exit 2)로 끝난다.
+기준선 갱신은 새 리포트로 파일을 교체하는 커밋으로 한다. 자동 갱신 옵션은 두지 않는다.
+기준선이 바뀐 이유가 git 이력에 남아야 한다.
+
+## 13. T1-sandbox 라벨 정규화와 카테고리 상한 (2026-10-04)
+
+### 13.1 5.6%는 코드 문제가 아니었다
+
+5.2절 표의 T1-sandbox 카테고리 정확도 5.6%가 가장 낮은 숫자였다. 판정 정확도는 97.2%이고 false-pass는 0%인데 카테고리만 바닥이었다. 원인을 보니 **서로 다른 분류 체계의 이름을 비교하고 있었다.**
+
+데이터셋 라벨 38종 중 정식 `reason_category` 코드는 5종뿐이다. 나머지 33종은 우리보다 잘게 나눈 이름이거나 같은 뜻의 다른 표기다.
+
+| 데이터셋 | 우리 코드 |
+| --- | --- |
+| `sandbox_timeout` | `timeout` |
+| `pytest_failure`, `gradle_test_failed`, `maven_test_failed` | `test_failure` |
+| `dockerfile_missing`, `missing_dockerfile` | `no_manifest_detected` |
+| `npm_install_failed`, `package_lock_mismatch` | `dependency_install_failed` |
+
+`dockerfile_missing`과 `missing_dockerfile`처럼 한 가지에 이름이 둘인 경우도 있었다.
+
+### 13.2 옮긴 것과 두고 본 것
+
+이름만 다른 17종은 정식 코드로 옮겼다. 근거는 각 케이스의 종료 코드다. 추측으로 옮기지 않았다.
+
+```
+exit 86 (manifest 없음)  dockerfile_missing, missing_dockerfile, unsupported_stack
+exit 87 (러너 없음)      npm_test_missing, missing_node_script, no_smoke_command,
+                         no_tests_detected, gradle_permission_denied, ...
+exit 124 timed_out=True  sandbox_timeout
+```
+
+exit 87로 찍힌 것이 많은 이유는 데이터셋 생성 시점에 종료 코드 89가 없었기 때문이다. 지금 같은 상황이면 `no_tests_detected`로 나간다.
+
+**11종은 두고 틀린 것으로 센다.** 우리 분류로 표현할 수 없는 구분이다.
+
+```
+syntax_error, pip_compile_error, entrypoint_crash, entrypoint_import_error,
+port_bind_failure, permission_denied_runtime, missing_env,
+missing_environment_config, missing_settings_gradle,
+postgres_unavailable, redis_unavailable
+```
+
+규칙은 종료 코드와 구조화된 결과만 본다(docs/judge-policy.md 8절). 이 구분을 만들려면 로그 문구를 읽어야 하고, 그것이 LLM 판정이 레포에 심어둔 지시에 속은 경로다. 정식 코드에 억지로 끼워 넣으면 정답을 우리가 정하는 셈이 되므로 그대로 둔다. **이것이 카테고리 정확도의 상한이다.**
+
+`memory_limit_exceeded`(exit 137)와 `cpu_quota_exceeded`는 ambiguous로 옮겼다. 레포가 무거운 것인지 우리가 건 한도가 낮은 것인지 증거만으로 가릴 수 없다. `sandbox_memory_limit`과 `sandbox_nano_cpus`가 우리 설정이기 때문이다.
+
+### 13.3 Error를 Fail로 내보내고 있었다
+
+`sandbox_environment_error` 케이스가 전부 Fail로 나왔다. error→fail 100%였다.
+
+데이터셋의 `execution_result`에 `infra_error`가 없다. 그 필드가 생기기 전에 만들어졌기 때문이다. 운영 경로는 Docker 데몬에 닿지 못하면 `infra_error="docker_daemon_unreachable"`을 채우고, 그러면 판정을 건너뛰고 Error로 끝낸다. 평가에서만 그 신호가 없어서 판정이 만들 수 없는 답을 요구받고 있었다.
+
+인프라 라벨이면 `infra_error`를 채워 넣는다. 판정이 운영에서 받는 입력을 평가에서도 받아야 한다. `docker_daemon_unavailable`도 인프라 분류에 넣었다.
+
+### 13.4 결과
+
+| 지표 | 전 | 후 |
+| --- | --- | --- |
+| 판정 정확도 | 97.2% | **100.0%** |
+| error→fail | 100.0% | **0.0%** |
+| 카테고리 정확도 | 5.6% | **31.6%** |
+
+31.6%의 의미는 이렇다.
+
+```
+채점 대상 57건 = 분류 가능 24건 + 표현 불가 33건
+상한                     42.1%
+분류 가능한 것 중 정답   18/24 = 75.0%
+```
+
+동의어를 합치면서 층화 추출의 버킷이 줄어 표본이 72건에서 57건으로 작아졌다. 중복 버킷이 사라진 것이므로 정확도에는 유리하지 않다.
+
+### 13.5 데이터셋에서 더 찾은 것
+
+**라벨이 로그에 그대로 적혀 있는 케이스가 610건 중 168건(27.5%)이다.** `expected_failure_type`이 `dockerfile_missing`인 케이스의 stderr가 `dockerfile missing`이다.
+
+이건 정답 누출이다. 로그 문구를 읽는 판정자는 공짜로 맞히고, 종료 코드만 보는 규칙은 맞힐 수 없다. 그리고 로그를 읽는 쪽이 바로 프롬프트 인젝션에 뚫린 경로다(docs/judge-policy.md 8절). 이 케이스들로 카테고리 정확도를 올리는 것은 틀린 방향으로 모델을 당기는 일이다.
+
+세대도 둘로 갈린다.
+
+| 세대 | 건수 | 종료 코드 |
+| --- | --- | --- |
+| `SANDBOX-GEN-*` | 200 | 86·87·124·null 등 구조화된 값 80건 |
+| `SANDBOX-2026*` | 410 | 대부분 exit 1, 로그에 라벨 echo |
+
+남은 카테고리 오답 6건은 전부 뒤쪽 세대다. exit 1에 stderr가 `pip install failed` 한 줄인 케이스에서 `dependency_install_failed`를 끌어내려면 그 문구를 규칙에 박아야 한다. 하지 않는다.
+
+### 13.6 다음
+
+- 데이터셋 라벨을 정식 코드로 다시 찍는 작업이 필요하다. 평가 쪽 매핑은 임시 조치다
+- 로그에 라벨을 적는 생성기를 고쳐야 한다. 그 전에는 이 슬라이스로 모델을 학습시키면 안 된다
+- 표현 불가 11종 중 실제로 필요한 구분이 있으면 `REASON_CATEGORIES`에 추가를 논의한다. 지금은 `sandbox_nonzero_exit`으로 뭉쳐 나간다

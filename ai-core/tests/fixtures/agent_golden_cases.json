@@ -45,7 +45,13 @@
     "forbidden_claims": [
       "cpu pressure",
       "litmuschaos"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "preflight",
+      "category": "repository_not_found",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "clone_failure_private_repo",
@@ -93,7 +99,13 @@
     "forbidden_claims": [
       "test failure",
       "browser"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "preflight",
+      "category": "private_repository_not_supported",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "clone_failure_bad_ref",
@@ -140,7 +152,13 @@
     ],
     "forbidden_claims": [
       "non-zero exit code"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "preflight",
+      "category": "ref_not_found",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "no_entrypoint_docs_only",
@@ -186,7 +204,13 @@
     ],
     "forbidden_claims": [
       "repository not found"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "preflight",
+      "category": "no_manifest_detected",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "no_entrypoint_monorepo_unknown_path",
@@ -232,7 +256,13 @@
     ],
     "forbidden_claims": [
       "timeout"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "preflight",
+      "category": "ambiguous_monorepo_path",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "no_entrypoint_empty_repo",
@@ -278,7 +308,13 @@
     ],
     "forbidden_claims": [
       "http_status"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "preflight",
+      "category": "empty_repository",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "timeout_startup_hang",
@@ -330,7 +366,13 @@
     ],
     "forbidden_claims": [
       "repository not found"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "sandbox",
+      "category": "timeout",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "timeout_test_hang",
@@ -382,7 +424,13 @@
     ],
     "forbidden_claims": [
       "browser probe"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "sandbox",
+      "category": "timeout",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "timeout_install_hang",
@@ -434,7 +482,13 @@
     ],
     "forbidden_claims": [
       "visibility"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "sandbox",
+      "category": "timeout",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "non_zero_pytest_assertion",
@@ -488,7 +542,13 @@
     ],
     "forbidden_claims": [
       "clone"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "sandbox",
+      "category": "test_failure",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "non_zero_npm_install",
@@ -542,7 +602,13 @@
     ],
     "forbidden_claims": [
       "http_status=500"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "sandbox",
+      "category": "dependency_install_failed",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "non_zero_docker_build",
@@ -596,7 +662,13 @@
     ],
     "forbidden_claims": [
       "authentication"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "sandbox",
+      "category": "docker_build_failed",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "service_http_500",
@@ -661,7 +733,13 @@
     ],
     "forbidden_claims": [
       "pytest"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "runtime",
+      "category": "service_smoke_failed",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "service_no_http_response",
@@ -725,7 +803,13 @@
     ],
     "forbidden_claims": [
       "clone"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "runtime",
+      "category": "service_smoke_failed",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "browser_probe_failed_after_http_200",
@@ -790,7 +874,13 @@
     ],
     "forbidden_claims": [
       "repository not found"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "runtime",
+      "category": "browser_smoke_failed",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "wrong_port_service_failure",
@@ -854,7 +944,13 @@
     ],
     "forbidden_claims": [
       "authentication"
-    ]
+    ],
+    "label": {
+      "verdict": "Fail",
+      "stage": "runtime",
+      "category": "service_smoke_failed",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "success_cli_pytest",
@@ -907,7 +1003,13 @@
     ],
     "forbidden_claims": [
       "sandbox failed"
-    ]
+    ],
+    "label": {
+      "verdict": "Pass",
+      "stage": null,
+      "category": "all_checks_passed",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "success_service_browser",
@@ -971,7 +1073,13 @@
     ],
     "forbidden_claims": [
       "failed"
-    ]
+    ],
+    "label": {
+      "verdict": "Pass",
+      "stage": null,
+      "category": "all_checks_passed",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "success_build_only",
@@ -1024,7 +1132,13 @@
     ],
     "forbidden_claims": [
       "browser failed"
-    ]
+    ],
+    "label": {
+      "verdict": "Pass",
+      "stage": null,
+      "category": "all_checks_passed",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   },
   {
     "id": "success_with_warnings",
@@ -1077,6 +1191,12 @@
     ],
     "forbidden_claims": [
       "non-zero"
-    ]
+    ],
+    "label": {
+      "verdict": "Pass",
+      "stage": null,
+      "category": "all_checks_passed",
+      "labeled_by": "human-reviewed 2026-09-27"
+    }
   }
 ]
