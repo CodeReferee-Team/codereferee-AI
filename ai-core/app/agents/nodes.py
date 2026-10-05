@@ -6,8 +6,14 @@ from app.agents.evidence import build_evidence_packet, classify_failure_category
 from app.agents.llm import llm, parse_json_strict
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
-from app.config import get_settings
 from app.models import SLO, DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
+from app.sandbox.docker_runner import (
+    NO_MANIFEST_EXIT_CODE,
+    NOTHING_TO_VERIFY_EXIT_CODE,
+    PATCH_MISSING_EXIT_CODE,
+    UNSUPPORTED_STACK_EXIT_CODE,
+)
+from app.config import get_settings
 
 
 # 카오스 구간 p95가 baseline의 몇 배를 넘으면 경고할지. 출처 있는 값이 아니라 우리 관례다
@@ -585,11 +591,25 @@ def _fallback_refiner(state: AgentState) -> dict[str, object]:
     }
 
 
+# 스크립트가 약속한 종료 코드의 의미. 숫자만 문장에 넣으면 사용자가 원인을 알 수 없다.
+_EXIT_CODE_REASONS = {
+    NO_MANIFEST_EXIT_CODE: "No supported project manifest was detected.",
+    UNSUPPORTED_STACK_EXIT_CODE: "The repository stack has no runner available in the sandbox.",
+    PATCH_MISSING_EXIT_CODE: "The patch file was not present in the sandbox.",
+    NOTHING_TO_VERIFY_EXIT_CODE: (
+        "The repository has no tests to verify, so its stability could not be checked. "
+        "Compiling is not verification."
+    ),
+}
+
+
 def _sandbox_failure_reason(result: SandboxResult) -> str:
     """실패 이유를 한 문장으로. 로그 원문은 evidence 쪽에 따로 들어간다.
 
     스택을 모를 때 "unknown"을 문장에 넣으면 진단이 모호해지므로 생략한다.
     """
+    if known := _EXIT_CODE_REASONS.get(result.exit_code):
+        return known
     report = result.sandbox_report or {}
     stack = report.get("detected_stack")
     suffix = f" in the {stack} build" if stack and stack != "unknown" else ""
