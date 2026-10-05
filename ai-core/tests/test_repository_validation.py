@@ -79,6 +79,8 @@ class RepositoryValidationTests(unittest.TestCase):
                 repository_url="https://github.com/CodeReferee-Team/codereferee-AI",
                 branch="main",
                 request_id="req-queue",
+                chaos_mode="litmus_pod_delete",
+                deployment_profile="quickbyte-demo",
             ),
             queue=queue,
         )
@@ -87,6 +89,43 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(queue.payloads[0]["taskId"], state.job_id)
         self.assertEqual(queue.payloads[0]["repositoryUrl"], "https://github.com/CodeReferee-Team/codereferee-AI")
         self.assertEqual(queue.payloads[0]["branch"], "main")
+        self.assertEqual(queue.payloads[0]["chaosMode"], "litmus_pod_delete")
+        self.assertEqual(queue.payloads[0]["deploymentProfile"], "quickbyte-demo")
+
+    def test_process_next_passes_chaos_targeting_to_sandbox(self) -> None:
+        class FakeQueue:
+            def dequeue(self, *, block=False, timeout=0):
+                return {
+                    "taskId": "job-chaos",
+                    "repositoryUrl": "https://github.com/example/project",
+                    "branch": "main",
+                    "commitSha": None,
+                    "chaosMode": "litmus_pod_delete",
+                    "deploymentProfile": "quickbyte-demo",
+                }
+
+            def publish(self, event):
+                return 1
+
+        report = RepositoryPreflightReport(
+            repository_url="https://github.com/example/project.git",
+            cloneable=True,
+            executable=True,
+        )
+        with patch("app.workflow.repository_validation.repository_preflight_runner.run", return_value=report), patch(
+            "app.workflow.repository_validation.sandbox_runner.run_repository",
+            return_value=SandboxResult(exit_code=0),
+        ) as sandbox_run:
+            process_next_repository_validation(queue=FakeQueue())
+
+        sandbox_run.assert_called_once_with(
+            "https://github.com/example/project.git",
+            branch="main",
+            commit_sha=None,
+            chaos_mode="litmus_pod_delete",
+            deployment_profile="quickbyte-demo",
+            request_id="job-chaos",
+        )
 
     def test_process_next_repository_validation_dequeues_and_runs_preflight_failure(self) -> None:
         class FakeQueue:
@@ -171,7 +210,9 @@ class RepositoryValidationTests(unittest.TestCase):
 
         self.assertIsNotNone(state)
         assert state is not None
-        sandbox_run.assert_called_once_with("https://github.com/example/project.git", branch="main", commit_sha=None)
+        sandbox_run.assert_called_once_with(
+            "https://github.com/example/project.git", branch="main", commit_sha=None, request_id="job-pass"
+        )
         self.assertIn("Preflight: passed", state.events)
         self.assertTrue(state.metrics["preflight_passed"])
         self.assertTrue(state.metrics["sandbox_executed"])
@@ -213,6 +254,18 @@ class RepositoryValidationTests(unittest.TestCase):
             patch_id = store.save_patch_suggestion(run_id=run_id, state=state)
             self.assertGreater(run_id, 0)
             self.assertGreater(patch_id, 0)
+
+    def test_response_serializes_for_backend_result_queue(self) -> None:
+        state = AgentState(
+            job_id="job-output",
+            request_id="request-output",
+            repository_url="https://github.com/example/project.git",
+            status=JobStatus.success,
+        )
+        payload = to_response(state, request_id=state.request_id).model_dump(mode="json")
+        self.assertEqual(payload["request_id"], "request-output")
+        self.assertEqual(payload["job_id"], "job-output")
+        self.assertEqual(payload["status"], "success")
 
     def test_sandbox_http_response_exposes_server_smoke(self) -> None:
         result = _sandbox_result_from_response(
@@ -545,6 +598,16 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(result.chaos_observation["type"], "pod_kill")
         self.assertTrue(result.source["real_execution_observed"])
 
+    def test_sandbox_http_response_preserves_infrastructure_status(self) -> None:
+        result = _sandbox_result_from_response(
+            '{"exitCode":null,"observationStatus":"infrastructure_error",'
+            '"infraError":"sandbox_execution_timeout","timedOut":true}',
+            started_at=0,
+        )
+        self.assertEqual(result.observation_status, "infrastructure_error")
+        self.assertEqual(result.infra_error, "sandbox_execution_timeout")
+        self.assertTrue(result.timed_out)
+
     def test_normalize_github_url_accepts_public_https_repo(self) -> None:
         self.assertEqual(
             _normalize_github_url("https://github.com/CodeReferee-Team/codereferee-AI"),
@@ -719,14 +782,20 @@ class RefinementLoopTests(unittest.TestCase):
 
         return _node
 
-    def _run(self, sandbox_results, diff):
+    def _run(self, sandbox_results, diff, *, chaos_mode=None, deployment_profile=None):
         queue = RecordingQueue()
-        state = AgentState(job_id="refine", request_id="refine", repository_url="https://github.com/example/project")
+        state = AgentState(
+            job_id="refine",
+            request_id="refine",
+            repository_url="https://github.com/example/project",
+            chaos_mode=chaos_mode,
+            deployment_profile=deployment_profile,
+        )
         pending = list(sandbox_results)
         calls: list[dict] = []
 
-        def _sandbox(repository_url, branch=None, commit_sha=None, patch_diff=None):
-            calls.append({"patch_diff": patch_diff})
+        def _sandbox(repository_url, branch=None, commit_sha=None, patch_diff=None, **kwargs):
+            calls.append({"patch_diff": patch_diff, **kwargs})
             return pending.pop(0)
 
         with patch(
@@ -758,6 +827,18 @@ class RefinementLoopTests(unittest.TestCase):
         # 재검증 호출에만 diff가 실려야 한다. 최초 실행은 원본 코드를 봐야 한다.
         self.assertIsNone(calls[0]["patch_diff"])
         self.assertEqual(calls[1]["patch_diff"], "--- a/x\n+++ b/x\n")
+
+    def test_refinement_rerun_keeps_chaos_target_contract(self) -> None:
+        _, _, calls = self._run(
+            [SandboxResult(exit_code=1, stderr="boom"), SandboxResult(exit_code=0, stdout="ok")],
+            diff="--- a/x\n+++ b/x\n",
+            chaos_mode="litmus_pod_delete",
+            deployment_profile="quickbyte-demo",
+        )
+
+        self.assertEqual(calls[1]["chaos_mode"], "litmus_pod_delete")
+        self.assertEqual(calls[1]["deployment_profile"], "quickbyte-demo")
+        self.assertEqual(calls[1]["request_id"], "refine")
 
     def test_refining_progress_carries_round_and_max_rounds(self) -> None:
         _, queue, _ = self._run(
