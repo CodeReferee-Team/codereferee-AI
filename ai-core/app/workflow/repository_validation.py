@@ -217,6 +217,21 @@ def _preflight_passed(report) -> bool:
     return bool(report and report.cloneable and report.executable)
 
 
+# pytest는 수집 단계에서 깨지면 2로, 테스트가 실패하면 1로 끝낸다. 수집 오류는 대개 테스트
+# 전용 의존성이 없는 것이고, 고칠 자리는 의존성 선언인데 로그는 테스트 파일 경로만 말한다.
+# 매니페스트를 함께 주지 않으면 모델이 가진 파일은 테스트 파일뿐이라 그것을 고치려 한다.
+# 실측으로 겪었다(pallets/itsdangerous, freezegun 없음).
+_COLLECTION_ERROR_EXIT_CODE = 2
+_MANIFEST_CONTEXT_CATEGORIES = ("dependency_install_failed", "no_manifest_detected")
+
+
+def _needs_manifest_context(state: AgentState) -> bool:
+    if state.judge_report.get("reason_category") in _MANIFEST_CONTEXT_CATEGORIES:
+        return True
+    result = state.execution_result
+    return bool(result and result.exit_code == _COLLECTION_ERROR_EXIT_CODE)
+
+
 def attach_source_files(state: AgentState, applied_patch: str | None = None) -> None:
     """Refiner가 고칠 파일의 현재 내용을 state에 담는다.
 
@@ -226,7 +241,7 @@ def attach_source_files(state: AgentState, applied_patch: str | None = None) -> 
     if result is None or state.status != JobStatus.failed:
         return
     paths = source_context.extract_paths(result.log)
-    if state.judge_report.get("reason_category") == "dependency_install_failed" or not paths:
+    if _needs_manifest_context(state) or not paths:
         # pip은 패키지 이름만 말한다. 고칠 파일은 매니페스트이므로 직접 붙인다.
         paths = list(source_context.MANIFEST_CANDIDATES) + [p for p in paths if p not in source_context.MANIFEST_CANDIDATES]
     if not paths:

@@ -30,6 +30,31 @@ MAX_DIFF_BYTES = 1_000_000
 # 우리가 실행할 패치가 건드리면 안 되는 경로.
 PROTECTED_PREFIXES = (".github/", ".git/", ".gitlab-ci", "Jenkinsfile", ".circleci/")
 
+# 테스트는 고치지 않는다. 테스트를 약화시켜 통과시키는 것은 우리가 팔려는 것의 반대다.
+# 실측으로 겪었다. freezegun이 없어 수집이 깨진 레포에서 모델이 테스트 파일을 고치려 했다.
+# 모델이 좋아지면 확률은 내려가지만 0이 되지 않으므로 경로로 막는다. 테스트 자체에 버그가
+# 있는 레포는 Refiner가 가이드 문장으로만 제안한다.
+_TEST_DIRECTORIES = ("tests", "test", "spec", "__tests__", "testing")
+_TEST_SUFFIXES = (
+    "_test.py", "_test.go", "_test.rb", "_test.js", "_test.ts",
+    ".test.js", ".test.ts", ".test.jsx", ".test.tsx",
+    ".spec.js", ".spec.ts", ".spec.jsx", ".spec.tsx",
+    "Test.java", "Tests.java", "Test.kt", "Spec.scala",
+)
+
+
+def is_test_path(path: str) -> bool:
+    """테스트 파일인지. 이름에 test가 들어간 것과 테스트 파일을 구분해야 한다.
+
+    latest.py, contest/, testing_utils.py는 테스트가 아니다. 디렉터리 조각이 정확히
+    일치하거나 파일명이 테스트 관례를 따를 때만 참이다.
+    """
+    parts = Path(path).parts
+    if any(part in _TEST_DIRECTORIES for part in parts[:-1]):
+        return True
+    name = parts[-1] if parts else path
+    return name.startswith("test_") or name.endswith(_TEST_SUFFIXES)
+
 _PATH_LINE = re.compile(r"^(?:---|\+\+\+) (?:[ab]/)?(.+?)(?:\t.*)?$", re.MULTILINE)
 
 
@@ -71,6 +96,9 @@ def inspect_diff(diff: str) -> PatchVerdict:
             return PatchVerdict(False, "patch_escapes_repository", f"레포 밖 경로를 건드린다: {path}", paths)
         if path.startswith(PROTECTED_PREFIXES):
             return PatchVerdict(False, "patch_touches_protected_path", f"보호 경로를 건드린다: {path}", paths)
+        if is_test_path(path):
+            # 다른 파일과 섞어 보내도 거절한다. 섞으면 통과하는 구멍을 두지 않는다.
+            return PatchVerdict(False, "patch_touches_test_path", f"테스트를 고치려 한다: {path}", paths)
 
     return PatchVerdict(True, touched_paths=paths)
 
