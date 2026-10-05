@@ -192,6 +192,9 @@ class AgentState(BaseModel):
     critic_feedback: dict[str, Any] = Field(default_factory=dict)
     refiner_report: dict[str, Any] = Field(default_factory=dict)
     metrics: dict[str, Any] = Field(default_factory=dict)
+    # Refiner가 고칠 파일의 현재 내용. evidence에만 쓰고 백엔드 result 이벤트나 SQLite에는
+    # 넣지 않는다. 소스 전문이 응답 페이로드에 실려 나가면 안 된다.
+    source_files: dict[str, str] = Field(default_factory=dict)
     sre_metrics: SREMetrics = Field(default_factory=SREMetrics)
     error_count: int = 0
     # 재검증 라운드별 기록. Refiner diff를 적용해 다시 돌린 결과를 남긴다.

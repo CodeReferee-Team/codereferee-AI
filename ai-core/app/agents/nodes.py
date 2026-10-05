@@ -1,11 +1,20 @@
+import json
 from typing import Any
 
 from pydantic import ValidationError
 
-from app.agents.evidence import build_evidence_packet, classify_failure_category, render_evidence_packet, truncate_log
+from app.agents.evidence import (
+    build_evidence_packet,
+    build_refiner_evidence,
+    classify_failure_category,
+    render_evidence_packet,
+    truncate_log,
+)
+from app.agents.patching import apply_edits, build_diff, inspect_diff, inspect_rewrite
 from app.agents.llm import llm, parse_json_strict
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
+from app.config import get_settings
 from app.models import SLO, DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 from app.sandbox.docker_runner import (
     NO_MANIFEST_EXIT_CODE,
@@ -94,7 +103,7 @@ def critic_node(state: AgentState) -> AgentState:
 
 def refiner_node(state: AgentState) -> AgentState:
     state.events.append("Refiner: remediation guidance prepared")
-    packet = build_evidence_packet(state)
+    packet = build_refiner_evidence(state)
     fallback = _fallback_refiner(state)
     if llm.enabled:
         state.refiner_report = _invoke_validated_report(
@@ -111,7 +120,125 @@ def refiner_node(state: AgentState) -> AgentState:
         )
     else:
         state.refiner_report = validate_report(RefinerReport, fallback)
+
+    _diff_from_edits(state)
+    if llm.enabled:
+        _retry_rejected_edits(state, packet)
+    _record_patch_inspection(state)
     return state
+
+
+# 재요청은 한 번만 한다. 같은 실수를 반복하는 모델에 호출을 계속 쓸 이유가 없다.
+RETRYABLE_EDIT_REJECTIONS = ("edit_anchor_not_found", "edit_anchor_ambiguous", "edit_path_unknown")
+
+
+def _retry_rejected_edits(state: AgentState, packet: dict[str, object]) -> None:
+    """편집이 거부되면 그 이유를 들고 한 번만 다시 묻는다.
+
+    거부 이유는 우리가 파일과 대조해 만든 결정적 신호다(앵커가 없다/여럿이다/모르는 파일이다).
+    모델에게 무엇이 어긋났는지 알려주면 고칠 수 있다. 스키마 수리와 같은 구조다.
+    """
+    check = state.metrics.get("patch_check") or {}
+    if check.get("reason_code") != "edits_not_applicable":
+        return
+    reason = str(check.get("reason") or "")
+    if not any(code in reason for code in RETRYABLE_EDIT_REJECTIONS):
+        return
+
+    state.events.append(f"Refiner: retrying edits after {reason}")
+    retry = _invoke_validated_report(
+        role="Refiner",
+        schema=RefinerReport,
+        system_prompt=REFINER_PROMPT,
+        user_prompt=(
+            "Your previous edits were thrown away: {reason}\n"
+            "edit_anchor_not_found means the lines in find do not exist in the file. "
+            "edit_anchor_ambiguous means they appear more than once, so add an adjacent line. "
+            "edit_path_unknown means that path is not in evidence.source_files.\n"
+            "Copy find character for character from evidence.source_files below. Do not use log text.\n"
+            "Previous find values: {anchors}\n"
+            "Repository: {repository_url}\nEvidence packet:\n{evidence}"
+        ),
+        values={
+            "reason": reason,
+            "anchors": json.dumps(check.get("attempted_anchors") or [], ensure_ascii=False)[:600],
+            "repository_url": state.repository_url,
+            "evidence": render_evidence_packet(packet),
+        },
+        fallback=state.refiner_report or _fallback_refiner(state),
+        events=state.events,
+    )
+    if not retry.get("edits"):
+        return
+    # 재시도 결과로 갈아끼운 뒤 같은 검증을 다시 지난다.
+    state.refiner_report = retry
+    state.metrics.pop("patch_check", None)
+    _diff_from_edits(state)
+    outcome = (state.metrics.get("patch_check") or {}).get("reason_code")
+    state.events.append(
+        "Refiner: retry produced an applicable edit" if not outcome else f"Refiner: retry still rejected ({outcome})"
+    )
+
+
+def _diff_from_edits(state: AgentState) -> None:
+    """모델이 준 편집 목록을 적용해 diff를 만든다.
+
+    치환은 우리가 하므로 모델이 파일의 다른 부분을 건드릴 수 없다. 전문을 받던 방식에서는
+    모델이 뒤를 잘라먹어 멀쩡한 코드가 지워졌다(docs/evaluation-design.md 14.7).
+    """
+    edits = state.refiner_report.pop("edits", None)
+    if not isinstance(edits, list) or not edits:
+        return
+    outcome = apply_edits(state.source_files, [dict(edit) for edit in edits])
+    if outcome.rejected:
+        state.events.append(f"Refiner: edits rejected ({', '.join(outcome.rejected)})")
+    if not outcome.patched:
+        state.metrics["patch_check"] = {
+            "accepted": False,
+            "reason_code": "edits_not_applicable",
+            "reason": ", ".join(outcome.rejected) or "no edit changed a file",
+            # 모델이 무엇을 앵커로 썼는지 남긴다. 프롬프트를 고칠 근거가 된다.
+            "attempted_anchors": [str(edit.get("find")) [:200] for edit in edits if isinstance(edit, dict)],
+        }
+        return
+    diff = build_diff(state.source_files, outcome.patched)
+    state.refiner_report["patched_paths"] = sorted(outcome.patched)
+    if diff:
+        rewrite = inspect_rewrite(diff, state.source_files)
+        if not rewrite.accepted:
+            # 모델이 파일 뒤를 잘라먹은 경우다. 적용되더라도 멀쩡한 코드를 지운다.
+            state.events.append(f"Refiner: patch rejected as a rewrite: {rewrite.reason}")
+            state.metrics["patch_check"] = {
+                "accepted": False,
+                "reason_code": rewrite.reason_code,
+                "reason": rewrite.reason,
+                "touched_paths": rewrite.touched_paths,
+            }
+            state.refiner_report["patch_diff"] = None
+            return
+    state.refiner_report["patch_diff"] = diff or None
+
+
+def _record_patch_inspection(state: AgentState) -> None:
+    """생성된 패치를 내용 기준으로 먼저 거른다. 적용 검사(git apply)는 워크플로가 레포를 받은 뒤 한다."""
+    diff = state.refiner_report.get("patch_diff")
+    if not diff:
+        # 앞 단계가 구체적인 이유를 남겼으면 덮지 않는다. patch_absent로 덮으면
+        # 편집이 왜 거부됐는지(앵커 불일치, 재작성 등)가 사라진다.
+        existing = state.metrics.get("patch_check") or {}
+        if not existing.get("reason_code"):
+            state.metrics["patch_check"] = {"accepted": False, "reason_code": "patch_absent"}
+        return
+    verdict = inspect_diff(str(diff))
+    state.metrics["patch_check"] = {
+        "accepted": verdict.accepted,
+        "reason_code": verdict.reason_code,
+        "reason": verdict.reason,
+        "touched_paths": verdict.touched_paths,
+    }
+    if not verdict.accepted:
+        state.events.append(f"Refiner: patch rejected before sandbox: {verdict.reason_code}")
+        state.refiner_report["patch_diff"] = None
 
 
 def _fallback_plan(state: AgentState) -> dict[str, object]:
@@ -614,9 +741,29 @@ def _sandbox_failure_reason(result: SandboxResult) -> str:
     stack = report.get("detected_stack")
     suffix = f" in the {stack} build" if stack and stack != "unknown" else ""
     failed_step = report.get("failed_step")
+    # 어느 단계가 실패했는지만 말하면 무엇이 잘못됐는지 알 수 없다. 사용자도, Refiner도 그렇다.
+    # 구조화 결과가 준 단계 이름에 실제 실패 문구를 한 줄 붙인다.
+    detail = f" {_failure_detail(result)}" if _failure_detail(result) else ""
     if failed_step and failed_step != "none":
-        return f"Sandbox step '{failed_step}' failed with exit_code={result.exit_code}{suffix}."
-    return f"Sandbox command exited with exit_code={result.exit_code}{suffix}."
+        return f"Sandbox step '{failed_step}' failed with exit_code={result.exit_code}{suffix}.{detail}"
+    return f"Sandbox command exited with exit_code={result.exit_code}{suffix}.{detail}"
+
+
+# 판정 이유에 붙일 실패 문구의 길이 상한. 이보다 길면 이유가 로그 덤프가 된다.
+MAX_FAILURE_DETAIL_CHARS = 200
+# 단계 마커와 진행 표시는 실패 문구가 아니다.
+_NOT_A_FAILURE_LINE = ("[CodeReferee]", "detected_stack=", "Cloning into", "stdout:", "stderr:")
+
+
+def _failure_detail(result: SandboxResult) -> str:
+    """실패 문구 한 줄. 도구들은 오류를 마지막에 찍으므로 뒤에서부터 찾는다."""
+    for source in (result.stderr, result.stdout):
+        for line in reversed(source.splitlines()):
+            stripped = line.strip()
+            if not stripped or stripped.startswith(_NOT_A_FAILURE_LINE):
+                continue
+            return stripped[:MAX_FAILURE_DETAIL_CHARS]
+    return ""
 
 
 def _sandbox_evidence(result: SandboxResult) -> list[str]:

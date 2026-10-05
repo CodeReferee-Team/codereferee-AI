@@ -105,6 +105,16 @@ class CriticReport(StrictAgentReport):
         return _require_non_blank_items(value)
 
 
+class SourceEdit(StrictAgentReport):
+    """내용으로 앵커하는 편집. 줄 번호를 쓰지 않아 off-by-one이 생길 수 없다."""
+
+    path: str = Field(min_length=1)
+    # 바꿀 원본 줄. 파일에 정확히 한 번 나타나야 한다.
+    find: list[str] = Field(min_length=1)
+    # 그 자리에 넣을 줄. 비우면 삭제다.
+    replace: list[str]
+
+
 class RefinerReport(StrictAgentReport):
     summary: str = Field(min_length=1)
     patch_guidance: list[str] = Field(min_length=1)
@@ -112,6 +122,11 @@ class RefinerReport(StrictAgentReport):
     risk: Literal["low", "medium", "high"]
     # base commit 대비 누적 unified diff. LLM 없이 도는 결정적 fallback은
     # diff를 만들 수 없으므로 선택 필드다. 없으면 재검증 루프가 돌지 않는다.
+    # 고칠 부분만 담는 편집 목록. 모델은 diff도 파일 전문도 쓰지 않는다.
+    # diff는 형식(context 줄, hunk 헤더)을 못 맞추고, 전문은 끝까지 쓰지 못해 멀쩡한 코드가
+    # 지워졌다. docs/evaluation-design.md 6절.
+    edits: list[SourceEdit] | None = None
+    # 위 편집에서 우리가 difflib으로 만든다. 모델 출력이 아니다.
     patch_diff: str | None = None
 
     @field_validator("summary")
