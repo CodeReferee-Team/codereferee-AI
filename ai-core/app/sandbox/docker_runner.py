@@ -321,10 +321,10 @@ install_dependencies() {
       # requirements.txt만 보면 pyproject.toml 레포에는 아무것도 설치되지 않는다. 그러면 pytest가
       # 패키지를 import하지 못해 수집 단계에서 깨지고, 멀쩡한 레포가 test_failure로 나간다.
       if [ -f requirements.txt ]; then
-        python -m pip install --disable-pip-version-check -r requirements.txt >/dev/null || return $?
+        python -m pip install --disable-pip-version-check --break-system-packages -r requirements.txt >/dev/null || return $?
       fi
       if [ -f pyproject.toml ] || [ -f setup.py ]; then
-        python -m pip install --disable-pip-version-check . >/dev/null || return $?
+        python -m pip install --disable-pip-version-check --break-system-packages . >/dev/null || return $?
       fi
       ;;
     node)
@@ -344,7 +344,7 @@ run_smoke_test() {
       python -m compileall -q . || return $?
       # 컴파일이 되는 것과 동작이 검증된 것은 다르다. 테스트가 없으면 통과로 끝내지 않는다.
       [ -d tests ] || { echo "No tests directory to verify"; return 89; }
-      python -m pip install --disable-pip-version-check pytest >/dev/null || return $?
+      python -m pip install --disable-pip-version-check --break-system-packages pytest >/dev/null || return $?
       python -m pytest -q
       ;;
     gradle)

@@ -77,7 +77,13 @@ class PythonDependencyStepTests(unittest.TestCase):
 
     def test_a_pyproject_only_repository_installs_itself(self) -> None:
         self.assertIn("[ -f pyproject.toml ] || [ -f setup.py ]", self.script)
-        self.assertIn("python -m pip install --disable-pip-version-check .", self.script)
+        self.assertIn("--break-system-packages .", self.script)
+
+    def test_pip_is_allowed_to_write_to_the_system_python(self) -> None:
+        # noble은 PEP 668로 시스템 Python 설치를 막는다. 컨테이너는 한 번 쓰고 버리므로
+        # venv를 세우는 대신 플래그로 허용한다. 플래그가 없으면 설치가 전부 실패한다.
+        for call in ("-r requirements.txt", "--break-system-packages .", "pytest"):
+            self.assertIn("--break-system-packages", self.script)
 
     def test_requirements_is_still_installed(self) -> None:
         self.assertIn("-r requirements.txt", self.script)

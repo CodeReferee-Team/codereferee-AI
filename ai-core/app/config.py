@@ -18,7 +18,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     redis_workflow_queue: str = "codereferee:workflow:input"
     redis_output_queue: str = "codereferee:workflow:output"
-    sandbox_image: str = "codereferee/sandbox-multi:1"
+    # :2는 noble 기반이다. Python 3.12와 setuptools 68을 주고, 스크립트가 쓰는
+    # --break-system-packages를 받는다(pip 23+). :1은 그 옵션을 모른다.
+    sandbox_image: str = "codereferee/sandbox-multi:2"
     sandbox_base_url: str | None = None
     sandbox_repository_path: str = "/repositories/validate"
     # Repository build, Kubernetes rollout, and Litmus recovery can each take
