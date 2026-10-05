@@ -67,5 +67,9 @@ def result_event(state: AgentState) -> dict[str, Any]:
         "critic_feedback": state.critic_feedback,
         "refiner_report": state.refiner_report,
         "metrics": state.metrics,
+        # 라운드별 기록. iterationCount만 보내면 "두 번 돌았다"는 알지만 무엇을
+        # 시도했는지 모른다. 라운드 번호, 패치 바이트, 이전·이후 판정, 종료 코드,
+        # failed_step이 여기 담긴다.
+        "refine_rounds": state.refine_rounds,
         "events": state.events,
     }
