@@ -81,3 +81,39 @@ class PythonDependencyStepTests(unittest.TestCase):
 
     def test_requirements_is_still_installed(self) -> None:
         self.assertIn("-r requirements.txt", self.script)
+
+
+class ReasonCategoryTests(unittest.TestCase):
+    """사유 문장만 고쳐도 집계에는 반영되지 않는다.
+
+    reason_category가 지표와 백엔드가 읽는 값이다. 종료 코드 89를 sandbox_nonzero_exit으로
+    내보내면 "검증할 것이 없었다"와 "코드에 결함이 있다"를 구분할 수 없다. 3개 레포 통합
+    테스트에서 실제로 그렇게 나갔다.
+    """
+
+    def _state(self, exit_code: int) -> AgentState:
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.running)
+        state.preflight_report = RepositoryPreflightReport(
+            repository_url="https://github.com/o/r", cloneable=True, executable=True
+        )
+        state.execution_result = SandboxResult(
+            exit_code=exit_code, sandbox_report={"detected_stack": "python", "failed_step": "smoke"}
+        )
+        return state
+
+    def test_nothing_to_verify_has_its_own_category(self) -> None:
+        report = nodes._fallback_judge(self._state(docker_runner.NOTHING_TO_VERIFY_EXIT_CODE))
+        self.assertEqual(report["status"], "Fail")
+        self.assertEqual(report["reason_category"], "no_tests_detected")
+
+    def test_no_manifest_keeps_its_category(self) -> None:
+        report = nodes._fallback_judge(self._state(docker_runner.NO_MANIFEST_EXIT_CODE))
+        self.assertEqual(report["reason_category"], "no_manifest_detected")
+
+    def test_no_runner_keeps_its_category(self) -> None:
+        report = nodes._fallback_judge(self._state(docker_runner.UNSUPPORTED_STACK_EXIT_CODE))
+        self.assertEqual(report["reason_category"], "unsupported_project_stack")
+
+    def test_an_ordinary_failure_is_not_called_a_missing_test(self) -> None:
+        report = nodes._fallback_judge(self._state(1))
+        self.assertNotEqual(report["reason_category"], "no_tests_detected")

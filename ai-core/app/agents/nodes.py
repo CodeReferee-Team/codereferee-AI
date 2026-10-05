@@ -373,11 +373,13 @@ _FAILED_STEP_CATEGORIES = {
     "detect": "no_manifest_detected",
     "dependencies": "dependency_install_failed",
 }
-# 스크립트가 약속한 종료 코드. fix/unverifiable-repo가 89(검증할 테스트 없음)를 추가하면
-# 그 값을 no_tests_detected로 잇는다. 지금은 두 코드만 쓴다.
+# 스크립트가 약속한 종료 코드. 사유 문장(_EXIT_CODE_REASONS)과 짝을 맞춘다.
+# 88(패치 없음)은 우리가 패치를 못 넣은 것이라 레포 탓이 아니고, 재검증 라운드에서만 나오므로
+# 여기 넣지 않는다. 그 경로는 patch_check가 기록한다.
 _EXIT_CODE_CATEGORIES = {
-    86: "no_manifest_detected",
-    87: "unsupported_project_stack",
+    NO_MANIFEST_EXIT_CODE: "no_manifest_detected",
+    UNSUPPORTED_STACK_EXIT_CODE: "unsupported_project_stack",
+    NOTHING_TO_VERIFY_EXIT_CODE: "no_tests_detected",
 }
 # pip이 실제로 찍는 해결 실패 문구만 본다. "install"은 성공 로그에도 나온다.
 _DEPENDENCY_SIGNS = (
