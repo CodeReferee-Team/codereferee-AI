@@ -7,7 +7,7 @@ from app.agents.llm import llm, parse_json_strict
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
 from app.config import get_settings
-from app.models import DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
+from app.models import SLO, DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
 
 
 # 카오스 구간 p95가 baseline의 몇 배를 넘으면 경고할지. 출처 있는 값이 아니라 우리 관례다
@@ -19,7 +19,7 @@ def planner_node(state: AgentState) -> AgentState:
     state.events.append("Planner: repository validation plan prepared")
     packet = build_evidence_packet(state)
     fallback = _fallback_plan(state)
-    if llm.enabled:
+    if llm.enabled and get_settings().planner_uses_llm:
         state.validation_plan = _invoke_validated_report(
             role="Planner",
             schema=PlannerReport,
@@ -41,7 +41,7 @@ def judge_node(state: AgentState) -> AgentState:
     state.events.append("Judge: repository validation result evaluated")
     packet = build_evidence_packet(state)
     fallback = _fallback_judge(state)
-    if llm.enabled:
+    if llm.enabled and get_settings().judge_uses_llm:
         report = _invoke_validated_report(
             role="Judge",
             schema=JudgeReport,
@@ -129,7 +129,14 @@ def _invoke_validated_report(
     fallback: dict[str, Any],
     events: list[str],
 ) -> dict[str, Any]:
-    raw = llm.invoke_text(system_prompt, user_prompt, values)
+    try:
+        raw = llm.invoke_text(system_prompt, user_prompt, values)
+    except Exception as exc:
+        # 전송 실패(타임아웃, 연결 거부, 5xx). 판정은 규칙이 이미 냈고 여기서 만드는 것은
+        # 그 위에 얹는 서술과 수정안이다. 모델에 닿지 못했다고 작업 전체를 버리면
+        # 검증 결과가 LLM 가용성에 묶인다.
+        events.append(f"{role}: LLM unreachable, deterministic fallback selected: {_event_error(exc)}")
+        return validate_report(schema, fallback)
     try:
         return validate_report(schema, parse_json_strict(raw))
     except (ValueError, ValidationError) as exc:
@@ -153,11 +160,11 @@ def _invoke_validated_report(
 def _fallback_judge(state: AgentState) -> dict[str, object]:
     preflight = state.preflight_report
     if preflight is None:
-        return {"status": "Fail", "reason": "No preflight report was produced.", "evidence": ["preflight_report=missing"]}
+        return {"status": "Fail", "reason_category": "sandbox_not_executed", "reason": "No preflight report was produced.", "evidence": ["preflight_report=missing"]}
     if not preflight.cloneable:
-        return {"status": "Fail", "reason": preflight.reason or "Repository cannot be cloned.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "cloneable=false")}
+        return {"status": "Fail", "reason_category": _preflight_category(preflight), "reason": preflight.reason or "Repository cannot be cloned.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "cloneable=false")}
     if not preflight.executable:
-        return {"status": "Fail", "reason": preflight.reason or "Repository has no detected executable path.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "executable=false")}
+        return {"status": "Fail", "reason_category": _no_entrypoint_category(preflight), "reason": preflight.reason or "Repository has no detected executable path.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "executable=false")}
 
     result = state.execution_result or SandboxResult(exit_code=None, stderr="No sandbox execution")
     if is_real_chaos_observation(result):
@@ -178,21 +185,113 @@ def _fallback_judge(state: AgentState) -> dict[str, object]:
                 "evidence": _sandbox_evidence(result)}
 
     if result.timed_out:
-        return {"status": "Fail", "reason": "Sandbox execution timed out.", "evidence": _sandbox_evidence(result)}
+        return {"status": "Fail", "reason_category": "timeout", "reason": "Sandbox execution timed out.", "evidence": _sandbox_evidence(result)}
     if result.exit_code != 0:
-        return {"status": "Fail", "reason": _sandbox_failure_reason(result), "evidence": _sandbox_evidence(result)}
+        return {"status": "Fail", "reason_category": _nonzero_exit_category(result), "reason": _sandbox_failure_reason(result), "evidence": _sandbox_evidence(result)}
     if result.service_check_attempted and not _service_smoke_passed(result):
-        return {"status": "Fail", "reason": "Service smoke check failed after sandbox execution.", "evidence": _sandbox_evidence(result)}
+        return {"status": "Fail", "reason_category": "service_smoke_failed", "reason": "Service smoke check failed after sandbox execution.", "evidence": _sandbox_evidence(result)}
     if result.browser_check_attempted and not result.browser_loaded:
-        return {"status": "Fail", "reason": "Browser smoke check failed after service startup.", "evidence": _sandbox_evidence(result)}
+        return {"status": "Fail", "reason_category": "browser_smoke_failed", "reason": "Browser smoke check failed after service startup.", "evidence": _sandbox_evidence(result)}
 
     failure, warnings = _measured_policy_findings(state, result)
     state.metrics["policy_warnings"] = warnings
     for warning in warnings:
         state.events.append(f"Judge: warning {warning}")
     if failure:
-        return {"status": "Fail", "reason": failure, "evidence": _sandbox_evidence(result)}
-    return {"status": "Pass", "reason": "Repository passed preflight and sandbox smoke validation.", "evidence": _sandbox_evidence(result)}
+        # 규칙이 만든 문장은 "카테고리: 설명" 형태다. 앞부분을 그대로 카테고리로 쓴다.
+        category, _, detail = failure.partition(": ")
+        return {"status": "Fail", "reason_category": category, "reason": detail or failure, "evidence": _sandbox_evidence(result)}
+    passed_category = "chaos_recovered_within_budget" if result.chaos_observation else "all_checks_passed"
+    return {"status": "Pass", "reason_category": passed_category, "reason": "Repository passed preflight and sandbox smoke validation.", "evidence": _sandbox_evidence(result)}
+
+
+def _preflight_category(preflight: RepositoryPreflightReport) -> str:
+    """clone 실패의 원인을 preflight가 남긴 문장에서 가른다."""
+    text = f"{preflight.reason} {' '.join(preflight.evidence)}".lower()
+    if "not found" in text or "404" in text:
+        return "repository_not_found"
+    if "ref" in text or "branch" in text or "commit" in text:
+        return "ref_not_found"
+    if "private" in text or "auth" in text or "permission" in text:
+        return "private_repository_not_supported"
+    if "invalid" in text or "not a github" in text or "url" in text:
+        return "invalid_repository_input"
+    return "repository_not_accessible"
+
+
+def _no_entrypoint_category(preflight: RepositoryPreflightReport) -> str:
+    """실행 경로가 없는 이유를 가른다. 매니페스트가 없는 것과 고를 수 없는 것은 다르다."""
+    text = f"{preflight.reason} {' '.join(preflight.evidence)}".lower()
+    if "empty" in text:
+        return "empty_repository"
+    if "monorepo" in text or "multiple" in text or "ambiguous" in text:
+        return "ambiguous_monorepo_path"
+    if "unsupported" in text or "stack" in text:
+        return "unsupported_project_stack"
+    return "no_manifest_detected"
+
+
+# sandbox가 구조화 결과로 알려주는 실패 단계 -> 판정 카테고리.
+# 로그 문자열을 뒤지는 것보다 정확하다. 외부 sandbox가 이 리포트를 보내지 않을 때만 키워드로 내려간다.
+_FAILED_STEP_CATEGORIES = {
+    "prepare": "sandbox_not_executed",
+    "clone": "repository_not_accessible",
+    "patch": "sandbox_nonzero_exit",
+    "detect": "no_manifest_detected",
+    "dependencies": "dependency_install_failed",
+}
+# 스크립트가 약속한 종료 코드. fix/unverifiable-repo가 89(검증할 테스트 없음)를 추가하면
+# 그 값을 no_tests_detected로 잇는다. 지금은 두 코드만 쓴다.
+_EXIT_CODE_CATEGORIES = {
+    86: "no_manifest_detected",
+    87: "unsupported_project_stack",
+}
+# pip이 실제로 찍는 해결 실패 문구만 본다. "install"은 성공 로그에도 나온다.
+_DEPENDENCY_SIGNS = (
+    "no matching distribution found",
+    "could not find a version that satisfies",
+    "resolutionimpossible",
+    "npm err!",
+    "could not resolve dependencies",
+)
+_TEST_SIGNS = ("failures ===", "short test summary", "assertionerror", "[test]")
+_TEST_TOKENS = ("test", "pytest", "spec")
+_FAILURE_TOKENS = ("fail", "error")
+# 컴파일 실패 전용 카테고리는 없다. 원인을 단정하지 않고 일반 실패로 남긴다.
+_COMPILE_SIGNS = ("error compiling", "syntaxerror", "indentationerror")
+
+
+def _nonzero_exit_category(result: SandboxResult) -> str:
+    """0이 아닌 종료를 판정 카테고리로 옮긴다.
+
+    sandbox가 보낸 구조화 결과(exit code, failed_step)를 먼저 본다. 그것이 없을 때만
+    로그 문구로 내려간다. 로그 전체를 substring으로 뒤지면 준비 과정 출력에 걸린다.
+    """
+    if category := _EXIT_CODE_CATEGORIES.get(result.exit_code):
+        return category
+
+    report = result.sandbox_report or {}
+    failed_step = str(report.get("failed_step") or "")
+    if category := _FAILED_STEP_CATEGORIES.get(failed_step):
+        return category
+    if failed_step == "smoke":
+        return _smoke_category(result)
+    return _smoke_category(result)
+
+
+def _smoke_category(result: SandboxResult) -> str:
+    text = f"{result.stderr} {result.stdout}".lower()
+    if "docker" in text:
+        return "docker_build_failed"
+    if any(sign in text for sign in _DEPENDENCY_SIGNS):
+        return "dependency_install_failed"
+    if any(sign in text for sign in _COMPILE_SIGNS):
+        return "sandbox_nonzero_exit"
+    if any(sign in text for sign in _TEST_SIGNS):
+        return "test_failure"
+    if any(t in text for t in _TEST_TOKENS) and any(f in text for f in _FAILURE_TOKENS):
+        return "test_failure"
+    return "sandbox_nonzero_exit"
 
 
 def is_real_chaos_observation(result: SandboxResult) -> bool:
@@ -288,6 +387,9 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
         return None, warnings
 
     # 카오스 실험이 아닌 실측 구간에는 SLO를 그대로 적용한다.
+    if (finding := _unmeasurable_reason(measured, slo)) is not None:
+        return finding, warnings
+
     error_rate = _as_float(measured.get("error_rate"))
     if error_rate is not None and slo.error_rate_max is not None and error_rate > slo.error_rate_max:
         return f"error_rate_slo_violation: error_rate {error_rate} exceeds {slo.error_rate_max}.", warnings
@@ -308,7 +410,70 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
     if p95 is not None and slo.p95_latency_ms_max is not None and p95 > slo.p95_latency_ms_max:
         return f"latency_slo_violation: p95 {p95}ms exceeds {slo.p95_latency_ms_max}ms.", warnings
 
-    return None, warnings
+    return _resource_reason(measured, slo), warnings
+
+
+# (사유 코드, 관측 키, SLO 임계 필드, 단위). 상한을 넘으면 Fail이다.
+_RESOURCE_CEILINGS = (
+    ("cpu_saturation", "cpu_usage_percent", "cpu_usage_percent_max", "%"),
+    ("unexpected_restart", "restart_count", "restart_count_max", " restarts"),
+    ("database_connection_errors", "db_connection_errors", "db_connection_errors_max", " errors"),
+    ("redis_connection_errors", "redis_connection_errors", "redis_connection_errors_max", " errors"),
+)
+# 이 중 하나라도 측정되면 판정할 근거가 있다고 본다.
+_JUDGEABLE_KEYS = ("error_rate", "availability", "p95_latency_ms", "p99_latency_ms", "cpu_usage_percent")
+
+
+def _unmeasurable_reason(measured: dict[str, object], slo: SLO) -> str | None:
+    """판정 근거가 될 지표가 하나도 없으면 통과로 보내지 않는다.
+
+    트래픽이 0건이면 가용성 100%와 오류율 0%는 아무것도 뜻하지 않는다. 키가 아예 없는
+    경우(sandbox가 그 지표를 안 보냄)와 키는 있는데 값이 null인 경우(측정에 실패함)를
+    구분해서, 뒤쪽만 Fail로 본다.
+    """
+    requests = _as_float(measured.get("request_count"))
+    if requests is not None and slo.request_count_min is not None and requests < slo.request_count_min:
+        return (
+            f"no_traffic_observed: request_count {requests} is below the minimum "
+            f"{slo.request_count_min}, so the other metrics describe nothing."
+        )
+
+    present = [key for key in _JUDGEABLE_KEYS if key in measured]
+    if present and all(_as_float(measured.get(key)) is None for key in present):
+        return (
+            "missing_metrics: the sandbox reported the metric keys but no values, "
+            "so none of the targets could be checked."
+        )
+    return None
+
+
+def _resource_reason(measured: dict[str, object], slo: SLO) -> str | None:
+    """자원 지표가 상한을 넘었는지. 운영자가 임계값을 정한 지표만 본다."""
+    for category, metric_key, slo_field, unit in _RESOURCE_CEILINGS:
+        observed = _as_float(measured.get(metric_key))
+        ceiling = getattr(slo, slo_field)
+        if observed is not None and ceiling is not None and observed > ceiling:
+            return f"{category}: {metric_key} {observed}{unit} exceeds {ceiling}{unit}."
+
+    ratio = _memory_usage_ratio(measured)
+    if ratio is not None and slo.memory_usage_ratio_max is not None and ratio > slo.memory_usage_ratio_max:
+        return (
+            f"memory_pressure: memory usage {round(ratio, 3)} of the limit exceeds "
+            f"{slo.memory_usage_ratio_max}."
+        )
+    return None
+
+
+def _memory_usage_ratio(measured: dict[str, object]) -> float | None:
+    """한도 대비 사용률. sandbox는 사용량과 한도를 MB로 따로 보낸다."""
+    if (ratio := _as_float(measured.get("memory_usage_ratio"))) is not None:
+        return ratio
+    used = _as_float(measured.get("memory_usage_mb"))
+    limit = _as_float(measured.get("memory_limit_mb"))
+    if used is None or not limit:
+        return None
+    return used / limit
+
 
 
 def _expected_recovery_bound(observation: dict[str, object]) -> float | None:
