@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "chaos-v1",
+  "scenario": "pod_delete",
+  "observationStatus": "observed",
+  "target": {
+    "namespace": "codereferee-quickbyte",
+    "deployment": "quickbyte-api",
+    "labelSelector": "app.kubernetes.io/name=quickbyte-api",
+    "service": "quickbyte-api",
+    "servicePort": 8080
+  },
+  "replicas": 1,
+  "chaosEngine": "codereferee-pod-delete-quickbyte-api-1790886619",
+  "chaosResult": {
+    "name": "codereferee-pod-delete-quickbyte-api-1790886619-pod-delete",
+    "verdict": "Pass",
+    "phase": "Completed",
+    "raw": {
+      "experimentStatus": {
+        "phase": "Completed",
+        "probeSuccessPercentage": "100",
+        "verdict": "Pass"
+      },
+      "history": {
+        "failedRuns": 0,
+        "passedRuns": 1,
+        "stoppedRuns": 0,
+        "targets": [
+          {
+            "chaosStatus": "targeted",
+            "kind": "deployment",
+            "name": "quickbyte-api"
+          }
+        ]
+      }
+    }
+  },
+  "chaos_observation": {
+    "type": "pod_kill",
+    "kill_method": "litmus_pod_delete",
+    "started_at": "2026-10-01T20:30:20.908490Z",
+    "recovered_at": "2026-10-01T20:32:45.921426Z",
+    "target_pod_uid": "29be7b41-6426-416e-97aa-9f0fb12d8b8f",
+    "replacement_pod_uid": "2c454a22-f88f-4474-b593-e931b9777707",
+    "target_configuration": {
+      "replicas": 1,
+      "readiness_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 5,
+        "timeout_seconds": 2,
+        "failure_threshold": 12,
+        "success_threshold": 1
+      },
+      "liveness_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 10,
+        "timeout_seconds": 2,
+        "failure_threshold": 3,
+        "success_threshold": 1
+      },
+      "startup_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 5,
+        "timeout_seconds": 2,
+        "failure_threshold": 30,
+        "success_threshold": 1
+      },
+      "termination_grace_period_seconds": 30
+    },
+    "observation_window": {
+      "baseline_probe_count": 20,
+      "recovery_timeout_seconds": 240,
+      "error_rate_denominator": "all HTTP GET / probes collected during baseline and Litmus execution"
+    },
+    "abort_condition": {
+      "triggered": false,
+      "reason": null
+    }
+  },
+  "baseline": {
+    "metrics": {
+      "availability": 1.0,
+      "p95_latency_ms": 86.16,
+      "error_rate": 0.0,
+      "probe_count": 20,
+      "success_count": 20,
+      "failure_count": 0,
+      "error_rate_denominator": "all HTTP GET / probes collected during baseline, recovery, and replacement verification; readiness wait probes are excluded",
+      "cpu_usage_percent": null,
+      "memory_usage_mb": null,
+      "restart_count": 0
+    }
+  },
+  "metrics": {
+    "availability": 0.5306122448979592,
+    "p95_latency_ms": 2015.15,
+    "error_rate": 0.4693877551020408,
+    "probe_count": 49,
+    "success_count": 26,
+    "failure_count": 23,
+    "error_rate_denominator": "all HTTP GET / probes collected during baseline, recovery, and replacement verification; readiness wait probes are excluded",
+    "cpu_usage_percent": null,
+    "memory_usage_mb": null,
+    "restart_count": 0
+  }
+}

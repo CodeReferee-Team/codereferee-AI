@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "litmus-v1",
+  "scenario": "pod_delete",
+  "target": {
+    "namespace": "codereferee-quickbyte",
+    "deployment": "quickbyte-api",
+    "labelSelector": "app.kubernetes.io/name=quickbyte-api"
+  },
+  "chaosEngine": "codereferee-pod-delete-quickbyte-api-1790886210",
+  "chaosResult": {
+    "name": "codereferee-pod-delete-quickbyte-api-1790886210-pod-delete",
+    "verdict": "Pass",
+    "phase": "Completed",
+    "raw": {
+      "experimentStatus": {
+        "phase": "Completed",
+        "probeSuccessPercentage": "100",
+        "verdict": "Pass"
+      },
+      "history": {
+        "failedRuns": 0,
+        "passedRuns": 1,
+        "stoppedRuns": 0,
+        "targets": [
+          {
+            "chaosStatus": "targeted",
+            "kind": "deployment",
+            "name": "quickbyte-api"
+          }
+        ]
+      }
+    }
+  }
+}

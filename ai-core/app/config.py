@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     sandbox_nano_cpus: int = 2_000_000_000
     sandbox_pids_limit: int = 512
     repository_clone_timeout_seconds: int = 30
+    # 교체 Pod의 스케줄링과 이미지 pull에 드는 시간. 클러스터마다 달라 측정이 불가능하므로
+    # 설정으로 둔다. docs/judge-policy.md 6.5의 기대 복구 상한 계산식에 쓴다.
+    chaos_recovery_startup_allowance_seconds: float = 30.0
     # 판정은 규칙이 한다. 측정 결과 LLM은 판정 정확도가 같거나 낮고(100% vs 94%) 원인 분류는
     # 훨씬 낮았으며(94.1% vs 58.8%), 레포 로그에 심어둔 지시에 흔들렸다(0건 vs 2건).
     # docs/evaluation-design.md 12절. 비교 실험을 다시 돌릴 수 있도록 경로는 남겨 둔다.

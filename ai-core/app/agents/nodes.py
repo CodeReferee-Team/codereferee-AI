@@ -167,6 +167,23 @@ def _fallback_judge(state: AgentState) -> dict[str, object]:
         return {"status": "Fail", "reason_category": _no_entrypoint_category(preflight), "reason": preflight.reason or "Repository has no detected executable path.", "evidence": _non_empty_evidence(preflight.evidence, preflight.reason, "executable=false")}
 
     result = state.execution_result or SandboxResult(exit_code=None, stderr="No sandbox execution")
+    if is_real_chaos_observation(result):
+        # 카오스 실행에는 일반 smoke 규칙을 적용하지 않는다. sandbox가 별도 서버 프로세스를 띄우지
+        # 않고 Kubernetes Service probe로 관측하므로 server_started=false와 http_status=null은
+        # 실패가 아니라 "그 검사를 하지 않았다"는 뜻이다. 실제 복구 성공이 "서비스 기동 실패"로
+        # 판정되던 것을 막는다.
+        failure, warnings = _measured_policy_findings(state, result)
+        state.metrics["policy_warnings"] = warnings
+        for warning in warnings:
+            state.events.append(f"Judge: warning {warning}")
+        if failure:
+            category, _, detail = failure.partition(": ")
+            return {"status": "Fail", "reason_category": category, "reason": detail or failure,
+                    "evidence": _sandbox_evidence(result)}
+        return {"status": "Pass", "reason_category": "chaos_recovered_within_budget",
+                "reason": "Chaos experiment recovered within the configured budget.",
+                "evidence": _sandbox_evidence(result)}
+
     if result.timed_out:
         return {"status": "Fail", "reason_category": "timeout", "reason": "Sandbox execution timed out.", "evidence": _sandbox_evidence(result)}
     if result.exit_code != 0:
@@ -277,6 +294,43 @@ def _smoke_category(result: SandboxResult) -> str:
     return "sandbox_nonzero_exit"
 
 
+def is_real_chaos_observation(result: SandboxResult) -> bool:
+    """실제 카오스 실험을 관측한 결과인가.
+
+    `source.real_execution_observed`를 조건에 넣지 않는다. 계약 문서에는 있지만 실제 Litmus
+    응답에는 그 필드가 없다(tests/fixtures/chaos_actual). 관측 성공 여부는 observationStatus가
+    말해준다.
+    """
+    return bool(result.chaos_observation) and result.observation_status == "observed"
+
+
+def chaos_recovered(observation: dict[str, object]) -> bool | None:
+    """복구했는지. 모르면 None.
+
+    Litmus 응답에는 `recovered` 불리언이 없고 `recovered_at`만 있다. 키가 없다고 판정 불가로
+    보내면 실제 실행이 전부 Error가 된다.
+    """
+    if "recovered" in observation:
+        return bool(observation["recovered"])
+    if observation.get("recovered_at"):
+        return True
+    return None
+
+
+def chaos_aborted(observation: dict[str, object]) -> bool:
+    """중단 조건이 발동했는가. 실측 응답은 {"triggered": false} 객체를 담는다."""
+    condition = observation.get("abort_condition")
+    if isinstance(condition, dict):
+        return bool(condition.get("triggered"))
+    return bool(observation.get("aborted"))
+
+
+def chaos_target_configuration(observation: dict[str, object]) -> dict[str, object]:
+    """워크로드 설정. 실측은 target_configuration에 담아 보낸다."""
+    config = observation.get("target_configuration")
+    return config if isinstance(config, dict) else {}
+
+
 def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple[str | None, list[str]]:
     """docs/judge-policy.md 6절 기준으로 실측 지표를 판정한다.
 
@@ -295,10 +349,26 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
     observation = result.chaos_observation
 
     if observation:
-        if observation.get("recovered") is False:
+        if chaos_recovered(observation) is False:
             return "chaos_not_recovered: chaos experiment never recovered to a serving state.", warnings
 
-        recovery = _as_float(measured.get("recovery_seconds"))
+        # 복구 시간은 chaos_observation에도 metrics에도 올 수 있다. 실측은 전자에 담아 보낸다.
+        recovery = _as_float(observation.get("recovery_seconds"))
+        if recovery is None:
+            recovery = _as_float(measured.get("recovery_seconds"))
+
+        bound = _expected_recovery_bound(observation)
+        if recovery is not None and bound is not None and recovery > bound:
+            return (
+                f"chaos_recovery_exceeds_expected_bound: recovery {recovery}s exceeds the bound "
+                f"{round(bound, 3)}s implied by the workload configuration.",
+                warnings,
+            )
+
+        if _as_float(chaos_target_configuration(observation).get("replicas")) == 1:
+            # replica가 1개면 다운타임은 문서화된 정상 동작이다. 구성 경고로만 남긴다.
+            warnings.append("chaos_single_replica_topology")
+
         allowance = _monthly_unavailability_budget_seconds(slo.availability_percent_min)
         if recovery is not None and allowance:
             if recovery >= allowance:
@@ -404,6 +474,33 @@ def _memory_usage_ratio(measured: dict[str, object]) -> float | None:
         return None
     return used / limit
 
+
+
+def _expected_recovery_bound(observation: dict[str, object]) -> float | None:
+    """워크로드 설정에서 기대 복구 상한을 계산한다. docs/judge-policy.md 6.5.
+
+    bound = grace + initial_delay + period x success_threshold + startup_allowance
+    force 삭제는 grace를 기다리지 않는다. 설정이 없으면 None을 돌려 이 규칙을 건너뛴다.
+    근거 없는 상한으로 Fail을 내면 안 된다.
+    """
+    config = chaos_target_configuration(observation)
+    probe = config.get("readiness_probe")
+    if not isinstance(probe, dict):
+        return None
+    period = _as_float(probe.get("period_seconds"))
+    success_threshold = _as_float(probe.get("success_threshold"))
+    if period is None or success_threshold is None:
+        return None
+
+    initial_delay = _as_float(probe.get("initial_delay_seconds")) or 0.0
+    grace = 0.0
+    if str(observation.get("kill_method", "")).endswith("force"):
+        grace = 0.0
+    else:
+        grace = _as_float(config.get("termination_grace_period_seconds")) or 0.0
+    min_ready = _as_float(config.get("min_ready_seconds")) or 0.0
+    allowance = get_settings().chaos_recovery_startup_allowance_seconds
+    return grace + initial_delay + period * success_threshold + min_ready + allowance
 
 
 def _monthly_unavailability_budget_seconds(availability_percent_min: float | None) -> float | None:

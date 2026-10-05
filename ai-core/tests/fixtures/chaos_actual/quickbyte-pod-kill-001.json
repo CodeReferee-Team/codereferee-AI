@@ -1,0 +1,180 @@
+{
+  "exitCode": 0,
+  "observationStatus": "observed",
+  "stdout": "Fixture recovered after Pod Kill.",
+  "stderr": "",
+  "timedOut": false,
+  "durationMillis": 66680,
+  "serverStarted": true,
+  "serverUrl": "http://quickbyte-api.codereferee-quickbyte.svc.cluster.local:8080",
+  "httpStatus": 200,
+  "browserLoaded": false,
+  "pageTitle": null,
+  "runCommand": [
+    "kubectl",
+    "delete",
+    "pod",
+    "quickbyte-api-7bff5b955-mgmn5",
+    "-n",
+    "codereferee-quickbyte"
+  ],
+  "schemaVersion": "chaos-v1",
+  "baseline": {
+    "pod": {
+      "name": "quickbyte-api-7bff5b955-mgmn5",
+      "uid": "7b772aa2-d2dc-46bd-b10e-b5aa4f163a52",
+      "phase": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "node": "docker-desktop"
+    },
+    "metrics": {
+      "availability": 1.0,
+      "p95_latency_ms": 68.23,
+      "error_rate": 0.0,
+      "probe_count": 20,
+      "success_count": 20,
+      "failure_count": 0,
+      "error_rate_denominator": "all HTTP GET / probes collected during baseline, recovery, and replacement verification; readiness wait probes are excluded",
+      "cpu_usage_percent": null,
+      "memory_usage_mb": null,
+      "restart_count": 0
+    }
+  },
+  "metrics": {
+    "availability": 0.55,
+    "p95_latency_ms": 2013.55,
+    "error_rate": 0.44999999999999996,
+    "probe_count": 40,
+    "success_count": 22,
+    "failure_count": 18,
+    "error_rate_denominator": "all HTTP GET / probes collected during baseline, recovery, and replacement verification; readiness wait probes are excluded",
+    "cpu_usage_percent": null,
+    "memory_usage_mb": null,
+    "restart_count": 0,
+    "recovery_seconds": 58.84
+  },
+  "probeTransport": "kubectl_port_forward",
+  "target": {
+    "deployment": "quickbyte-api",
+    "service": "quickbyte-api",
+    "service_port": 8080,
+    "label_selector": "app.kubernetes.io/name=quickbyte-api"
+  },
+  "replicas": 1,
+  "chaos_observation": {
+    "type": "pod_kill",
+    "target_kind": "Pod",
+    "target_name": "quickbyte-api-7bff5b955-mgmn5",
+    "target_pod_uid": "7b772aa2-d2dc-46bd-b10e-b5aa4f163a52",
+    "namespace": "codereferee-quickbyte",
+    "replicas": 1,
+    "target_configuration": {
+      "replicas": 1,
+      "readiness_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 5,
+        "timeout_seconds": 2,
+        "failure_threshold": 12,
+        "success_threshold": 1
+      },
+      "liveness_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 10,
+        "timeout_seconds": 2,
+        "failure_threshold": 3,
+        "success_threshold": 1
+      },
+      "termination_grace_period_seconds": 30
+    },
+    "kill_method": "kubectl_delete_pod",
+    "delete_wait": false,
+    "graceful_termination": true,
+    "started_at": "2026-10-01T19:29:00.681950Z",
+    "replacement_pod_created": true,
+    "replacement_pod_name": "quickbyte-api-7bff5b955-85r2w",
+    "replacement_pod_uid": "a59c7865-a57a-477a-ad2c-4841cdb3f3b7",
+    "replacement_restart_count": 0,
+    "recovered": true,
+    "recovered_at": "2026-10-01T19:30:00.267663Z",
+    "recovery_seconds": 58.84,
+    "kubernetes_events": [
+      {
+        "at": "2026-10-01T19:29:01Z",
+        "type": "Normal",
+        "reason": "Scheduled",
+        "message": "Successfully assigned codereferee-quickbyte/quickbyte-api-7bff5b955-85r2w to docker-desktop",
+        "object_kind": "Pod",
+        "object_name": "quickbyte-api-7bff5b955-85r2w"
+      },
+      {
+        "at": "2026-10-01T19:29:01Z",
+        "type": "Normal",
+        "reason": "SuccessfulCreate",
+        "message": "Created pod: quickbyte-api-7bff5b955-85r2w",
+        "object_kind": "ReplicaSet",
+        "object_name": "quickbyte-api-7bff5b955"
+      },
+      {
+        "at": "2026-10-01T19:29:01Z",
+        "type": "Normal",
+        "reason": "Killing",
+        "message": "Stopping container api",
+        "object_kind": "Pod",
+        "object_name": "quickbyte-api-7bff5b955-mgmn5"
+      },
+      {
+        "at": "2026-10-01T19:29:02Z",
+        "type": "Normal",
+        "reason": "Pulled",
+        "message": "Container image \"codereferee/quickbyte-demo:local\" already present on machine",
+        "object_kind": "Pod",
+        "object_name": "quickbyte-api-7bff5b955-85r2w"
+      },
+      {
+        "at": "2026-10-01T19:29:03Z",
+        "type": "Normal",
+        "reason": "Started",
+        "message": "Started container api",
+        "object_kind": "Pod",
+        "object_name": "quickbyte-api-7bff5b955-85r2w"
+      },
+      {
+        "at": "2026-10-01T19:29:03Z",
+        "type": "Normal",
+        "reason": "Created",
+        "message": "Created container: api",
+        "object_kind": "Pod",
+        "object_name": "quickbyte-api-7bff5b955-85r2w"
+      },
+      {
+        "at": "2026-10-01T19:29:51Z",
+        "type": "Warning",
+        "reason": "Unhealthy",
+        "message": "Startup probe failed: Get \"http://10.1.0.26:8080/actuator/health/liveness\": dial tcp 10.1.0.26:8080: connect: connection refused",
+        "object_kind": "Pod",
+        "object_name": "quickbyte-api-7bff5b955-85r2w"
+      }
+    ],
+    "replacement_logs": "2026-10-01T19:29:15.251Z  INFO [trace=na] 1 --- [quickbite] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode\n2026-10-01T19:29:15.253Z  INFO [trace=na] 1 --- [quickbite] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode.\n2026-10-01T19:29:15.807Z  INFO [trace=na] 1 --- [quickbite] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 512 ms. Found 6 JPA repository interfaces.\n2026-10-01T19:29:15.997Z  INFO [trace=na] 1 --- [quickbite] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Multiple Spring Data modules found, entering strict repository configuration mode\n2026-10-01T19:29:15.998Z  INFO [trace=na] 1 --- [quickbite] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Bootstrapping Spring Data Redis repositories in DEFAULT mode.\n2026-10-01T19:29:16.049Z  INFO [trace=na] 1 --- [quickbite] [           main] .RepositoryConfigurationExtensionSupport : Spring Data Redis - Could not safely identify store assignment for repository candidate interface com.codereferee.quickbite.delivery.DeliveryTrackingRepository; If you want this repository to be a Redis repository, consider annotating your entities with one of these annotations: org.springframework.data.redis.core.RedisHash (preferred), or consider extending one of the following types with your repository: org.springframework.data.keyvalue.repository.KeyValueRepository\n2026-10-01T19:29:16.050Z  INFO [trace=na] 1 --- [quickbite] [           main] .RepositoryConfigurationExtensionSupport : Spring Data Redis - Could not safely identify store assignment for repository candidate interface com.codereferee.quickbite.order.FoodOrderRepository; If you want this repository to be a Redis repository, consider annotating your entities with one of these annotations: org.springframework.data.redis.core.RedisHash (preferred), or consider extending one of the following types with your repository: org.springframework.data.keyvalue.repository.KeyValueRepository\n2026-10-01T19:29:16.050Z  INFO [trace=na] 1 --- [quickbite] [           main] .RepositoryConfigurationExtensionSupport : Spring Data Redis - Could not safely identify store assignment for repository candidate interface com.codereferee.quickbite.payment.PaymentRequestRepository; If you want this repository to be a Redis repository, consider annotating your entities with one of these annotations: org.springframework.data.redis.core.RedisHash (preferred), or consider extending one of the following types with your repository: org.springframework.data.keyvalue.repository.KeyValueRepository\n2026-10-01T19:29:16.051Z  INFO [trace=na] 1 --- [quickbite] [           main] .RepositoryConfigurationExtensionSupport : Spring Data Redis - Could not safely identify store assignment for repository candidate interface com.codereferee.quickbite.restaurant.MenuItemRepository; If you want this repository to be a Redis repository, consider annotating your entities with one of these annotations: org.springframework.data.redis.core.RedisHash (preferred), or consider extending one of the following types with your repository: org.springframework.data.keyvalue.repository.KeyValueRepository\n2026-10-01T19:29:16.051Z  INFO [trace=na] 1 --- [quickbite] [           main] .RepositoryConfigurationExtensionSupport : Spring Data Redis - Could not safely identify store assignment for repository candidate interface com.codereferee.quickbite.restaurant.RestaurantRepository; If you want this repository to be a Redis repository, consider annotating your entities with one of these annotations: org.springframework.data.redis.core.RedisHash (preferred), or consider extending one of the following types with your repository: org.springframework.data.keyvalue.repository.KeyValueRepository\n2026-10-01T19:29:16.051Z  INFO [trace=na] 1 --- [quickbite] [           main] .RepositoryConfigurationExtensionSupport : Spring Data Redis - Could not safely identify store assignment for repository candidate interface com.codereferee.quickbite.user.UserAccountRepository; If you want this repository to be a Redis repository, consider annotating your entities with one of these annotations: org.springframework.data.redis.core.RedisHash (preferred), or consider extending one of the following types with your repository: org.springframework.data.keyvalue.repository.KeyValueRepository\n2026-10-01T19:29:16.051Z  INFO [trace=na] 1 --- [quickbite] [           main] .s.d.r.c.RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 36 ms. Found 0 Redis repository interfaces.\n2026-10-01T19:29:20.911Z  INFO [trace=na] 1 --- [quickbite] [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat initialized with port 8080 (http)\n2026-10-01T19:29:20.951Z  INFO [trace=na] 1 --- [quickbite] [           main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]\n2026-10-01T19:29:20.952Z  INFO [trace=na] 1 --- [quickbite] [           main] o.apache.catalina.core.StandardEngine    : Starting Servlet engine: [Apache Tomcat/11.0.21]\n2026-10-01T19:29:21.509Z  INFO [trace=na] 1 --- [quickbite] [           main] b.w.c.s.WebApplicationContextInitializer : Root WebApplicationContext: initialization completed in 10997 ms\n2026-10-01T19:29:25.401Z  INFO [trace=na] 1 --- [quickbite] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Starting...\n2026-10-01T19:29:25.964Z  INFO [trace=na] 1 --- [quickbite] [           main] com.zaxxer.hikari.pool.HikariPool        : HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@71098fb3\n2026-10-01T19:29:25.995Z  INFO [trace=na] 1 --- [quickbite] [           main] com.zaxxer.hikari.HikariDataSource       : HikariPool-1 - Start completed.\n2026-10-01T19:29:26.058Z  INFO [trace=na] 1 --- [quickbite] [           main] org.flywaydb.core.FlywayExecutor         : Database: jdbc:postgresql://quickbyte-postgres:5432/quickbite (PostgreSQL 17.11)\n2026-10-01T19:29:26.352Z  INFO [trace=na] 1 --- [quickbite] [           main] o.f.core.internal.command.DbValidate     : Successfully validated 1 migration (execution time 00:00.152s)\n2026-10-01T19:29:26.448Z  INFO [trace=na] 1 --- [quickbite] [           main] o.f.core.internal.command.DbMigrate      : Current version of schema \"public\": 1\n2026-10-01T19:29:26.455Z  INFO [trace=na] 1 --- [quickbite] [           main] o.f.core.internal.command.DbMigrate      : Schema \"public\" is up to date. No migration necessary.\n2026-10-01T19:29:27.713Z  INFO [trace=na] 1 --- [quickbite] [           main] org.hibernate.orm.jpa                    : HHH008540: Processing PersistenceUnitInfo [name: default]\n2026-10-01T19:29:28.295Z  INFO [trace=na] 1 --- [quickbite] [           main] org.hibernate.orm.core                   : HHH000001: Hibernate ORM core version 7.2.12.Final\n2026-10-01T19:29:31.152Z  INFO [trace=na] 1 --- [quickbite] [           main] o.s.o.j.p.SpringPersistenceUnitInfo      : No LoadTimeWeaver setup: ignoring JPA class transformer\n2026-10-01T19:29:31.562Z  INFO [trace=na] 1 --- [quickbite] [           main] org.hibernate.orm.connections.pooling    : HHH10001005: Database info:\n\tDatabase JDBC URL [jdbc:postgresql://quickbyte-postgres:5432/quickbite]\n\tDatabase driver: PostgreSQL JDBC Driver\n\tDatabase dialect: PostgreSQLDialect\n\tDatabase version: 17.11\n\tDefault catalog/schema: quickbite/public\n\tAutocommit mode: undefined/unknown\n\tIsolation level: READ_COMMITTED [default READ_COMMITTED]\n\tJDBC fetch size: none\n\tPool: DataSourceConnectionProvider\n\tMinimum pool size: undefined/unknown\n\tMaximum pool size: undefined/unknown\n2026-10-01T19:29:37.404Z  INFO [trace=na] 1 --- [quickbite] [           main] org.hibernate.orm.core                   : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration)\n2026-10-01T19:29:37.580Z  INFO [trace=na] 1 --- [quickbite] [           main] j.LocalContainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default'\n2026-10-01T19:29:38.366Z  INFO [trace=na] 1 --- [quickbite] [           main] o.s.d.j.r.query.QueryEnhancerFactories   : Hibernate is in classpath; If applicable, HQL parser will be used.\n2026-10-01T19:29:46.194Z  INFO [trace=na] 1 --- [quickbite] [           main] o.s.b.w.a.WelcomePageHandlerMapping      : Adding welcome page: class path resource [static/index.html]\n2026-10-01T19:29:52.096Z  INFO [trace=na] 1 --- [quickbite] [           main] o.s.b.a.e.web.EndpointLinksResolver      : Exposing 4 endpoints beneath base path '/actuator'\n2026-10-01T19:29:52.516Z  INFO [trace=na] 1 --- [quickbite] [           main] o.s.boot.tomcat.TomcatWebServer          : Tomcat started on port 8080 (http) with context path '/'\n2026-10-01T19:29:52.653Z  INFO [trace=na] 1 --- [quickbite] [           main] c.c.quickbite.QuickbiteApplication       : Started QuickbiteApplication in 45.151 seconds (process running for 48.828)\n2026-10-01T19:29:56.592Z  WARN [trace=na] 1 --- [quickbite] [           main] o.s.core.events.SpringDocAppInitializer  : SpringDoc /v3/api-docs endpoint is enabled by default. To disable it in production, set the property 'springdoc.api-docs.enabled=false'\n2026-10-01T19:29:56.593Z  WARN [trace=na] 1 --- [quickbite] [           main] o.s.core.events.SpringDocAppInitializer  : SpringDoc /swagger-ui.html endpoint is enabled by default. To disable it in production, set the property 'springdoc.swagger-ui.enabled=false'\n2026-10-01T19:29:57.165Z  INFO [trace=na] 1 --- [quickbite] [nio-8080-exec-1] o.a.c.c.C.[Tomcat].[localhost].[/]       : Initializing Spring DispatcherServlet 'dispatcherServlet'\n2026-10-01T19:29:57.190Z  INFO [trace=na] 1 --- [quickbite] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Initializing Servlet 'dispatcherServlet'\n2026-10-01T19:29:57.197Z  INFO [trace=na] 1 --- [quickbite] [nio-8080-exec-1] o.s.web.servlet.DispatcherServlet        : Completed initialization in 7 ms",
+    "observation_window": {
+      "baseline_probe_count": 20,
+      "recovery_timeout_seconds": 180.0,
+      "probe_interval_seconds": 0.5,
+      "request_timeout_seconds": 2.0,
+      "total_probe_count": 40,
+      "failure_probe_count": 18
+    },
+    "abort_condition": {
+      "triggered": false,
+      "reason": null
+    }
+  },
+  "source": {
+    "real_execution_observed": true,
+    "fixture": false,
+    "target": "quickbyte-api"
+  }
+}
