@@ -64,3 +64,23 @@ AI Core는 기존 실행 결과 필드와 함께 다음 Chaos v1 evidence를 보
 
 Gradle과 Maven은 테스트가 0건이어도 `test` 태스크가 성공한다. 이를 구분하려면 테스트 리포트를
 읽어야 하므로 아직 다루지 않는다.
+
+## 샌드박스 이미지
+
+빌드:
+
+```bash
+docker build -t codereferee/sandbox-multi:2 ai-core/sandbox/
+```
+
+`:2`는 `eclipse-temurin:17-jdk-noble` 기반이고 Python 3.12.3, setuptools 68.1.2, Node 20, Maven 3.8.7을 담는다.
+
+`:1`(jammy)을 쓰면 안 된다. Python 3.10과 setuptools 59.6을 주는데, 그 setuptools는 PEP 621의 `[project]` 테이블을 읽지 못한다. 그래서 `pip install .`이 이름 없는 `UNKNOWN-0.0.0` 패키지를 만들고 **종료 코드 0으로 끝낸다.** 설치는 되지 않았는데 성공으로 보이고, 뒤이어 pytest가 패키지를 import하지 못해 멀쩡한 레포가 `test_failure`로 나간다.
+
+실측으로 겪었다. `pallets/markupsafe`가 `:1`에서 exit 4로 불합격이었고 `:2`에서 exit 0으로 통과한다.
+
+`:2`에서는 pip 호출에 `--break-system-packages`가 필요하다. noble이 PEP 668로 시스템 Python 설치를 막기 때문이다. 컨테이너는 한 번 쓰고 버리므로 venv를 세우지 않는다. 이 옵션은 pip 23부터 있어서 `:1`에서는 오류가 난다. 즉 이미지와 스크립트는 함께 올라가야 한다.
+
+### 알려진 한계
+
+레포가 요구하는 Python이 3.12보다 높으면 설치가 실패한다. 이때 pip은 `requires a different Python`을 말하는데, 지금은 그 실패가 `test_failure`로 분류된다. 우리 이미지가 낮은 것이지 레포의 결함이 아니므로 분류를 나누는 것이 맞다. 종료 코드를 따로 두는 쪽을 논의해야 한다.
