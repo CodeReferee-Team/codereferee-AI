@@ -45,6 +45,8 @@ REASON_CATEGORIES = (
     "sandbox_nonzero_exit",
     "sandbox_not_executed",
     "test_failure",
+    # 테스트가 없어 검증 자체를 못 한 경우. 코드 결함과 구분해야 집계가 의미를 갖는다.
+    "no_tests_detected",
     "dependency_install_failed",
     "docker_build_failed",
     # runtime
