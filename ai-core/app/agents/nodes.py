@@ -381,6 +381,46 @@ _EXIT_CODE_CATEGORIES = {
     UNSUPPORTED_STACK_EXIT_CODE: "unsupported_project_stack",
     NOTHING_TO_VERIFY_EXIT_CODE: "no_tests_detected",
 }
+
+# 우리가 검증할 수 없었던 경우. 레포 결함이 아니다.
+#
+# 종료 코드는 도구마다 뜻이 다르다. npm의 127은 "명령을 찾지 못함"이 아니고 make의 2는
+# pytest의 수집 오류가 아니다. 평가셋에서 실제로 겪었다. 그래서 코드만 보지 않고
+# 어떤 스택의 어떤 단계에서 났는지를 함께 본다. 둘 다 구조화 결과에 있다.
+#
+# pytest는 수집이 깨지면 2로, 사용법이 틀리면 4로, 테스트가 실패하면 1로 끝낸다.
+# 수집 오류는 대개 테스트 전용 의존성을 우리가 설치하지 못한 것이고, 사용법 오류는
+# 우리가 부르는 방법이 틀린 것이다. 둘 다 레포 탓이 아니다.
+_PYTEST_COLLECTION_ERROR = 2
+_PYTEST_USAGE_ERROR = 4
+# 137은 SIGKILL이다. 우리가 건 sandbox_memory_limit에 걸린 것이라 스택과 무관하다.
+_OOM_KILLED = 137
+ENVIRONMENT_LIMIT_CATEGORY = "verification_environment_unsupported"
+
+
+def _verification_was_declared(result: SandboxResult) -> bool:
+    """레포가 .codereferee/validation.yaml로 검증 방법을 선언했는가.
+
+    선언이 없으면 테스트 명령을 우리가 추측한 것이다. 추측이 틀려서 난 실패를
+    레포 탓으로 돌리면 안 된다.
+    """
+    return bool((result.sandbox_report or {}).get("verification_declared"))
+
+
+def _environment_limit_category(result: SandboxResult) -> str | None:
+    if result.exit_code == _OOM_KILLED:
+        return ENVIRONMENT_LIMIT_CATEGORY
+
+    report = result.sandbox_report or {}
+    if report.get("detected_stack") != "python" or report.get("failed_step") != "smoke":
+        return None
+    if result.exit_code == _PYTEST_USAGE_ERROR:
+        return ENVIRONMENT_LIMIT_CATEGORY
+    if result.exit_code == _PYTEST_COLLECTION_ERROR and not _verification_was_declared(result):
+        return ENVIRONMENT_LIMIT_CATEGORY
+    return None
+
+
 # pip이 실제로 찍는 해결 실패 문구만 본다. "install"은 성공 로그에도 나온다.
 _DEPENDENCY_SIGNS = (
     "no matching distribution found",
@@ -403,6 +443,9 @@ def _nonzero_exit_category(result: SandboxResult) -> str:
     로그 문구로 내려간다. 로그 전체를 substring으로 뒤지면 준비 과정 출력에 걸린다.
     """
     if category := _EXIT_CODE_CATEGORIES.get(result.exit_code):
+        return category
+    # 우리가 검증할 수 없었던 것을 레포 결함으로 보고하지 않는다.
+    if category := _environment_limit_category(result):
         return category
 
     report = result.sandbox_report or {}

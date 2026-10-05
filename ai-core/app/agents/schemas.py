@@ -47,6 +47,9 @@ REASON_CATEGORIES = (
     "test_failure",
     # 테스트가 없어 검증 자체를 못 한 경우. 코드 결함과 구분해야 집계가 의미를 갖는다.
     "no_tests_detected",
+    # 우리가 그 레포를 검증할 수 없었던 경우. 레포 결함과 구분해야 한다.
+    # 섞으면 사용자가 멀쩡한 코드를 불합격으로 받고, 우리 커버리지 격차가 숨는다.
+    "verification_environment_unsupported",
     "dependency_install_failed",
     "docker_build_failed",
     # runtime

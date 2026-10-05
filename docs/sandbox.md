@@ -84,3 +84,51 @@ docker build -t codereferee/sandbox-multi:2 ai-core/sandbox/
 ### 알려진 한계
 
 레포가 요구하는 Python이 3.12보다 높으면 설치가 실패한다. 이때 pip은 `requires a different Python`을 말하는데, 지금은 그 실패가 `test_failure`로 분류된다. 우리 이미지가 낮은 것이지 레포의 결함이 아니므로 분류를 나누는 것이 맞다. 종료 코드를 따로 두는 쪽을 논의해야 한다.
+
+## 레포가 검증 방법을 선언하는 법
+
+`.codereferee/validation.yaml`에 두 줄을 두면 추측하지 않는다.
+
+```yaml
+test: pytest -q
+testDependencies: requirements/tests.txt
+```
+
+`test`가 있으면 스택별 기본 명령 대신 그대로 돌린다. `testDependencies`가 있으면 의존성 단계에서 함께 설치한다.
+
+Kubernetes 샌드박스가 이미 같은 파일로 `deploymentProfile`을 고른다. 1층도 같은 파일을 읽으므로 두 층의 입력이 하나다.
+
+### 왜 필요한가
+
+자동 감지로 알 수 없는 것이 있다. 테스트 전용 의존성이 선언된 자리는 프로젝트마다 다르고(`optional-dependencies`, `dependency-groups`, `requirements/tests.txt`), 멀티모듈 빌드의 순서는 `mvn test` 한 번으로 맞출 수 없고, 브라우저가 필요한 테스트는 제외해야 한다.
+
+선언이 없으면 우리가 명령을 추측한다. 추측이 틀려서 난 실패를 레포 탓으로 돌리면 안 되므로, 구조화 결과에 `verification_declared`를 담아 판정이 그 차이를 알게 한다.
+
+| | 판정 |
+| --- | --- |
+| 선언했고 그대로 돌렸는데 실패 | 레포 결함으로 본다 |
+| 선언하지 않아 추측했고 수집 단계에서 깨짐 | `verification_environment_unsupported` |
+
+### 환경 한계로 분류하는 종료 코드
+
+레포 결함이 아니라 우리가 검증할 수 없었던 경우다.
+
+| 코드 | 뜻 |
+| --- | --- |
+| 126 | 실행 권한이 없다 |
+| 127 | 명령을 찾지 못했다 |
+| 137 | 우리가 건 메모리 한도에 걸렸다 |
+| 4 | pytest 사용법 오류. 우리가 부르는 방법이 틀렸다 |
+| 2 (선언 없을 때) | pytest 수집 오류. 대개 테스트 전용 의존성이다 |
+
+87(러너 없음)은 묶지 않는다. `unsupported_project_stack`이라는 정확한 코드를 이미 갖고 있고, 묶으면 어떤 스택을 받지 못했는지가 사라진다.
+
+### 실측
+
+```
+markupsafe     exit 0   declared=false   Pass / all_checks_passed
+itsdangerous   exit 2   declared=false   Fail / verification_environment_unsupported
+six            exit 89  declared=false   Fail / no_tests_detected
+```
+
+`itsdangerous`는 이전에 `test_failure`로 나갔다. `freezegun`이 없어서 수집이 깨진 것이고 레포에는 결함이 없다.
