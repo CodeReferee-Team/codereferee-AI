@@ -528,7 +528,7 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(state.metrics.get("policy_warnings", []), [])
 
     def test_judge_fails_measured_slo_violation_without_chaos(self) -> None:
-        state = self._chaos_state("slo-violation", metrics={"error_rate": 0.05})
+        state = self._chaos_state("slo-violation", metrics={"error_rate": 0.05, "availability": 1.0})
         state.execution_result.chaos_observation = {}
         state = judge_node(state)
         self.assertEqual(state.status, JobStatus.failed)

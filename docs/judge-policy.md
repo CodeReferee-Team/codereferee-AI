@@ -56,6 +56,38 @@ Judge는 아래 순서로 판단한다.
 | Metrics | `redis_connection_errors > 0` | Fail | `redis_connection_errors` |
 | Metrics | `request_count = 0` during runtime validation | Fail | `no_traffic_observed` |
 
+### 3.1 여러 지표가 동시에 깨질 때 — 원인 우선
+
+실측 구간에서는 한 관측에 여러 SLO가 함께 깨지는 일이 흔하다. redis가 죽으면
+연결 오류(원인)가 요청 실패(`error_rate`)와 서비스 다운(`availability`)을 끌고
+온다. `reason_category`는 하나만 나가므로 **무엇을 대표로 적을지**를 정해야 한다.
+
+CodeReferee는 호출기가 아니라 **"왜 떨어졌나"를 알려주는 검증 리포트**다. Google
+SRE는 *알림*은 증상으로 울리되(["Monitoring Distributed Systems" 4장, symptom
+vs cause](https://sre.google/sre-book/monitoring-distributed-systems/)) *진단·
+포스트모템*에서는 근본 원인을 추적하라고 한다. 우리 용도는 후자이므로 **구체적
+원인을 증상보다 먼저** 적는다. "가용성 낮음"보다 "redis 연결 실패"가 레포 주인에게
+행동 가능하다.
+
+판정은 아래 순서로 첫 번째 걸리는 것을 대표로 삼는다(앞이 걸리면 뒤는 보지 않는다).
+
+```text
+0. 측정 불가           no_traffic_observed, missing_metrics   (판정 근거 자체가 없음)
+1. 구체적 원인 (cause)  database_connection_errors
+                       redis_connection_errors
+                       unexpected_restart
+                       cpu_saturation
+                       memory_pressure
+2. 증상 (symptom)      availability_slo_violation   (다운)
+                       error_rate_slo_violation     (요청 실패)
+                       latency_slo_violation        (느림)
+```
+
+여러 증상만 깨지고 구체적 원인이 특정되지 않으면 사용자 영향이 큰 순(가용성 → 오류율
+→ 지연)으로 대표를 고른다. 어느 원인도 대표로 세울 수 없을 만큼 전방위로 깨지는
+경우(`multiple_slo_violations`)는 위 순서의 승자 하나로 나가며, 그 다중성 자체는
+현재 단일 코드로 표현하지 않는다(7절 한계).
+
 ---
 
 ## 4. Pass 기준
@@ -170,6 +202,12 @@ Sandbox v1이 실제 Kubernetes Pod Kill 실험 결과를 보내기 시작하면
 ## 7. 현재 한계
 
 현재 기준은 LitmusChaos 실측 데이터가 붙기 전의 기본 정책이다.
+
+여러 SLO가 동시에 깨지는 경우 대표 하나만 적는다(3.1절). "여럿이 깨졌다"는 다중성
+자체를 나타내는 코드는 없다. 대부분은 원인 우선 순서로 가장 행동 가능한 코드가
+대표가 되지만, 원인 없이 증상만 전방위로 깨지는 경우(`multiple_slo_violations`
+라벨의 평가 케이스)는 대표가 실제 다중성을 다 담지 못한다. 다중 위반 전용 코드를
+둘지는 실측 데이터가 붙은 뒤 판단한다.
 
 향후 추가 예정:
 
