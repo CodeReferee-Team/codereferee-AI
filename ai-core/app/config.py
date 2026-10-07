@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     # several minutes when the external Sandbox is enabled.
     sandbox_http_timeout_seconds: int = 600
     sandbox_timeout_seconds: int = 600
+    # 외부(장수) Prometheus 질의 엔드포인트. 샌드박스는 Agent로 remote_write만 하고 질의 API가
+    # 없어, cpu/memory는 이 바깥 Prometheus에서 request_id로 뽑는다(docs: 샌드박스 metrics-collection).
+    # None이면 연동 전이므로 조용히 건너뛴다 — cpu/memory는 null로 남고 판정은 그 지표를 쓰지 않는다.
+    prometheus_url: str | None = None
+    prometheus_timeout_seconds: int = 10
+    # cpu_usage_seconds_total의 rate() 윈도. 1초 해상도 수집이라 15초면 충분히 매끄럽다.
+    prometheus_rate_window_seconds: int = 15
     sandbox_memory_limit: str = "2g"
     sandbox_nano_cpus: int = 2_000_000_000
     sandbox_pids_limit: int = 512
