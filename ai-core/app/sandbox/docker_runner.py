@@ -243,6 +243,11 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
 # 저장소 URL 등 동적 값은 앞쪽 헤더에서 셸 변수로만 주입한다.
 _VALIDATION_BODY = """
 STACK="unknown"
+# 레포가 검증 방법을 선언했는가. 선언이 없으면 테스트 명령을 우리가 추측한 것이고,
+# 추측이 틀려서 난 실패를 레포 탓으로 돌리면 안 된다. 판정이 이 값을 본다.
+DECLARED="false"
+DECLARED_TEST=""
+DECLARED_TEST_DEPS=""
 OUTCOME="error"
 FAILED_STEP="none"
 EXIT_CODE=1
@@ -252,8 +257,8 @@ now_ms() { date +%s%3N 2>/dev/null || echo 0; }
 
 # trap으로 걸어두면 중간에 exit해도 구조화 결과가 반드시 마지막 줄에 남는다.
 emit_result() {
-  printf '\n[CodeReferee:RESULT] {"schema_version":"sandbox-result.v1","detected_stack":"%s","outcome":"%s","failed_step":"%s","exit_code":%s,"steps":[%s]}\n' \
-    "$STACK" "$OUTCOME" "$FAILED_STEP" "$EXIT_CODE" "$STEPS"
+  printf '\n[CodeReferee:RESULT] {"schema_version":"sandbox-result.v1","detected_stack":"%s","outcome":"%s","failed_step":"%s","exit_code":%s,"verification_declared":%s,"steps":[%s]}\n' \
+    "$STACK" "$OUTCOME" "$FAILED_STEP" "$EXIT_CODE" "$DECLARED" "$STEPS"
 }
 trap emit_result EXIT
 
@@ -315,6 +320,19 @@ detect_stack() {
   echo "detected_stack=$STACK"
 }
 
+read_declaration() {
+  # Kubernetes 샌드박스가 이미 이 파일로 배포 프로필을 고른다. 1층도 같은 파일을 읽으면
+  # 두 층의 입력이 하나가 된다. 단순한 key: value만 읽는다. PyYAML을 이미지에 넣지 않는다.
+  [ -f .codereferee/validation.yaml ] || return 0
+  DECLARED_TEST=$(sed -n 's/^test:[[:space:]]*//p' .codereferee/validation.yaml | head -1 | tr -d '\\042\\047')
+  DECLARED_TEST_DEPS=$(sed -n 's/^testDependencies:[[:space:]]*//p' .codereferee/validation.yaml | head -1 | tr -d '\\042\\047')
+  if [ -n "$DECLARED_TEST" ]; then
+    DECLARED="true"
+    echo "declared_test=$DECLARED_TEST"
+  fi
+  return 0
+}
+
 install_dependencies() {
   case "$STACK" in
     python)
@@ -325,6 +343,11 @@ install_dependencies() {
       fi
       if [ -f pyproject.toml ] || [ -f setup.py ]; then
         python -m pip install --disable-pip-version-check --break-system-packages . >/dev/null || return $?
+      fi
+      # 테스트 전용 의존성은 선언된 자리가 프로젝트마다 달라 자동으로 알 수 없다.
+      # 레포가 알려주면 그대로 설치한다.
+      if [ -n "$DECLARED_TEST_DEPS" ] && [ -f "$DECLARED_TEST_DEPS" ]; then
+        python -m pip install --disable-pip-version-check --break-system-packages -r "$DECLARED_TEST_DEPS" >/dev/null || return $?
       fi
       ;;
     node)
@@ -339,6 +362,12 @@ install_dependencies() {
 }
 
 run_smoke_test() {
+  # 선언이 있으면 추측하지 않는다. 멀티모듈 순서나 브라우저 제외처럼 우리가 알 수 없는
+  # 것을 레포가 알려줄 수 있는 유일한 자리다.
+  if [ -n "$DECLARED_TEST" ]; then
+    sh -c "$DECLARED_TEST"
+    return $?
+  fi
   case "$STACK" in
     python)
       python -m compileall -q . || return $?
@@ -374,6 +403,8 @@ echo "[CodeReferee] applying patch if present"
 run_step patch apply_patch
 echo "[CodeReferee] detecting project stack"
 run_step detect detect_stack
+echo "[CodeReferee] reading validation declaration"
+run_step declaration read_declaration
 echo "[CodeReferee] installing dependencies"
 run_step dependencies install_dependencies
 echo "[CodeReferee] running smoke validation"
