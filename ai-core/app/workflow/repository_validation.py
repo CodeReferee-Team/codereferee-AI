@@ -1,3 +1,5 @@
+import threading
+from contextlib import contextmanager
 from typing import Any
 from uuid import uuid4
 
@@ -67,6 +69,34 @@ def process_next_repository_validation(
     return execute_repository_validation(state, output_queue=output_queue or queue)
 
 
+@contextmanager
+def _sandbox_heartbeat(emit_progress, step: str, *, interval: float = 20.0,
+                       detail: str = "샌드박스 실행 중 (clone/build/배포/장애주입)"):
+    """긴 샌드박스 호출 동안 progress를 주기적으로 재방출한다.
+
+    layer-2는 샌드박스 안에서 수 분 걸리는데 그 사이 이벤트가 없으면 서버 stale
+    스위퍼가 진행 중 작업을 '갱신 없음'으로 보고 ERROR로 확정한다(running-timeout).
+    주기적 재방출로 updated_at을 살려 두고, 프론트가 멈춘 듯 보이지 않게 한다.
+    heartbeat 실패는 본 실행을 절대 깨뜨리지 않는다(best-effort).
+    """
+    stop = threading.Event()
+
+    def _beat() -> None:
+        while not stop.wait(interval):
+            try:
+                emit_progress(step, detail=detail)
+            except Exception:  # noqa: BLE001 - heartbeat는 본 실행을 깨면 안 된다
+                pass
+
+    thread = threading.Thread(target=_beat, name="sandbox-heartbeat", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=1.0)
+
+
 def run_repository_validation(request: RepositoryValidationRequest, job_id: str | None = None) -> AgentState:
     """Run validation synchronously, bypassing Redis. Useful for local smoke tests."""
     state = create_validation_state(request, job_id)
@@ -99,12 +129,15 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
     if preflight_passed:
         state.events.append("Sandbox: repository clone and smoke validation started")
         emit_progress(event_builder.BASELINE)
-        state.execution_result = sandbox_runner.run_repository(
-            state.preflight_report.repository_url,
-            branch=state.branch,
-            commit_sha=state.requested_commit_sha,
-            **_sandbox_contract_options(state),
-        )
+        # layer-2는 샌드박스 안에서 수 분 걸린다. 그 동안 heartbeat로 progress를 살려
+        # 두지 않으면 서버 stale 스위퍼가 진행 중 작업을 ERROR로 확정한다.
+        with _sandbox_heartbeat(emit_progress, event_builder.BASELINE):
+            state.execution_result = sandbox_runner.run_repository(
+                state.preflight_report.repository_url,
+                branch=state.branch,
+                commit_sha=state.requested_commit_sha,
+                **_sandbox_contract_options(state),
+            )
         state.metrics = _metrics_from_execution(state)
         state.sre_metrics = _sre_metrics_from_execution(state)
         SANDBOX_DURATION.observe(state.execution_result.duration_ms)
