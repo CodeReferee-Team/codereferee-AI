@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     sandbox_image: str = "codereferee/sandbox-multi:1"
     sandbox_base_url: str | None = None
     sandbox_repository_path: str = "/repositories/validate"
+    # layer-1(clone/build/smoke)을 layer-2 샌박 서비스로 옮겼으므로 ai-core의 로컬 Docker
+    # 샌박은 기본 비활성화한다. SANDBOX_BASE_URL로 layer-2를 쓴다. 오프라인 폴백이 필요하면
+    # 이 값을 true로 올린다(코드는 _run_repository_via_local_docker에 남아 있다).
+    local_sandbox_enabled: bool = False
     # Repository build, Kubernetes rollout, and Litmus recovery can each take
     # several minutes when the external Sandbox is enabled.
     sandbox_http_timeout_seconds: int = 600
