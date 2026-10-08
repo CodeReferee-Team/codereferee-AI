@@ -74,14 +74,18 @@ class ChaosBranchTests(unittest.TestCase):
         self.assertNotEqual(report.get("reason_category"), "service_smoke_failed")
 
     def test_recovered_within_the_bound_passes_with_a_single_replica_warning(self) -> None:
-        # replicas=1, 복구 58.84초. 상한은 grace 30 + probe 5 + allowance 30 = 65초.
+        # 상한은 grace 30 + probe 5 + allowance 10 = 45초(warm-pool 전제). 실측 shape 위에서
+        # 복구만 상한 안쪽 값으로 두어 pass+warning 분기를 확인한다. 실측 58.84초는 콜드
+        # 클러스터 값이라 warm-pool 상한을 넘는다(아래 over-bound 테스트에 해당).
         state = _state("quickbyte-pod-kill-001")
+        state.execution_result.chaos_observation["recovery_seconds"] = 40.0
+        state.sre_metrics = workflow._sre_metrics_from_execution(state)
         report = nodes._fallback_judge(state)
         self.assertEqual(report["status"], "Pass")
         self.assertIn("chaos_single_replica_topology", state.metrics["policy_warnings"])
 
     def test_recovery_over_the_bound_fails(self) -> None:
-        # 같은 설정에서 복구가 125.91초 걸렸다. 상한 65초의 두 배다.
+        # 같은 설정에서 복구가 125.91초 걸렸다. 상한 45초의 세 배 가까이다.
         state = _state("quickbyte-auto-deploy-litmus-001")
         report = nodes._fallback_judge(state)
         self.assertEqual(report["status"], "Fail")
