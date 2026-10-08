@@ -79,12 +79,22 @@ def build_llm_evidence_packet(state: AgentState) -> dict[str, Any]:
         "judge": {k: judge.get(k) for k in ("status", "reason_category", "reason")},
         "policy_warnings": list((state.metrics or {}).get("policy_warnings") or []),
     }
+    result = state.execution_result
     if observation:
         packet["chaos"] = {
             "replicas": config.get("replicas"),
             "recovered": observation.get("recovered"),
             "recovery_seconds": observation.get("recovery_seconds"),
         }
+    elif result is not None:
+        # 카오스가 아닌 실패(테스트·빌드·런타임)는 '로그'가 핵심 신호다. chaos만 보던 패킷에
+        # 로그가 없으면 모델은 "테스트가 실패했다"만 복창한다(실측). 과하지 않게 잘라 싣는다.
+        log = (result.stderr or result.log or "").strip()
+        if log:
+            packet["failure_log"] = truncate_log(log, 1200)
+        failed_step = (result.sandbox_report or {}).get("failed_step")
+        if failed_step:
+            packet["failed_step"] = failed_step
     if state.critic_feedback:
         packet["critic"] = {
             k: state.critic_feedback.get(k) for k in ("root_cause", "recommended_action")
