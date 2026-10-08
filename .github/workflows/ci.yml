@@ -1,0 +1,37 @@
+name: AI CI
+
+# 푸시·PR마다 유닛 테스트를 돌리고 Docker 이미지가 빌드되는지 확인한다.
+# 외부 서비스(Redis·LLM)가 필요한 eval은 여기서 돌리지 않는다(유닛 테스트는 목으로 격리됨).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: ai-core/requirements.txt
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+      - name: Unit tests
+        run: python -m pytest tests -q
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        # 배포 흐름(Actions→ECR→EC2)의 빌드 단계가 깨지지 않는지 PR에서 미리 잡는다.
+        run: docker build -t codereferee-ai:ci ai-core
