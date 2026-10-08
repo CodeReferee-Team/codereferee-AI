@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     llm_provider: str = "gemini"
     # openai-compatible일 때의 서버 주소. 예: http://localhost:11434/v1 (Ollama)
     llm_base_url: str | None = None
+    # openai-compatible 호스티드 API의 bearer 토큰(OpenRouter/Groq/DashScope 등).
+    # 키 없는 로컬 서버(Ollama/vLLM)면 비워 둔다. 비밀값 — 로그·직렬화에 노출 금지.
+    llm_api_key: str | None = None
     # 로컬 모델은 첫 토큰까지 오래 걸린다. 클라우드 기준으로 잡으면 멀쩡한 호출이 끊긴다.
     llm_timeout_seconds: int = 120
     redis_url: str = "redis://localhost:6379/0"
