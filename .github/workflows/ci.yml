@@ -28,10 +28,77 @@ jobs:
       - name: Unit tests
         run: python -m pytest tests -q
 
+  # PR에서는 빌드되는지만 본다. 푸시는 하지 않는다.
   docker-build:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build image
         # 배포 흐름(Actions→ECR→EC2)의 빌드 단계가 깨지지 않는지 PR에서 미리 잡는다.
         run: docker build -t codereferee-ai:ci ai-core
+
+  # main에 푸시될 때만, 테스트가 통과한 뒤에만 ECR로 올린다.
+  # docker-build와 중복 빌드가 되지 않도록 둘을 이벤트로 갈라놨다.
+  image:
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # 액세스 키를 저장하지 않는다. OIDC로 역할을 잠깐 빌린다.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 변수가 아니라 시크릿이다. 이 레포가 public이라 Actions 로그도 공개되는데
+      # 변수는 로그에 그대로 찍히고 시크릿은 마스킹된다.
+      - name: Check role ARN is configured
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_ARN }}
+        run: |
+          [ -n "$ROLE" ] || {
+            echo "::error::AWS_ROLE_ARN 시크릿이 없다. Settings > Secrets and variables > Actions 에서 추가한다."
+            exit 1
+          }
+
+      - name: Assume AWS role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: gha-${{ github.run_id }}
+          aws-region: ap-northeast-2
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ai-core
+          push: true
+          # EC2가 x86_64다. 빌더 아키텍처에 끌려가지 않게 못 박는다.
+          platforms: linux/amd64
+          # attestation manifest를 만들지 않는다. ECR에 untagged 아티팩트가
+          # 쌓여서 라이프사이클 정책과 엇갈린다.
+          provenance: false
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/codereferee-ai:sha-${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/codereferee-ai:${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          echo "### 푸시된 이미지" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "codereferee-ai:sha-${{ github.sha }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "codereferee-ai:${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
