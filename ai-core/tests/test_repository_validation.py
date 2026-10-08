@@ -680,9 +680,10 @@ class SandboxResultContractTests(unittest.TestCase):
             },
         }
         trimmed = summarize_metrics(metrics)["chaos_observation"]
+        # LLM 패킷에서는 대용량 노이즈를 통째로 뺀다(개수만 남긴다). 7B가 신호를 놓치지 않게.
         self.assertEqual(trimmed["kubernetes_events_total"], 60)
-        self.assertEqual(len(trimmed["kubernetes_events"]), 20)
-        self.assertLess(len(trimmed["replacement_logs"]), 700)
+        self.assertNotIn("kubernetes_events", trimmed)
+        self.assertNotIn("replacement_logs", trimmed)
         # 원본은 건드리지 않는다. Backend로는 전문이 그대로 가야 한다.
         self.assertEqual(len(metrics["chaos_observation"]["kubernetes_events"]), 60)
 
