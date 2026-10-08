@@ -177,7 +177,9 @@ class RepositoryValidationTests(unittest.TestCase):
         assert state is not None
         self.assertEqual(state.job_id, "job-queue")
         self.assertEqual(state.request_id, "job-queue")
-        self.assertEqual(state.status, JobStatus.failed)
+        # 세부사항 3호: 레포/ref 접근 실패(repository_not_found 등)는 코드 결함이 아니라
+        # 판정 불가(ERROR)다. 코드를 아예 못 받았으므로 Fail로 보고하지 않는다.
+        self.assertEqual(state.status, JobStatus.error)
         self.assertIn("Queue: payload schema=server", state.events)
         self.assertIn("Queue: repository validation dequeued", state.events)
         self.assertIn("Preflight: failed", state.events)

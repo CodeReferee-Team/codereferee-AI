@@ -38,6 +38,12 @@ UNVERIFIABLE_CATEGORIES = frozenset({
     ENVIRONMENT_LIMIT_CATEGORY,      # 테스트 환경 한계 / ConfigurationRequired (세부사항 1호)
     "no_manifest_detected",          # 빌드/실행 방법을 못 찾음 (스택 unknown) (세부사항 2호)
     "unsupported_project_stack",     # 지원하지 않는 스택
+    # 접근·입력 실패 — 코드를 아예 못 받았다. 코드 결함이 아니라 URL·브랜치·접근 문제다 (세부사항 3호).
+    "repository_not_found",            # 레포 404
+    "ref_not_found",                   # 브랜치/커밋 없음
+    "repository_not_accessible",       # clone 실패(네트워크 등)
+    "private_repository_not_supported",  # 비공개 레포 접근 불가
+    "invalid_repository_input",        # 잘못된 URL 입력
 })
 
 
