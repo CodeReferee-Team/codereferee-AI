@@ -27,6 +27,9 @@ from app.config import get_settings
 
 # 카오스 구간 p95가 baseline의 몇 배를 넘으면 경고할지. 출처 있는 값이 아니라 우리 관례다
 # (docs/judge-policy.md 6.3). Sandbox가 p99를 보내기 시작하면 임계값을 다시 정한다.
+# 우리가 정한 값이다. 출처가 없다. Sandbox가 p95만 보내서 임시로 쓰는 배수이고,
+# SRE Book은 p95 단일 임계값이 아니라 p50과 p99를 함께 보라고 권고한다.
+# docs/judge-policy.md 9.2·9.3. p50·p99가 들어오면 이 값을 다시 정한다.
 LATENCY_DEGRADATION_FACTOR = 10
 
 
