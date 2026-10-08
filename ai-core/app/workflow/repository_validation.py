@@ -16,6 +16,7 @@ from app.models import (
     SandboxResult,
     SREMetrics,
 )
+from app.metrics import prometheus
 from app.config import get_settings
 from app import events as event_builder
 from app.queue.redis_queue import redis_task_queue
@@ -138,6 +139,14 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
                 commit_sha=state.requested_commit_sha,
                 **_sandbox_contract_options(state),
             )
+        # cpu/memory는 샌드박스가 null로 보낸다(Agent는 remote_write만, 질의 API 없음).
+        # 바깥 Prometheus에서 request_id로 장애 구간 값을 뽑아 채운다. 연동 전(설정 없음)이면 no-op.
+        prometheus.enrich_resource_metrics(
+            state.execution_result.metrics,
+            state.request_id,
+            state.execution_result.chaos_observation,
+            get_settings(),
+        )
         state.metrics = _metrics_from_execution(state)
         state.sre_metrics = _sre_metrics_from_execution(state)
         SANDBOX_DURATION.observe(state.execution_result.duration_ms)
