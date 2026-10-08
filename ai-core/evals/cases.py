@@ -96,6 +96,40 @@ UNMAPPED_CATEGORIES = {
     "redis_unavailable",
 }
 
+# metrics 슬라이스 라벨도 우리 reason_category보다 잘게 적혀 있다. sandbox와 달리 근거는
+# 종료 코드가 아니라 각 케이스가 실제로 깨뜨리는 단일 SLO다. 아래 라벨들은 모두 명명된
+# 그 하나의 SLO만 위반하고, Judge의 1순위 평가도 같은 코드를 뱉는다(error>availability>
+# latency>cpu, 데이터 전수에서 100% 일치 확인). 이름만 다를 뿐이라 정식 코드로 옮긴다.
+METRIC_LABEL_ALIASES = {
+    # 통과 — 경계값·근접·부하 안정 전부 통과 한 코드로 모인다
+    "all_slo_passed": "all_checks_passed",
+    "boundary_pass": "all_checks_passed",
+    "boundary_values_pass": "all_checks_passed",
+    "near_limit_pass": "all_checks_passed",
+    "near_limit_but_passed": "all_checks_passed",
+    "stable_under_load": "all_checks_passed",
+    "availability_passed": "all_checks_passed",
+    # 지연 — 경계 실패와 콜드스타트는 p95 초과 하나뿐이다
+    "latency_boundary_fail": "latency_slo_violation",
+    "latency_boundary_failure": "latency_slo_violation",
+    "cold_start_latency": "latency_slo_violation",
+    # 오류율
+    "error_boundary_fail": "error_rate_slo_violation",
+    "error_rate_boundary_failure": "error_rate_slo_violation",
+    # CPU
+    "cpu_boundary_fail": "cpu_saturation",
+    "cpu_boundary_failure": "cpu_saturation",
+}
+
+# 여러 SLO가 동시에 깨지는 케이스. Judge는 하나만 고르므로(1순위가 error_rate라 전부
+# error_rate로 나온다) enum 하나로 옮기면 "어느 위반을 대표로 볼지"를 점수 매핑이 몰래
+# 정하게 된다. 그 대표 선정은 SLO 우선순위 정책이라 judge-policy에서 정할 일이다.
+# 그때까지 보류하고 틀린 것으로 센다(카테고리 정확도 상한에 포함).
+METRIC_UNMAPPED = {
+    "multiple_slo_violations",
+    "request_spike_degradation",
+}
+
 
 @dataclass
 class EvalCase:
@@ -234,13 +268,14 @@ def _slo_from_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def _metrics_judge_case(row: dict[str, Any]) -> EvalCase:
     sandbox = row["sandbox"]
+    raw_category = row["expected_reason_category"]
     return EvalCase(
         id=row["case_id"],
         slice="T1-metrics",
         expected={
             "verdict": row["expected_judge_status"],
             "stage": "metrics",
-            "category": row["expected_reason_category"],
+            "category": METRIC_LABEL_ALIASES.get(raw_category, raw_category),
         },
         raw_state={
             "repository_url": "https://github.com/example/generated.git",
@@ -257,6 +292,11 @@ def _metrics_judge_case(row: dict[str, Any]) -> EvalCase:
                 "metrics": row["metrics"],
             },
         },
+        note=(
+            f"category_unmapped={raw_category}"
+            if raw_category in METRIC_UNMAPPED
+            else None
+        ),
         slo=_slo_from_row(row),
     )
 

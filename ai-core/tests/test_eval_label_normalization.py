@@ -62,5 +62,58 @@ class InfraSignalTests(unittest.TestCase):
         self.assertNotIn("infra_error", case.raw_state["execution_result"])
 
 
+
+def _metric_row(label: str) -> dict:
+    path = cases.SYNTHETIC_SLICES["T1-metrics"]
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip() and json.loads(line)["expected_reason_category"] == label:
+            return json.loads(line)
+    raise AssertionError(f"라벨 없는 케이스: {label}")
+
+
+class MetricSynonymTests(unittest.TestCase):
+    """metrics 슬라이스도 sandbox처럼 라벨을 정식 코드로 옮긴다.
+
+    sandbox 빌더는 CATEGORY_SYNONYMS를 적용했지만 metrics 빌더는 생짜 라벨을 써서
+    boundary_fail 같은 이름이 전부 틀린 것으로 세어졌다. 매핑 근거는 각 케이스가
+    실제로 깨뜨리는 단일 SLO와 Judge의 1순위 출력이다(둘이 100% 일치함을 확인).
+    """
+
+    def test_every_metric_alias_target_is_a_real_code(self) -> None:
+        from app.agents.schemas import REASON_CATEGORIES
+
+        for source, target in cases.METRIC_LABEL_ALIASES.items():
+            self.assertIn(target, REASON_CATEGORIES, f"{source} -> {target}")
+
+    def test_a_pass_alias_lands_on_all_checks_passed(self) -> None:
+        self.assertEqual(cases.METRIC_LABEL_ALIASES["all_slo_passed"], "all_checks_passed")
+        self.assertEqual(cases.METRIC_LABEL_ALIASES["latency_boundary_fail"], "latency_slo_violation")
+
+    def test_loaded_case_category_is_normalized(self) -> None:
+        case = cases._metrics_judge_case(_metric_row("all_slo_passed"))
+        self.assertEqual(case.expected["category"], "all_checks_passed")
+
+    def test_every_metric_label_is_covered(self) -> None:
+        # 정식 코드이거나, alias로 옮기거나, 명시적으로 보류한 것이어야 한다.
+        # 셋 중 어디에도 없는 라벨은 조용히 틀린 것으로 세어지므로 드러낸다.
+        from app.agents.schemas import REASON_CATEGORIES
+
+        path = cases.SYNTHETIC_SLICES["T1-metrics"]
+        labels = {
+            json.loads(line)["expected_reason_category"]
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        }
+        known = set(REASON_CATEGORIES) | set(cases.METRIC_LABEL_ALIASES) | cases.METRIC_UNMAPPED
+        self.assertEqual(labels - known, set())
+
+    def test_deferred_labels_are_left_alone(self) -> None:
+        # 다중 위반은 Judge가 하나만 고른다. 대표 카테고리는 SLO 우선순위 정책이라
+        # 점수용 매핑에 끼워 넣지 않고 보류한 채 틀린 것으로 센다.
+        self.assertNotIn("multiple_slo_violations", cases.METRIC_LABEL_ALIASES)
+        case = cases._metrics_judge_case(_metric_row("multiple_slo_violations"))
+        self.assertEqual(case.expected["category"], "multiple_slo_violations")
+        self.assertEqual(case.note, "category_unmapped=multiple_slo_violations")
+
 if __name__ == "__main__":
     unittest.main()
