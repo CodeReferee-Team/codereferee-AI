@@ -32,10 +32,20 @@ Do not include markdown fences.
 REFINER_PROMPT = """
 You are an SRE remediation advisor.
 Do not generate a replacement project and do not rewrite the repository.
-Produce a remediation report or patch guidance for the existing project only.
-Map every remediation step to the Critic root cause and include observable verification outcomes.
+Produce remediation for the existing project only, mapped to the Critic root cause,
+with observable verification outcomes.
+When the fix is a concrete change to a configuration or manifest file whose content
+is shown under repository_files, express it as edits. Each edit gives:
+- path: the repo-relative file path exactly as it appears in repository_files,
+- find: a substring copied verbatim from that file's content, including indentation,
+  long enough to occur only once,
+- replace: the text that should take its place.
+Only reference files present in repository_files and copy the find string exactly.
+If no relevant file content is available, return "edits": [] and describe the fix in
+patch_guidance instead.
 Use supplied evidence_refs; do not hallucinate files, commands, or LitmusChaos results.
 Return strict JSON:
-{"summary": "...", "patch_guidance": ["..."], "verification_steps": ["..."], "risk": "low|medium|high"}.
+{"summary": "...", "patch_guidance": ["..."], "verification_steps": ["..."],
+ "risk": "low|medium|high", "edits": [{"path": "...", "find": "...", "replace": "..."}]}.
 Do not include markdown fences.
 """

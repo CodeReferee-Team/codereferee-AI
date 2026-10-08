@@ -1,4 +1,8 @@
+import difflib
 from typing import Any
+from urllib.error import URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from pydantic import ValidationError
 
@@ -8,6 +12,12 @@ from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFI
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
 from app.config import get_settings
 from app.models import SLO, DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
+
+# Refiner가 고칠 수 있는 설정 파일. 복원력 수정(replicas·probe·resources)은 여기 모여 있다.
+# 내용을 Refiner에 보여줘야 LLM이 파일에 실재하는 find 문자열을 고를 수 있다.
+_REFINER_CONFIG_PATHS = (".codereferee/validation.yaml", ".codereferee/validation.yml")
+_GITHUB_RAW_HOSTS = {"github.com", "www.github.com"}
+_REFINER_FETCH_TIMEOUT = 5.0
 
 
 # 카오스 구간 p95가 baseline의 몇 배를 넘으면 경고할지. 출처 있는 값이 아니라 우리 관례다
@@ -90,22 +100,127 @@ def refiner_node(state: AgentState) -> AgentState:
     state.events.append("Refiner: remediation guidance prepared")
     packet = build_evidence_packet(state)
     fallback = _fallback_refiner(state)
-    if llm.enabled:
-        state.refiner_report = _invoke_validated_report(
-            role="Refiner",
-            schema=RefinerReport,
-            system_prompt=REFINER_PROMPT,
-            user_prompt="Repository: {repository_url}\nEvidence packet:\n{evidence}",
-            values={
-                "repository_url": state.repository_url,
-                "evidence": render_evidence_packet(packet),
-            },
-            fallback=fallback,
-            events=state.events,
-        )
-    else:
+    if not llm.enabled:
         state.refiner_report = validate_report(RefinerReport, fallback)
+        return state
+
+    # 설정 파일 원문을 패킷에 실어야 LLM이 파일에 실재하는 find 문자열을 집어낼 수 있다.
+    # 못 받아오면(비공개·네트워크·404) edits 경로를 비우고 기존 서술형 가이드로 돈다.
+    repo_files = _fetch_repository_files(state)
+    if repo_files:
+        packet["repository_files"] = repo_files
+
+    report = _invoke_validated_report(
+        role="Refiner",
+        schema=RefinerReport,
+        system_prompt=REFINER_PROMPT,
+        user_prompt="Repository: {repository_url}\nEvidence packet:\n{evidence}",
+        values={
+            "repository_url": state.repository_url,
+            "evidence": render_evidence_packet(packet),
+        },
+        fallback=fallback,
+        events=state.events,
+    )
+    _attach_patch_diff(report, repo_files, state.events)
+    state.refiner_report = report
     return state
+
+
+def _attach_patch_diff(report: dict[str, Any], repo_files: dict[str, str], events: list[str]) -> None:
+    """Refiner가 고른 edits를 원본 파일과 대조해 git apply가 먹는 diff로 렌더한다.
+
+    LLM에 diff 형식을 맡기지 않는 이유: 7B급 모델은 @@ 헤더·라인 번호를 자주 틀리고
+    sandbox는 strict git apply라 한 글자만 어긋나도 적용이 실패한다. 값 선택만 LLM이,
+    형식 보장은 결정적 코드가 한다.
+    """
+    edits = report.get("edits") or []
+    diff = _build_patch_diff_from_edits(edits, repo_files, events)
+    if diff:
+        report["patch_diff"] = diff
+
+
+def _build_patch_diff_from_edits(
+    edits: list[dict[str, Any]], repo_files: dict[str, str], events: list[str]
+) -> str | None:
+    sections: list[str] = []
+    for edit in edits:
+        path = str(edit.get("path", "")).strip()
+        find = edit.get("find")
+        replace = edit.get("replace")
+        if not path or not isinstance(find, str) or not isinstance(replace, str):
+            continue
+        before = repo_files.get(path)
+        if before is None:
+            events.append(f"Refiner: edit skipped, {path} not in fetched files")
+            continue
+        if find not in before:
+            events.append(f"Refiner: edit skipped, find string not present in {path}")
+            continue
+        after = before.replace(find, replace, 1)
+        if after == before:
+            continue
+        sections.append(_unified_file_diff(path, before, after))
+    return "".join(sections) or None
+
+
+def _unified_file_diff(path: str, before: str, after: str) -> str:
+    before_lines = before.splitlines(keepends=True)
+    after_lines = after.splitlines(keepends=True)
+    body = "".join(
+        difflib.unified_diff(before_lines, after_lines, fromfile=f"a/{path}", tofile=f"b/{path}")
+    )
+    if not body:
+        return ""
+    return f"diff --git a/{path} b/{path}\n{body}"
+
+
+def _fetch_repository_files(state: AgentState) -> dict[str, str]:
+    """공개 GitHub 레포에서 설정 파일 원문을 받아온다. 실패는 조용히 {}로 흡수한다.
+
+    patch_diff는 원본과 대조해야 만들 수 있고, 원본은 레포에만 있다. clone은 preflight가
+    이미 했지만 그 내용을 state에 남기지 않으므로 raw endpoint로 다시 읽는다. 비공개
+    레포는 받지 못하고, 그 경우 Refiner는 patch 없이 서술형 가이드만 낸다(기존 동작).
+    """
+    owner_repo = _github_owner_repo(state.repository_url)
+    if owner_repo is None:
+        return {}
+    owner, repo = owner_repo
+    # state.branch가 있으면 그것만, 없으면 기본 브랜치 후보를 차례로 시도한다.
+    branches = [state.branch] if state.branch else ["main", "master"]
+    files: dict[str, str] = {}
+    for path in _REFINER_CONFIG_PATHS:
+        for branch in branches:
+            content = _fetch_raw_github(owner, repo, branch, path)
+            if content is not None:
+                files[path] = content
+                break
+    return files
+
+
+def _github_owner_repo(repository_url: str) -> tuple[str, str] | None:
+    parsed = urlparse(repository_url)
+    if parsed.scheme != "https" or parsed.netloc.lower() not in _GITHUB_RAW_HOSTS:
+        return None
+    parts = [part for part in parsed.path.strip("/").split("/") if part]
+    if len(parts) < 2:
+        return None
+    owner, repo = parts[0], parts[1].removesuffix(".git")
+    if not owner or not repo:
+        return None
+    return owner, repo
+
+
+def _fetch_raw_github(owner: str, repo: str, branch: str, path: str) -> str | None:
+    url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
+    request = Request(url, headers={"User-Agent": "codereferee-refiner"})
+    try:
+        with urlopen(request, timeout=_REFINER_FETCH_TIMEOUT) as response:
+            if getattr(response, "status", 200) != 200:
+                return None
+            return response.read().decode("utf-8", errors="replace")
+    except (URLError, TimeoutError, ValueError, OSError):
+        return None
 
 
 def _fallback_plan(state: AgentState) -> dict[str, object]:
