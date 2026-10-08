@@ -36,13 +36,13 @@ class ExpectedRecoveryBoundTests(unittest.TestCase):
     """규칙 4. 기대 복구 상한은 워크로드 설정에서 나온다. docs/judge-policy.md 6.5."""
 
     def test_bound_is_the_sum_of_grace_probe_and_startup_allowance(self) -> None:
-        # 30(grace) + 1(initial) + 2*1(probe) + 0(min_ready) + 30(allowance) = 63
+        # 30(grace) + 1(initial) + 2*1(probe) + 0(min_ready) + 10(allowance) = 43
         bound = nodes._expected_recovery_bound({"target_configuration": _target_configuration()})
-        self.assertEqual(bound, 63.0)
+        self.assertEqual(bound, 43.0)
 
     def test_force_kill_does_not_wait_for_the_grace_period(self) -> None:
         bound = nodes._expected_recovery_bound({"target_configuration": _target_configuration(), "kill_method": "litmus_pod_delete_force"})
-        self.assertEqual(bound, 33.0)
+        self.assertEqual(bound, 13.0)
 
     def test_recovery_over_the_bound_fails(self) -> None:
         reason, _ = nodes._measured_policy_findings(_state(), _result(70.0))

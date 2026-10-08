@@ -40,6 +40,14 @@ class SandboxRunner:
             return self._run_repository_via_http(
                 repository_url, branch, commit_sha, patch_diff, chaos_mode, deployment_profile, request_id
             )
+        if not self.settings.local_sandbox_enabled:
+            # layer-1 기능이 layer-2 샌박으로 이관됐다. 로컬 Docker 경로는 기본 비활성화이며
+            # SANDBOX_BASE_URL 없이 조용히 로컬로 떨어지지 않게 명시적으로 막는다.
+            raise RuntimeError(
+                "Local Docker sandbox is disabled (local_sandbox_enabled=false). "
+                "Set SANDBOX_BASE_URL to use the layer-2 sandbox service, or enable "
+                "local_sandbox_enabled for the offline Docker fallback."
+            )
         return self._run_repository_via_local_docker(repository_url, branch, commit_sha, patch_diff)
 
     def _run_repository_via_http(

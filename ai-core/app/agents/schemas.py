@@ -105,13 +105,31 @@ class CriticReport(StrictAgentReport):
         return _require_non_blank_items(value)
 
 
+class RefinerEdit(StrictAgentReport):
+    """설정/매니페스트 한 곳을 고치는 지시. LLM은 '무엇을 바꿀지'만 고르고,
+    git apply가 먹는 unified diff는 노드가 원본 파일에서 결정적으로 만든다.
+    find는 파일에 그대로 존재하는 부분 문자열이어야 한다(들여쓰기 포함)."""
+
+    path: str = Field(min_length=1)
+    find: str = Field(min_length=1)
+    replace: str
+
+    @field_validator("path", "find")
+    @classmethod
+    def _non_blank_text(cls, value: str) -> str:
+        return _require_non_blank(value)
+
+
 class RefinerReport(StrictAgentReport):
     summary: str = Field(min_length=1)
     patch_guidance: list[str] = Field(min_length=1)
     verification_steps: list[str] = Field(min_length=1)
     risk: Literal["low", "medium", "high"]
-    # base commit 대비 누적 unified diff. LLM 없이 도는 결정적 fallback은
-    # diff를 만들 수 없으므로 선택 필드다. 없으면 재검증 루프가 돌지 않는다.
+    # repository_files에 내용이 실린 설정/매니페스트 파일에 대한 구체적 수정 지시.
+    # 노드가 이걸 원본과 대조해 patch_diff로 렌더한다. 고칠 파일 내용이 없으면 빈 리스트.
+    edits: list[RefinerEdit] = Field(default_factory=list)
+    # base commit 대비 누적 unified diff. 보통 edits에서 노드가 채운다. LLM 없이 도는
+    # 결정적 fallback은 diff를 만들 수 없어 None이다. 없으면 재검증 루프가 돌지 않는다.
     patch_diff: str | None = None
 
     @field_validator("summary")
