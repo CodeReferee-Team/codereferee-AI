@@ -224,6 +224,34 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertTrue(state.metrics["preflight_passed"])
         self.assertTrue(state.metrics["sandbox_executed"])
 
+    def test_environment_limit_is_error_not_code_defect(self) -> None:
+        # verification_environment_unsupported는 "검증을 못 한 것"이지 레포 결함이 아니다.
+        # 코드 결함 FAILED가 아니라 판정 불가 ERROR여야 하고, Critic/Refiner를 타지 않아야 한다.
+        class FakeQueue:
+            published: list = []
+            def dequeue(self, *, block=False, timeout=0):
+                return {"taskId": "job-env", "repositoryUrl": "https://github.com/example/project",
+                        "branch": "main", "commitSha": None, "submittedAt": "2026-05-26T10:00:00"}
+            def publish(self, event):
+                self.published.append(event); return len(self.published)
+
+        fake_report = RepositoryPreflightReport(
+            repository_url="https://github.com/example/project.git", cloneable=True, executable=True,
+            resolved_commit_sha="a" * 40, reason="reachable", evidence=["reachable"])
+        # 선언 없는 python smoke가 pytest 수집오류(exit 2)로 끝남 -> 환경 한계
+        env_result = SandboxResult(
+            exit_code=2, duration_ms=100,
+            sandbox_report={"detected_stack": "python", "failed_step": "smoke", "outcome": "failure", "exit_code": 2, "steps": []})
+
+        with patch("app.workflow.repository_validation.repository_preflight_runner.run", return_value=fake_report), patch(
+            "app.workflow.repository_validation.sandbox_runner.run_repository", return_value=env_result):
+            state = process_next_repository_validation(queue=FakeQueue(), block=True, timeout=0)
+
+        assert state is not None
+        self.assertEqual(state.judge_report.get("reason_category"), "verification_environment_unsupported")
+        self.assertEqual(state.status, JobStatus.error)  # 코드 결함 FAILED 아님
+        self.assertFalse(state.critic_feedback)  # Critic 건너뜀(기본 빈 값 유지)
+
     def test_to_response_exposes_commit_metrics_and_sre_metrics(self) -> None:
         state = AgentState(
             job_id="test",

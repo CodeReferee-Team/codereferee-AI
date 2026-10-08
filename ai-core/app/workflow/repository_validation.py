@@ -4,7 +4,7 @@ from uuid import uuid4
 from prometheus_client import Counter, Histogram
 
 from app.agents import source_context
-from app.agents.nodes import chaos_aborted, chaos_recovered, critic_node, judge_node, planner_node, refiner_node
+from app.agents.nodes import ENVIRONMENT_LIMIT_CATEGORY, chaos_aborted, chaos_recovered, critic_node, judge_node, planner_node, refiner_node
 from app.models import (
     DEFAULT_SLO,
     AgentState,
@@ -127,10 +127,19 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
     else:
         emit_progress(event_builder.JUDGING)
         state = judge_node(state)
-        attach_source_files(state)
-        state = critic_node(state)
-        state = refiner_node(state)
-        state = _run_refinement_rounds(state, emit_progress)
+        if state.judge_report.get("reason_category") == ENVIRONMENT_LIMIT_CATEGORY:
+            # 환경 한계는 "검증을 못 한 것"이지 레포 결함이 아니다(판정 불가 = ERROR).
+            # 코드 결함 FAILED로 두면 화면이 "코드 결함으로 실패"라 말하고, Critic이 멀쩡한
+            # 코드에서 고칠 곳을 찾게 된다. infra_error와 같은 이유로 Critic/Refiner를 건너뛴다.
+            state.status = JobStatus.error
+            state.events.append(
+                "Workflow: verification environment unsupported, not a code defect (judgement unavailable)"
+            )
+        else:
+            attach_source_files(state)
+            state = critic_node(state)
+            state = refiner_node(state)
+            state = _run_refinement_rounds(state, emit_progress)
     VALIDATION_COUNTER.labels(status=state.status).inc()
     _record_sqlite_artifacts(state)
     job_store.save(state)
