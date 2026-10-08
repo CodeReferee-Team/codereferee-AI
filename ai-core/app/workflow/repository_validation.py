@@ -30,6 +30,16 @@ REPOSITORY_VALIDATION_TASK = "repository_validation"
 # 카오스 응답임을 알리는 schema_version. chaos-v1에서 litmus-v1로 늘었고 앞으로도 늘 수 있다.
 CHAOS_SCHEMA_PREFIXES = ("chaos-", "litmus-")
 
+# "검증 불가" 카테고리 — 레포 코드 결함이 아니라 우리가 검증을 설정/수행하지 못한 경우다.
+# 코드 결함(FAILED)이 아니라 판정 불가(ERROR)로 내고 Critic/Refiner를 건너뛴다.
+# no_tests_detected는 제외한다: 스택을 인식하고 빌드까지 했는데 테스트가 없는 것은
+# 신뢰성 공백(의도된 Fail)이지 검증 불가가 아니다.
+UNVERIFIABLE_CATEGORIES = frozenset({
+    ENVIRONMENT_LIMIT_CATEGORY,      # 테스트 환경 한계 / ConfigurationRequired (세부사항 1호)
+    "no_manifest_detected",          # 빌드/실행 방법을 못 찾음 (스택 unknown) (세부사항 2호)
+    "unsupported_project_stack",     # 지원하지 않는 스택
+})
+
 
 def create_validation_state(request: RepositoryValidationRequest, job_id: str | None = None) -> AgentState:
     return AgentState(
@@ -169,13 +179,13 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
     else:
         emit_progress(event_builder.JUDGING)
         state = judge_node(state)
-        if state.judge_report.get("reason_category") == ENVIRONMENT_LIMIT_CATEGORY:
-            # 환경 한계는 "검증을 못 한 것"이지 레포 결함이 아니다(판정 불가 = ERROR).
+        if state.judge_report.get("reason_category") in UNVERIFIABLE_CATEGORIES:
+            # 검증을 못 한 것(환경 한계·빌드 방법 미확정·미지원 스택)이지 레포 결함이 아니다.
             # 코드 결함 FAILED로 두면 화면이 "코드 결함으로 실패"라 말하고, Critic이 멀쩡한
             # 코드에서 고칠 곳을 찾게 된다. infra_error와 같은 이유로 Critic/Refiner를 건너뛴다.
             state.status = JobStatus.error
             state.events.append(
-                "Workflow: verification environment unsupported, not a code defect (judgement unavailable)"
+                "Workflow: repository could not be verified, not a code defect (judgement unavailable)"
             )
         else:
             attach_source_files(state)
