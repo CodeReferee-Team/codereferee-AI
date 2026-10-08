@@ -8,3 +8,4 @@ pydantic-settings==2.7.0
 python-dotenv==1.0.1
 uvicorn[standard]==0.34.0
 redis==5.2.1
+fpdf2==2.8.9
