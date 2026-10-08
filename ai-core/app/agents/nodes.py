@@ -6,7 +6,7 @@ from urllib.request import Request, urlopen
 
 from pydantic import ValidationError
 
-from app.agents.evidence import build_evidence_packet, classify_failure_category, render_evidence_packet, truncate_log
+from app.agents.evidence import build_evidence_packet, build_llm_evidence_packet, classify_failure_category, render_evidence_packet, truncate_log
 from app.agents.llm import llm, parse_json_strict
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
@@ -77,7 +77,7 @@ def judge_node(state: AgentState) -> AgentState:
 
 def critic_node(state: AgentState) -> AgentState:
     state.events.append("Critic: repository reliability gap analyzed")
-    packet = build_evidence_packet(state)
+    packet = build_llm_evidence_packet(state)
     fallback = _fallback_critic(state)
     if llm.enabled:
         state.critic_feedback = _invoke_validated_report(
@@ -98,7 +98,7 @@ def critic_node(state: AgentState) -> AgentState:
 
 def refiner_node(state: AgentState) -> AgentState:
     state.events.append("Refiner: remediation guidance prepared")
-    packet = build_evidence_packet(state)
+    packet = build_llm_evidence_packet(state)
     fallback = _fallback_refiner(state)
     if not llm.enabled:
         state.refiner_report = validate_report(RefinerReport, fallback)
@@ -467,6 +467,12 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
         if chaos_recovered(observation) is False:
             return "chaos_not_recovered: chaos experiment never recovered to a serving state.", warnings
 
+        # replica가 1개면 그 자체로 복원력 신호다. 복구 상한 초과로 아래에서 early return
+        # 하더라도 이 경고가 먼저 담겨야 Critic/Refiner가 "단일 replica"를 원인으로 집는다.
+        # 토폴로지는 복구 판정과 무관한 구성 속성이므로 항상 기록한다(판정은 warning일 뿐).
+        if _as_float(chaos_target_configuration(observation).get("replicas")) == 1:
+            warnings.append("chaos_single_replica_topology")
+
         # 복구 시간은 chaos_observation에도 metrics에도 올 수 있다. 실측은 전자에 담아 보낸다.
         recovery = _as_float(observation.get("recovery_seconds"))
         if recovery is None:
@@ -479,10 +485,6 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
                 f"{round(bound, 3)}s implied by the workload configuration.",
                 warnings,
             )
-
-        if _as_float(chaos_target_configuration(observation).get("replicas")) == 1:
-            # replica가 1개면 다운타임은 문서화된 정상 동작이다. 구성 경고로만 남긴다.
-            warnings.append("chaos_single_replica_topology")
 
         allowance = _monthly_unavailability_budget_seconds(slo.availability_percent_min)
         if recovery is not None and allowance:

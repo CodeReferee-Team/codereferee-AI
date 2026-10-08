@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     judge_uses_llm: bool = False
     planner_uses_llm: bool = False
     max_self_healing_retries: int = 3
+    # 검증마다 생성하는 PDF 추천 리포트의 출력 디렉토리.
+    report_output_dir: str = "artifacts/reports"
     # 1MB가 넘는 diff는 수정 범위가 과도하다는 뜻이라 신뢰하기 어렵다.
     max_patch_diff_bytes: int = 1_000_000
     sqlite_patch_db_path: str = ".codereferee/codereferee.sqlite3"
