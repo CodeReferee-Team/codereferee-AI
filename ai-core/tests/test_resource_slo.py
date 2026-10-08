@@ -111,5 +111,51 @@ class ResourceViolationTests(unittest.TestCase):
         self.assertEqual(report["status"], "Pass")
 
 
+
+class CausePriorityTests(unittest.TestCase):
+    """여러 지표가 동시에 깨지면 구체적 원인을 증상보다 먼저 적는다(judge-policy 3.1).
+
+    redis가 죽으면 연결 오류(원인)가 요청 실패(error_rate)와 다운(availability)을
+    끌고 온다. 진단 리포트는 "왜"를 알려줘야 하므로 원인을 대표로 삼는다.
+    """
+
+    def _judge(self, metrics: dict, slo: dict) -> dict:
+        return nodes._fallback_judge(_state({**CLEAN, **metrics}, {**BASE_SLO, **slo}))
+
+    def test_db_connection_error_outranks_the_error_rate_it_causes(self) -> None:
+        report = self._judge(
+            {"error_rate": 0.2, "availability": 0.93, "db_connection_errors": 5},
+            {"error_rate_max": 0.01, "availability_percent_min": 99.5, "db_connection_errors_max": 0},
+        )
+        self.assertEqual(report["reason_category"], "database_connection_errors")
+
+    def test_redis_connection_error_outranks_the_symptoms_it_causes(self) -> None:
+        report = self._judge(
+            {"error_rate": 0.2, "availability": 0.93, "redis_connection_errors": 3},
+            {"error_rate_max": 0.01, "availability_percent_min": 99.5, "redis_connection_errors_max": 0},
+        )
+        self.assertEqual(report["reason_category"], "redis_connection_errors")
+
+    def test_cpu_saturation_outranks_co_broken_symptoms(self) -> None:
+        report = self._judge(
+            {"error_rate": 0.2, "availability": 0.93, "p95_latency_ms": 1200, "cpu_usage_percent": 93},
+            {"error_rate_max": 0.01, "availability_percent_min": 99.5, "p95_latency_ms_max": 300,
+             "cpu_usage_percent_max": 80},
+        )
+        self.assertEqual(report["reason_category"], "cpu_saturation")
+
+    def test_symptom_only_picks_availability_first(self) -> None:
+        # 구체적 원인이 없으면 사용자 영향 큰 순: 가용성 > 오류율 > 지연.
+        report = self._judge(
+            {"error_rate": 0.2, "availability": 0.93, "p95_latency_ms": 1200},
+            {"error_rate_max": 0.01, "availability_percent_min": 99.5, "p95_latency_ms_max": 300},
+        )
+        self.assertEqual(report["reason_category"], "availability_slo_violation")
+
+    def test_a_lone_symptom_is_unchanged(self) -> None:
+        # 하나만 깨지면 그대로. 원인 우선이 단일 증상 판정을 바꾸지 않는다.
+        report = self._judge({"error_rate": 0.2}, {"error_rate_max": 0.01})
+        self.assertEqual(report["reason_category"], "error_rate_slo_violation")
+
 if __name__ == "__main__":
     unittest.main()
