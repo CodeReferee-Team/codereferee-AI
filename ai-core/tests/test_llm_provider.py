@@ -130,3 +130,24 @@ class TransportFailureDegradesTests(unittest.TestCase):
         ):
             state = nodes.refiner_node(state)
         self.assertTrue(state.refiner_report.get("summary"))
+
+
+class AuthHeaderTests(unittest.TestCase):
+    """호스티드 openai-compatible API는 bearer 토큰이 필요하고, 로컬 서버는 없어야 한다."""
+
+    def _build(self, **overrides) -> llm_module.AgentLLM:
+        with mock.patch.object(llm_module, "get_settings", return_value=_local_settings(**overrides)):
+            return llm_module.AgentLLM()
+
+    def _request(self, agent) -> object:
+        with mock.patch.object(llm_module, "urlopen", return_value=_response('{"ok": true}')) as opener:
+            agent.invoke_text("sys", "u", {})
+        return opener.call_args.args[0]
+
+    def test_bearer_header_added_when_api_key_set(self) -> None:
+        agent = self._build(llm_api_key="sk-test-123")
+        self.assertEqual(self._request(agent).get_header("Authorization"), "Bearer sk-test-123")
+
+    def test_no_auth_header_for_keyless_local_server(self) -> None:
+        agent = self._build(llm_api_key=None)
+        self.assertIsNone(self._request(agent).get_header("Authorization"))

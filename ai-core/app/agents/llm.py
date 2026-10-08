@@ -29,6 +29,7 @@ class AgentLLM:
         self.model = model or settings.llm_model
         self.provider = settings.llm_provider
         self.base_url = settings.llm_base_url
+        self.api_key = settings.llm_api_key
         self.timeout = settings.llm_timeout_seconds
         self._llm = None
         if self.provider == OPENAI_COMPATIBLE:
@@ -78,10 +79,15 @@ class AgentLLM:
             "response_format": {"type": "json_object"},
             "stream": False,
         }).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        # 호스티드 API(OpenRouter/Groq/DashScope 등)는 bearer 토큰이 필요하다.
+        # 키 없는 로컬 서버(Ollama/vLLM)면 헤더를 넣지 않아 그대로 동작한다.
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         request = Request(
             f"{str(self.base_url).rstrip('/')}/chat/completions",
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         try:
