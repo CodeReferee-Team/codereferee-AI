@@ -27,6 +27,9 @@ from app.config import get_settings
 
 # 카오스 구간 p95가 baseline의 몇 배를 넘으면 경고할지. 출처 있는 값이 아니라 우리 관례다
 # (docs/judge-policy.md 6.3). Sandbox가 p99를 보내기 시작하면 임계값을 다시 정한다.
+# 우리가 정한 값이다. 출처가 없다. Sandbox가 p95만 보내서 임시로 쓰는 배수이고,
+# SRE Book은 p95 단일 임계값이 아니라 p50과 p99를 함께 보라고 권고한다.
+# docs/judge-policy.md 9.2·9.3. p50·p99가 들어오면 이 값을 다시 정한다.
 LATENCY_DEGRADATION_FACTOR = 10
 
 
@@ -568,10 +571,13 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
     if (finding := _unmeasurable_reason(measured, slo)) is not None:
         return finding, warnings
 
-    error_rate = _as_float(measured.get("error_rate"))
-    if error_rate is not None and slo.error_rate_max is not None and error_rate > slo.error_rate_max:
-        return f"error_rate_slo_violation: error_rate {error_rate} exceeds {slo.error_rate_max}.", warnings
+    # 원인 우선 (judge-policy 3.1). 여러 지표가 함께 깨지면 구체적 원인(연결 오류·자원
+    # 포화·재시작)을 증상보다 먼저 적는다. 진단 리포트는 "왜 떨어졌나"를 알려줘야 한다.
+    if (finding := _resource_reason(measured, slo)) is not None:
+        return finding, warnings
 
+    # 증상 fallback. 구체적 원인이 특정되지 않을 때 사용자 영향 큰 순으로 대표를 고른다:
+    # 가용성(다운) > 오류율(요청 실패) > 지연(느림).
     availability = _as_float(measured.get("availability"))
     if (
         availability is not None
@@ -584,19 +590,25 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
             warnings,
         )
 
+    error_rate = _as_float(measured.get("error_rate"))
+    if error_rate is not None and slo.error_rate_max is not None and error_rate > slo.error_rate_max:
+        return f"error_rate_slo_violation: error_rate {error_rate} exceeds {slo.error_rate_max}.", warnings
+
     p95 = _as_float(measured.get("p95_latency_ms"))
     if p95 is not None and slo.p95_latency_ms_max is not None and p95 > slo.p95_latency_ms_max:
         return f"latency_slo_violation: p95 {p95}ms exceeds {slo.p95_latency_ms_max}ms.", warnings
 
-    return _resource_reason(measured, slo), warnings
+    return None, warnings
 
 
 # (사유 코드, 관측 키, SLO 임계 필드, 단위). 상한을 넘으면 Fail이다.
+# 원인 우선 순서(judge-policy 3.1): 의존성 연결 실패 > 크래시 루프 > 자원 포화.
+# 둘 이상 겹칠 때 가장 구체적인 의존성 원인을 대표로 삼는다.
 _RESOURCE_CEILINGS = (
-    ("cpu_saturation", "cpu_usage_percent", "cpu_usage_percent_max", "%"),
-    ("unexpected_restart", "restart_count", "restart_count_max", " restarts"),
     ("database_connection_errors", "db_connection_errors", "db_connection_errors_max", " errors"),
     ("redis_connection_errors", "redis_connection_errors", "redis_connection_errors_max", " errors"),
+    ("unexpected_restart", "restart_count", "restart_count_max", " restarts"),
+    ("cpu_saturation", "cpu_usage_percent", "cpu_usage_percent_max", "%"),
 )
 # 이 중 하나라도 측정되면 판정할 근거가 있다고 본다.
 _JUDGEABLE_KEYS = ("error_rate", "availability", "p95_latency_ms", "p99_latency_ms", "cpu_usage_percent")

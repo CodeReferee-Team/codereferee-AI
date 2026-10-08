@@ -1,10 +1,12 @@
+import threading
+from contextlib import contextmanager
 from typing import Any
 from uuid import uuid4
 
 from prometheus_client import Counter, Histogram
 
 from app.agents import source_context
-from app.agents.nodes import chaos_aborted, chaos_recovered, critic_node, judge_node, planner_node, refiner_node
+from app.agents.nodes import ENVIRONMENT_LIMIT_CATEGORY, chaos_aborted, chaos_recovered, critic_node, judge_node, planner_node, refiner_node
 from app.models import (
     DEFAULT_SLO,
     AgentState,
@@ -68,6 +70,34 @@ def process_next_repository_validation(
     return execute_repository_validation(state, output_queue=output_queue or queue)
 
 
+@contextmanager
+def _sandbox_heartbeat(emit_progress, step: str, *, interval: float = 20.0,
+                       detail: str = "샌드박스 실행 중 (clone/build/배포/장애주입)"):
+    """긴 샌드박스 호출 동안 progress를 주기적으로 재방출한다.
+
+    layer-2는 샌드박스 안에서 수 분 걸리는데 그 사이 이벤트가 없으면 서버 stale
+    스위퍼가 진행 중 작업을 '갱신 없음'으로 보고 ERROR로 확정한다(running-timeout).
+    주기적 재방출로 updated_at을 살려 두고, 프론트가 멈춘 듯 보이지 않게 한다.
+    heartbeat 실패는 본 실행을 절대 깨뜨리지 않는다(best-effort).
+    """
+    stop = threading.Event()
+
+    def _beat() -> None:
+        while not stop.wait(interval):
+            try:
+                emit_progress(step, detail=detail)
+            except Exception:  # noqa: BLE001 - heartbeat는 본 실행을 깨면 안 된다
+                pass
+
+    thread = threading.Thread(target=_beat, name="sandbox-heartbeat", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=1.0)
+
+
 def run_repository_validation(request: RepositoryValidationRequest, job_id: str | None = None) -> AgentState:
     """Run validation synchronously, bypassing Redis. Useful for local smoke tests."""
     state = create_validation_state(request, job_id)
@@ -100,12 +130,15 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
     if preflight_passed:
         state.events.append("Sandbox: repository clone and smoke validation started")
         emit_progress(event_builder.BASELINE)
-        state.execution_result = sandbox_runner.run_repository(
-            state.preflight_report.repository_url,
-            branch=state.branch,
-            commit_sha=state.requested_commit_sha,
-            **_sandbox_contract_options(state),
-        )
+        # layer-2는 샌드박스 안에서 수 분 걸린다. 그 동안 heartbeat로 progress를 살려
+        # 두지 않으면 서버 stale 스위퍼가 진행 중 작업을 ERROR로 확정한다.
+        with _sandbox_heartbeat(emit_progress, event_builder.BASELINE):
+            state.execution_result = sandbox_runner.run_repository(
+                state.preflight_report.repository_url,
+                branch=state.branch,
+                commit_sha=state.requested_commit_sha,
+                **_sandbox_contract_options(state),
+            )
         # cpu/memory는 샌드박스가 null로 보낸다(Agent는 remote_write만, 질의 API 없음).
         # 바깥 Prometheus에서 request_id로 장애 구간 값을 뽑아 채운다. 연동 전(설정 없음)이면 no-op.
         prometheus.enrich_resource_metrics(
@@ -136,10 +169,19 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
     else:
         emit_progress(event_builder.JUDGING)
         state = judge_node(state)
-        attach_source_files(state)
-        state = critic_node(state)
-        state = refiner_node(state)
-        state = _run_refinement_rounds(state, emit_progress)
+        if state.judge_report.get("reason_category") == ENVIRONMENT_LIMIT_CATEGORY:
+            # 환경 한계는 "검증을 못 한 것"이지 레포 결함이 아니다(판정 불가 = ERROR).
+            # 코드 결함 FAILED로 두면 화면이 "코드 결함으로 실패"라 말하고, Critic이 멀쩡한
+            # 코드에서 고칠 곳을 찾게 된다. infra_error와 같은 이유로 Critic/Refiner를 건너뛴다.
+            state.status = JobStatus.error
+            state.events.append(
+                "Workflow: verification environment unsupported, not a code defect (judgement unavailable)"
+            )
+        else:
+            attach_source_files(state)
+            state = critic_node(state)
+            state = refiner_node(state)
+            state = _run_refinement_rounds(state, emit_progress)
     VALIDATION_COUNTER.labels(status=state.status).inc()
     _record_sqlite_artifacts(state)
     job_store.save(state)
