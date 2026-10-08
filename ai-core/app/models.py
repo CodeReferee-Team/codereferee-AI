@@ -198,6 +198,8 @@ class AgentState(BaseModel):
     refine_rounds: list[dict[str, Any]] = Field(default_factory=list)
     status: JobStatus = JobStatus.queued
     events: list[str] = Field(default_factory=list)
+    # 검증마다 생성하는 사람용 PDF 추천 리포트 경로. 메일 첨부 등에서 서버가 읽는다.
+    report_pdf_path: str | None = None
 
 
 class RepositoryValidationResponse(BaseModel):
@@ -216,6 +218,7 @@ class RepositoryValidationResponse(BaseModel):
     metrics: dict[str, Any]
     sre_metrics: SREMetrics = Field(default_factory=SREMetrics)
     events: list[str]
+    report_pdf_path: str | None = None
 
 
 class JobResponse(RepositoryValidationResponse):
