@@ -22,6 +22,8 @@
 | http500-bug-fastapi | 無 | stack_detection | stack_detection | 코드버그(KeyError→500) | Fail | app.py 코드 패치 |
 | single-replica | 有 | validation.yaml | repository_configuration | 단일 replica 토폴로지 | Pass+WARNING | validation.yaml `replicas 1→2` |
 | crashloop-dockerfile | 無 | Dockerfile | dockerfile | 부팅 크래시(미선언 env) | Fail | app.py env 가드 |
+| compose-healthy | 無 | compose | compose | 없음(baseline) | Pass | — |
+| node-healthy | 無 | stack_detection(node) | stack_detection | 없음(baseline) | Pass | — |
 
 ## 런타임 실검증 결과 (2026-10-09, full stack)
 
@@ -51,7 +53,8 @@ master = single-replica/느린기동(READY_DELAY=35s) 케이스.
 
 ## 현재 커버리지 갭 (다음 배치 후보)
 
-- `compose` 배포 shape 아직 없음(resolve_plan엔 경로 있음)
 - `slow-startup`(복구 상한 초과), `bad-healthpath`(yaml override 필요 사례), `build-fail`(preflight)
 - `oom`: 샌박 evidence에 mem 없음 → 현재 미지원(계측 갭). 넣으면 "탐지 못 함"이 라벨 정답
-- 스택 다양화: 같은 결함을 node/java로 복제
+- 스택 다양화: java 복제(node는 node-healthy로 커버)
+- 단, build-fail·bad-healthpath·oom은 대부분 'deploy 실패 → 자가치유 못 함' 벽에 걸림.
+  샌박 pod 진단(docs/sandbox-pod-diagnostics.md)이 와야 코드·env 자가치유로 열림 → 그 전까진 eval 측정셋·갭 노출 가치만.
