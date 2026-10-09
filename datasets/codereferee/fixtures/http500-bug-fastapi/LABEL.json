@@ -1,0 +1,23 @@
+{
+  "id": "http500-bug-fastapi",
+  "stack": "python-fastapi",
+  "deploy_shape": "stack_detection",
+  "expected_plan_source": "stack_detection",
+  "needs_yaml": false,
+  "modality": "sandbox_smoke",
+  "defect": "code_bug_http_500",
+  "defect_probe": {"module": "app", "callable": "compute_quota", "arg": {"name": "free"}, "raises": "KeyError"},
+  "expected": {"verdict": "Fail", "stage": "runtime", "reason_category": "service_http_500"},
+  "expected_heal": {"file": "app.py", "find": "plan[\"limit\"]", "replace": "plan.get(\"limit\", 10)"},
+  "verified_by": ["resolve_plan", "defect_unit", "full_stack_run@2026-10-09"],
+  "observed_runtime": {
+    "verdict": "Fail",
+    "reason_category": "sandbox_nonzero_exit",
+    "mechanism": "healthPath 기본값 / 에서 핸들러가 500 → readiness 영구 실패 → rollout 'timed out waiting for the condition' → exit 1",
+    "self_heal_fired": false,
+    "iterations": 0,
+    "critic_diagnosis": "애플리케이션이 제때 기동하지 못함(오진 — 실제론 / 가 500)"
+  },
+  "gap": "코드버그가 health 경로에서 터지면 '기동 타임아웃'으로 가려져 코드픽스 자가치유가 안 뜬다. 간판 의도(config-free 코드픽스) 미달성. 진짜 코드픽스 heal 데모하려면 버그를 비-health 엔드포인트로 옮기고 smoke가 그 경로를 치게 해야 함(healthPath 분리 필요 → yaml).",
+  "note": "verdict Fail은 맞지만 이유는 '롤아웃 타임아웃'. 코드픽스 자가치유는 미발동. eval 갭 케이스로 가치 있음."
+}
