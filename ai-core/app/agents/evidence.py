@@ -170,12 +170,31 @@ def classify_failure_category(state: AgentState) -> str:
     if result.timed_out:
         return "timeout"
     if result.exit_code not in (0, None):
+        if _is_rollout_timeout(result):
+            return "deploy_rollout_timeout"
         return "non_zero_exit"
     if result.service_check_attempted and not _service_smoke_passed(result):
         return "service_failure"
     if result.browser_check_attempted and not result.browser_loaded:
         return "browser_failure"
     return "success"
+
+
+_ROLLOUT_TIMEOUT_MARKERS = ("timed out waiting for the condition", "rollout status")
+
+
+def _is_rollout_timeout(result: Any) -> bool:
+    """배포 run 단계에서 rollout이 ready에 도달 못해 kubectl이 타임아웃한 경우.
+
+    일반 테스트/빌드 non-zero와 구분한다. 근본원인(부팅 크래시 vs readiness probe 실패 vs
+    ImagePull)은 샌박이 pod describe/logs/lastState를 실어야 알 수 있다(docs의 sandbox
+    pod-diagnostics 스펙). 그 전까지 Critic은 이 카테고리를 '롤아웃 미준비, 근본원인 미확정'
+    으로 정직하게 다룬다.
+    """
+    if (result.sandbox_report or {}).get("failed_step") != "run":
+        return False
+    blob = f"{result.stderr or ''}\n{result.stdout or ''}".casefold()
+    return any(marker in blob for marker in _ROLLOUT_TIMEOUT_MARKERS)
 
 
 def _service_smoke_passed(result: Any) -> bool:
@@ -196,6 +215,8 @@ def _primary_signal(state: AgentState, category: str) -> str:
         return category
     if category == "timeout":
         return f"timed_out=True duration_ms={result.duration_ms}"
+    if category == "deploy_rollout_timeout":
+        return "rollout_not_ready failed_step=run; pod events/logs unavailable"
     if category == "non_zero_exit":
         return f"exit_code={result.exit_code}"
     if category in {"service_failure", "browser_failure"}:

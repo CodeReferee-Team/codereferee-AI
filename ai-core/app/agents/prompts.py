@@ -30,6 +30,21 @@ signal. When policy_warnings is present (e.g. single-replica topology, error-bud
 describe that gap in plain language as the root_cause — never just the warning code.
 Never recommend relaxing the bound, SLO, or thresholds so the check passes; fix the workload.
 
+When failure_category=deploy_rollout_timeout the deployment never reached a Ready state and
+kubectl timed out. Pod events and container logs are NOT in the packet, so you CANNOT know the
+true cause. Do not invent one (do not claim "slow startup"). State plainly that the rollout did
+not become ready and that the root cause is undetermined without pod diagnostics, and name the
+candidate causes (container crash on boot, readiness probe failing, image pull error).
+
+Example evidence → correct output:
+  failure_category=deploy_rollout_timeout, primary_signal=rollout_not_ready failed_step=run,
+  failure_log=timed out waiting for the condition
+OUTPUT:
+{"issue": "The deployment never became ready; the rollout timed out.",
+ "root_cause": "The pods did not reach a Ready state within the rollout window. Pod events and container logs are not available in this evidence, so the exact cause is undetermined; candidates are a container crash on boot, a failing readiness probe, or an image pull error.",
+ "evidence": ["primary_signal=rollout_not_ready failed_step=run", "failure_log=timed out waiting for the condition"],
+ "recommended_action": "Collect pod diagnostics (kubectl describe pod, kubectl logs --previous, container lastState) to pin the cause before changing the workload."}
+
 Example evidence → correct output:
   failure_category=chaos_recovery_exceeds_expected_bound,
   policy_warnings=["chaos_single_replica_topology"], chaos.replicas=1, recovery=37.8s
