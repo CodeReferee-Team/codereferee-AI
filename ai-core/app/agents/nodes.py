@@ -1,4 +1,5 @@
 import difflib
+import re
 from typing import Any
 from urllib.error import URLError
 from urllib.parse import urlparse
@@ -124,6 +125,9 @@ def refiner_node(state: AgentState) -> AgentState:
     )
     _attach_patch_diff(report, repo_files, state.events)
     state.refiner_report = report
+    # 하이브리드: 규칙 스켈레톤이 유형별 수정부위를 보장 주입한다. LLM이 health endpoint·
+    # manifest 같은 surface를 빠뜨려도 규칙(_refiner_guidance — fallback에서 100%)이 메운다.
+    _ensure_remediation_surface(state)
     return state
 
 
@@ -754,6 +758,51 @@ def _non_empty_evidence(value: object, *fallbacks: object) -> list[str]:
         if isinstance(fallback, str) and fallback.strip():
             evidence.append(fallback)
     return evidence or ["evidence=missing"]
+
+
+def _category_surface(category: str) -> str:
+    """판정 reason_category로 수정부위 문장을 고른다. 토큰 단위로 본다 — 부분문자열이면
+    'supported'의 'port'가 service로 오매칭된다."""
+    tokens = set(re.split(r"[^a-z0-9]+", category.casefold()))
+    if tokens & {"install", "nonzero", "exit", "build", "compile", "dependency", "pytest", "test"}:
+        return "Fix the failing command from the logs and verify it exits with exit_code=0 in the sandbox."
+    if tokens & {"entrypoint", "manifest"}:
+        return "Add a deterministic supported manifest or validation command and commit it before re-running."
+    if tokens & {"service", "http", "port", "browser", "endpoint", "smoke"}:
+        return "Fix the service health endpoint/start command and verify HTTP plus browser smoke checks pass."
+    if tokens & {"clone", "reachable", "repository", "intake", "private", "auth"}:
+        return "Verify the repository URL, branch/ref, visibility, and network access before re-running validation."
+    if tokens & {"timeout", "recovery"}:
+        return "Make startup/tests timeout-safe and re-run validation to confirm the sandbox no longer times out."
+    return ""
+
+
+def _ensure_remediation_surface(state: AgentState) -> None:
+    """하이브리드 refiner: 규칙 스켈레톤의 수정부위 문장을 LLM 출력에 보장 주입한다.
+
+    규칙(_refiner_guidance)은 실패 유형별 수정부위를 이미 안다(fallback refiner가 100%인 이유).
+    LLM이 그 surface를 빠뜨리면 patch_guidance에 메워, 표현은 LLM·정확성은 규칙으로 보장한다.
+    라우팅은 판정 reason_category(결정적·권위)로 해, LLM critic 표현에 휘둘리지 않는다.
+    """
+    report = state.refiner_report
+    if not report:
+        return
+    skeleton = _refiner_guidance(
+        str(state.critic_feedback.get("issue", "")),
+        str(state.critic_feedback.get("root_cause", "")),
+        str(state.critic_feedback.get("recommended_action", "")),
+    )
+    surface = _category_surface(str((state.judge_report or {}).get("reason_category", "")))
+    if surface:
+        skeleton = [*skeleton, surface]
+    guidance = list(report.get("patch_guidance") or [])
+    covered = " ".join([str(report.get("summary", ""))] + guidance).casefold()
+    for line in skeleton:
+        if line and line.casefold() not in covered:
+            guidance.append(line)
+            covered += " " + line.casefold()
+    if guidance:
+        report["patch_guidance"] = guidance
 
 
 def _refiner_guidance(issue: str, root_cause: str, action: str) -> list[str]:
