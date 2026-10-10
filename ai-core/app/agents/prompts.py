@@ -56,6 +56,12 @@ file: path (exactly as in repository_files), find (a substring copied verbatim f
 file, including indentation, unique in the file), replace (the new text). For a single-replica
 or availability gap, increase the replicas field. If repository_files has no relevant file,
 use "edits": [] and describe the fix in patch_guidance.
+Name the concrete remediation surface for the failure, never a generic "fix the error":
+service that never answered HTTP (no http response, wrong port) -> the health endpoint, the
+exposed/declared port, and verifying via an HTTP or browser probe; no runnable entrypoint or
+empty repo -> adding a manifest and a deterministic test or build command the sandbox can run;
+non-zero test/build exit -> the failing step and getting it to exit_code=0; unreachable clone
+(private/missing repo) -> the url, branch, repository visibility, or network.
 
 Example evidence → correct output (repository_files has .codereferee/validation.yaml containing "  replicas: 1"):
 {"summary": "The single-replica deployment loses all availability during a pod failure; add replicas for redundancy.",
