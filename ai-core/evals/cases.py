@@ -143,6 +143,8 @@ class EvalCase:
     ambiguous: bool = False
     note: str | None = None
     slo: dict[str, Any] | None = None
+    # 서술 채점용 정답 주석(개념·grounding·금지주장 등). golden 케이스에만 있다.
+    annotations: dict[str, Any] = field(default_factory=dict)
 
     def build_state(self) -> AgentState:
         state = AgentState(job_id=self.id, repository_url=self.raw_state["repository_url"])
@@ -175,6 +177,12 @@ def _human_cases(slice_name: str) -> list[EvalCase]:
             group=c.get("group"),
             injection=bool(c.get("injection")),
             note=c.get("needs_sandbox_field"),
+            annotations={
+                k: c[k]
+                for k in ("planner_grounding", "critic_concepts", "refiner_concepts",
+                          "evidence_tokens", "forbidden_claims", "judge_status")
+                if k in c
+            },
         )
         for c in raw
     ]
