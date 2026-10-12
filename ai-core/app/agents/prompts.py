@@ -45,6 +45,25 @@ OUTPUT:
  "evidence": ["primary_signal=rollout_not_ready failed_step=run", "failure_log=timed out waiting for the condition"],
  "recommended_action": "Collect pod diagnostics (kubectl describe pod, kubectl logs --previous, container lastState) to pin the cause before changing the workload."}
 
+When failure_category is a rollout SUBTYPE, pod diagnostics ARE in the primary_signal, so name the
+specific cause and recommend the matching fix — do not hedge:
+- deploy_crashloop: the container crashed on boot (CrashLoopBackOff + nonzero exit). The logs tail in
+  primary_signal usually names it (e.g. a missing env var). Root cause = that crash; action = guard the
+  missing env/config with a default in the boot path.
+- deploy_probe_failure: the container runs but readiness stays false (event Unhealthy). Root cause = the
+  health path never returns ready; action = fix the health endpoint or point the probe at a ready signal.
+- deploy_image_pull_error: the image could not be pulled (ErrImagePull/ImagePullBackOff). Root cause =
+  a bad tag/registry reference; action = fix the image reference.
+
+Example evidence → correct output:
+  failure_category=deploy_crashloop,
+  primary_signal=CrashLoopBackOff exit_code=1 restart_count=5; logs: KeyError: 'DATABASE_URL'
+OUTPUT:
+{"issue": "The container crashes on boot, so the deployment never becomes ready.",
+ "root_cause": "The app reads DATABASE_URL at import time and it is unset, so the process exits immediately and Kubernetes restarts it into CrashLoopBackOff.",
+ "evidence": ["primary_signal=CrashLoopBackOff exit_code=1", "logs: KeyError: 'DATABASE_URL'"],
+ "recommended_action": "Guard DATABASE_URL with a default (or fail fast with a clear message) in the boot path so the container stays up."}
+
 Example evidence → correct output:
   failure_category=chaos_recovery_exceeds_expected_bound,
   policy_warnings=["chaos_single_replica_topology"], chaos.replicas=1, recovery=37.8s
