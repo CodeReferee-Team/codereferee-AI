@@ -415,6 +415,13 @@ def _environment_limit_category(result: SandboxResult) -> str | None:
         return ENVIRONMENT_LIMIT_CATEGORY
 
     report = result.sandbox_report or {}
+    # 검증 대상을 특정하지 못한 경우(실행 서비스 없음·매니페스트/validation.yaml 부재·모호)는
+    # 어떤 스택이든 '검증 불가'지 레포 코드 결함이 아니다. 샌드박스가 ConfigurationRequired로
+    # 끝낼 때 configuration_required 플래그를 보낸다. 종료 코드(89)는 "테스트 없음"과도
+    # 겹치므로 코드가 아니라 이 구조화 플래그로만 판단한다.
+    if report.get("configuration_required"):
+        return ENVIRONMENT_LIMIT_CATEGORY
+
     if report.get("detected_stack") != "python" or report.get("failed_step") != "smoke":
         return None
     if result.exit_code == _PYTEST_USAGE_ERROR:
@@ -445,10 +452,11 @@ def _nonzero_exit_category(result: SandboxResult) -> str:
     sandbox가 보낸 구조화 결과(exit code, failed_step)를 먼저 본다. 그것이 없을 때만
     로그 문구로 내려간다. 로그 전체를 substring으로 뒤지면 준비 과정 출력에 걸린다.
     """
-    if category := _EXIT_CODE_CATEGORIES.get(result.exit_code):
-        return category
-    # 우리가 검증할 수 없었던 것을 레포 결함으로 보고하지 않는다.
+    # 검증 불가(환경 한계·대상 미확정)를 먼저 가린다. 레포 결함으로 보고하면 안 되므로,
+    # no_manifest/no_tests 같은 Fail 카테고리 매핑보다 우선한다.
     if category := _environment_limit_category(result):
+        return category
+    if category := _EXIT_CODE_CATEGORIES.get(result.exit_code):
         return category
 
     report = result.sandbox_report or {}
