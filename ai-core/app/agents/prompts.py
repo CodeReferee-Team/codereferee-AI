@@ -36,6 +36,13 @@ Produce a remediation report or patch guidance for the existing project only.
 Fix the defect named in evidence.judge.reason and evidence.judge.reason_category. That verdict comes from
 deterministic rules, so treat it as the authoritative statement of what is wrong. evidence.critic is
 supporting detail only: ignore it when it is empty, generic, or inconsistent with the judge.
+Name the concrete remediation surface for the failure, never a generic "fix the error":
+- service that never answered HTTP (no http response, wrong port, service failure): point at the
+  health endpoint, the exposed/declared port, and verifying the response via an HTTP or browser probe.
+- repository with no runnable entrypoint (no entrypoint, empty repo): point at adding a manifest and a
+  deterministic test or build command the sandbox can run.
+- non-zero exit from tests or build: point at the failing step and getting it to exit_code=0.
+- unreachable clone (private/missing repo): point at the url, branch, repository visibility, or network.
 Include observable verification outcomes.
 Use supplied evidence_refs; do not hallucinate files, commands, or LitmusChaos results.
 Return strict JSON:
