@@ -170,12 +170,80 @@ def classify_failure_category(state: AgentState) -> str:
     if result.timed_out:
         return "timeout"
     if result.exit_code not in (0, None):
+        if _is_rollout_timeout(result):
+            return _rollout_subtype(result)
         return "non_zero_exit"
     if result.service_check_attempted and not _service_smoke_passed(result):
         return "service_failure"
     if result.browser_check_attempted and not result.browser_loaded:
         return "browser_failure"
     return "success"
+
+
+_ROLLOUT_TIMEOUT_MARKERS = ("timed out waiting for the condition", "rollout status")
+
+
+def _is_rollout_timeout(result: Any) -> bool:
+    """배포 run 단계에서 rollout이 ready에 도달 못해 kubectl이 타임아웃한 경우.
+
+    일반 테스트/빌드 non-zero와 구분한다. 근본원인(부팅 크래시 vs readiness probe 실패 vs
+    ImagePull)은 샌박이 pod describe/logs/lastState를 실어야 알 수 있다(docs의 sandbox
+    pod-diagnostics 스펙). 그 전까지 Critic은 이 카테고리를 '롤아웃 미준비, 근본원인 미확정'
+    으로 정직하게 다룬다.
+    """
+    if (result.sandbox_report or {}).get("failed_step") != "run":
+        return False
+    blob = f"{result.stderr or ''}\n{result.stdout or ''}".casefold()
+    return any(marker in blob for marker in _ROLLOUT_TIMEOUT_MARKERS)
+
+
+_IMAGE_PULL_REASONS = {"ErrImagePull", "ImagePullBackOff"}
+
+
+def _rollout_subtype(result: Any) -> str:
+    """pod 진단(docs/sandbox-pod-diagnostics.md, #111)으로 rollout 실패 원인을 가른다.
+
+    진단이 없으면(샌박 미구현 구간) deploy_rollout_timeout으로 정직하게 남긴다 — 추측 안 함.
+    """
+    diag = (result.sandbox_report or {}).get("pod_diagnostics") or {}
+    pods = diag.get("pods", []) or []
+    containers = [c for pod in pods for c in pod.get("containers", []) or []]
+    if any(c.get("waiting_reason") in _IMAGE_PULL_REASONS for c in containers):
+        return "deploy_image_pull_error"
+    for c in containers:
+        if c.get("waiting_reason") == "CrashLoopBackOff":
+            exit_code = (c.get("last_terminated") or {}).get("exit_code")
+            if exit_code not in (0, None):
+                return "deploy_crashloop"
+    running_not_ready = any(
+        pod.get("phase") == "Running" and any(c.get("ready") is False for c in pod.get("containers", []) or [])
+        for pod in pods
+    )
+    events = [e for pod in pods for e in pod.get("events", []) or []]
+    if running_not_ready and any(e.get("reason") == "Unhealthy" for e in events):
+        return "deploy_probe_failure"
+    return "deploy_rollout_timeout"
+
+
+def _rollout_signal(result: Any, category: str) -> str:
+    """세분된 rollout 실패의 근본원인을 Critic이 볼 수 있게 한 줄로 요약한다."""
+    diag = (result.sandbox_report or {}).get("pod_diagnostics") or {}
+    pods = diag.get("pods", []) or []
+    pairs = [(pod, c) for pod in pods for c in pod.get("containers", []) or []]
+    if category == "deploy_image_pull_error":
+        reason = next((c.get("waiting_reason") for _, c in pairs
+                       if c.get("waiting_reason") in _IMAGE_PULL_REASONS), "ImagePullBackOff")
+        return f"image pull failed: {reason}"
+    if category == "deploy_crashloop":
+        pod, container = next(((p, c) for p, c in pairs if c.get("waiting_reason") == "CrashLoopBackOff"),
+                              (pods[0] if pods else {}, {}))
+        exit_code = (container.get("last_terminated") or {}).get("exit_code")
+        logs = (pod.get("logs_tail") or "").strip().replace("\n", " ")[:200]
+        return (f"CrashLoopBackOff exit_code={exit_code} "
+                f"restart_count={container.get('restart_count')}; logs: {logs}")
+    message = next((e.get("message") for pod in pods for e in pod.get("events", []) or []
+                    if e.get("reason") == "Unhealthy"), "readiness probe failed")
+    return f"pod Running ready=false; readiness probe Unhealthy: {message}"
 
 
 def _service_smoke_passed(result: Any) -> bool:
@@ -196,6 +264,10 @@ def _primary_signal(state: AgentState, category: str) -> str:
         return category
     if category == "timeout":
         return f"timed_out=True duration_ms={result.duration_ms}"
+    if category in {"deploy_crashloop", "deploy_probe_failure", "deploy_image_pull_error"}:
+        return _rollout_signal(result, category)
+    if category == "deploy_rollout_timeout":
+        return "rollout_not_ready failed_step=run; pod events/logs unavailable"
     if category == "non_zero_exit":
         return f"exit_code={result.exit_code}"
     if category in {"service_failure", "browser_failure"}:

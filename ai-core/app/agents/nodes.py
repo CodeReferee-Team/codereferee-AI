@@ -762,6 +762,12 @@ def _refiner_guidance(issue: str, root_cause: str, action: str) -> list[str]:
         return [action, "Verify the repository URL, branch/ref, visibility, and network access before re-running validation."]
     if "entrypoint" in text or "manifest" in text:
         return [action, "Add a deterministic supported manifest or validation command and commit it before re-running."]
+    if "crashloop" in text or ("env" in text and ("missing" in text or "boot" in text or "crash" in text)):
+        return [action, "Guard the missing environment variable (or required config) with a default in the boot path, then re-run to confirm the container stays up."]
+    if "readiness" in text or "probe" in text or "healthpath" in text or "health path" in text:
+        return [action, "Point the readiness/health path at an endpoint that returns 200 only when the service is actually ready, then re-run."]
+    if "image pull" in text or "imagepull" in text or "errimagepull" in text:
+        return [action, "Fix the image tag/registry reference so the pull succeeds, then re-run."]
     if "timeout" in text:
         return [action, "Make startup/tests timeout-safe and re-run validation to confirm the sandbox no longer times out."]
     if "non-zero" in text or "exit code" in text or "pytest" in text:
