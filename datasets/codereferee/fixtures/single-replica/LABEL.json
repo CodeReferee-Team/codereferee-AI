@@ -1,0 +1,15 @@
+{
+  "id": "single-replica",
+  "stack": "python-fastapi",
+  "deploy_shape": "validation_yaml",
+  "expected_plan_source": "repository_configuration",
+  "needs_yaml": true,
+  "yaml_reason": "replicas는 레포가 선언한 토폴로지. 선언형 파일(validation.yaml/k8s manifest) 있어야 자가치유가 고칠 대상이 생김.",
+  "modality": "chaos",
+  "defect": "single_replica_topology",
+  "expected": {"verdict": "Pass+WARNING", "stage": "runtime", "reason_category": "chaos_single_replica_topology"},
+  "expected_heal": {"file": ".codereferee/validation.yaml", "find": "replicas: 1", "replace": "replicas: 2"},
+  "verified_by": ["resolve_plan"],
+  "unverified_runtime": ["chaos warning emission", "refiner replicas++ patch", "Fail 변형(복구상한 초과 시)"],
+  "note": "기존 데모 경로를 라벨링된 1건으로 편입. 단일 replica면 chaos가 WARNING. 복구가 기대 상한도 넘으면 Fail로 바뀌어 자가치유 루프 트리거."
+}

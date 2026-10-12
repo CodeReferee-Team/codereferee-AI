@@ -1,0 +1,14 @@
+{
+  "id": "node-healthy",
+  "stack": "node",
+  "deploy_shape": "stack_detection",
+  "expected_plan_source": "stack_detection",
+  "needs_yaml": false,
+  "modality": "chaos",
+  "defect": "none",
+  "expected": {"verdict": "Pass", "stage": "runtime", "reason_category": "chaos_recovered_within_budget"},
+  "expected_heal": null,
+  "verified_by": ["resolve_plan"],
+  "unverified_runtime": ["chaos verdict (needs full k8s stack run)"],
+  "note": "cross-language 커버. package.json start 스크립트 → stack_recipe node(port 3000), Dockerfile 자동 생성. yaml 0줄."
+}

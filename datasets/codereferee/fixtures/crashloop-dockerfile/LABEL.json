@@ -1,0 +1,23 @@
+{
+  "id": "crashloop-dockerfile",
+  "stack": "python",
+  "deploy_shape": "dockerfile",
+  "expected_plan_source": "dockerfile",
+  "needs_yaml": false,
+  "modality": "deploy",
+  "defect": "crashloop_on_boot",
+  "defect_probe": {"run": "python app.py", "expect_nonzero_exit": true},
+  "expected": {"verdict": "Fail", "stage": "sandbox", "reason_category": "chaos_not_recovered"},
+  "expected_heal": {"file": "app.py", "find": "os.environ[\"DATABASE_URL\"]", "replace": "os.environ.get(\"DATABASE_URL\", \"sqlite:///local.db\")"},
+  "verified_by": ["resolve_plan", "defect_unit", "full_stack_run@2026-10-09"],
+  "observed_runtime": {
+    "verdict": "Fail",
+    "reason_category": "sandbox_nonzero_exit",
+    "mechanism": "미선언 env(DATABASE_URL)로 부팅 즉시 crash → CrashLoopBackOff → rollout 'timed out waiting for the condition' → exit 1",
+    "self_heal_fired": false,
+    "iterations": 0,
+    "critic_diagnosis": "애플리케이션이 제때 기동하지 못함(대체로 맞음 — 부팅 크래시)"
+  },
+  "gap": "verdict Fail·진단 방향 맞지만 코드 가드 자가치유는 미발동(iter=0). Refiner가 부팅 크래시→코드 패치로 잇는 경로 미구현.",
+  "note": "Dockerfile shape 배포 + 부팅 크래시. chaos 전 샌박 단계에서 Fail(예상대로). 자가치유 미발동."
+}
