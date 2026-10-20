@@ -135,6 +135,7 @@ Sandbox v1이 실제 Kubernetes Pod Kill 실험 결과를 보내기 시작하면
 - **PDB 유무는 Pod Kill 판정 근거가 아니다.** Kubernetes 문서는 Deployment나 Pod를 삭제하는 행위가 PDB를 우회한다고 명시한다([Disruptions](https://kubernetes.io/docs/concepts/workloads/pods/disruptions/)). 참고 정보로만 기록한다.
 - **중단된 실험과 실패한 실험을 구분한다.** AWS FIS는 중단된 실험을 재개할 수 없다고 명시한다. 중단은 안전장치가 작동한 것이지 대상 시스템의 결함 판정이 아니다.
 - **지연 배수 10배는 우리 관례다.** Google SRE 문헌은 p95 단일 임계값이 아니라 p50과 p99·p99.9를 함께 보라고 권고한다([Service Level Objectives](https://sre.google/sre-book/service-level-objectives/)). 현재 Sandbox가 p95만 보내므로 임시로 baseline 대비 배수를 쓰고, p99가 들어오면 임계값을 다시 정한다.
+- **묶음 실행은 지연을 시나리오별로 본다.** 여러 시나리오를 한 배포에서 이어 돌린 응답은 최상위 `metrics.p95_latency_ms`를 null로 보내고 `chaos_observation.scenarios[]`에 시나리오마다 baseline과 실험 구간 p95를 따로 싣는다. 규칙 8은 각 시나리오를 그 시나리오의 baseline과 비교해, 하나라도 넘으면 경고를 붙인다. 최상위만 보면 단독으로 돌릴 때 나오던 경고가 묶음에서 사라진다(2026-10-19 실측: 라우팅 차단 1018.93ms / 6.67ms).
 - **복구 시간을 DORA 등급으로 표기하지 않는다.** DORA 2025 보고서는 Elite/High/Medium/Low 등급 구분을 없애고 7개 팀 유형으로 대체했다([DORA FAQ](https://dora.dev/faq/)). 등급 대신 필요하면 분포상의 위치로 표현한다.
 - **Chaos v1 결과는 fixture 앱의 복원력이다.** 사용자 레포를 Kubernetes에 배포하지 않으므로, 이 판정은 사용자 레포의 SRE 검증 결과가 아니다. 리포트에 `source.fixture` 값을 그대로 노출해 구분한다.
 
