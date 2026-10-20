@@ -341,6 +341,68 @@ read_declaration() {
   return 0
 }
 
+install_conventional_test_dependencies() {
+  # 선언이 없으면 흔한 자리에서 처음 찾은 하나만 설치한다. 정상 레포 30개 중 14개가 테스트 전용
+  # 의존성이 없어 판정 불가였다. 추측한 자리이므로 실패해도 단계를 실패시키지 않는다.
+  for _f in requirements/tests.txt requirements/test.txt requirements-test.txt requirements-tests.txt \
+            test-requirements.txt tests/requirements.txt requirements-dev.txt requirements/dev.txt; do
+    if [ -f "$_f" ]; then
+      echo "test_dependencies=$_f"
+      python -m pip install --disable-pip-version-check --break-system-packages -r "$_f" >/dev/null \
+        || echo "test dependencies from $_f could not be installed"
+      return 0
+    fi
+  done
+  [ -f pyproject.toml ] || return 0
+  _reqs=$(mktemp)
+  python - > "$_reqs" <<'PY' || return 0
+import tomllib
+try:
+    with open("pyproject.toml", "rb") as handle:
+        data = tomllib.load(handle)
+except Exception:
+    raise SystemExit(0)
+names = ("tests", "test", "testing", "dev")
+groups = data.get("dependency-groups") or {}
+
+def expand(name, seen):
+    found = []
+    for item in groups.get(name) or []:
+        if isinstance(item, str):
+            found.append(item)
+        elif isinstance(item, dict) and item.get("include-group") not in seen:
+            found.extend(expand(item["include-group"], seen | {name}))
+    return found
+
+extras = (data.get("project") or {}).get("optional-dependencies") or {}
+for name in names:
+    if name in groups:
+        print("group " + name)
+        print(chr(10).join(expand(name, set())))
+        break
+else:
+    for name in names:
+        if name in extras:
+            print("extra " + name)
+            break
+PY
+  _kind=$(head -1 "$_reqs")
+  case "$_kind" in
+    "group "*)
+      echo "test_dependencies=dependency-groups.${_kind#group }"
+      tail -n +2 "$_reqs" > "$_reqs.txt"
+      python -m pip install --disable-pip-version-check --break-system-packages -r "$_reqs.txt" >/dev/null \
+        || echo "test dependencies from dependency-groups.${_kind#group } could not be installed"
+      ;;
+    "extra "*)
+      echo "test_dependencies=optional-dependencies.${_kind#extra }"
+      python -m pip install --disable-pip-version-check --break-system-packages ".[${_kind#extra }]" >/dev/null \
+        || echo "test dependencies from optional-dependencies.${_kind#extra } could not be installed"
+      ;;
+  esac
+  return 0
+}
+
 install_dependencies() {
   case "$STACK" in
     python)
@@ -356,6 +418,8 @@ install_dependencies() {
       # 레포가 알려주면 그대로 설치한다.
       if [ -n "$DECLARED_TEST_DEPS" ] && [ -f "$DECLARED_TEST_DEPS" ]; then
         python -m pip install --disable-pip-version-check --break-system-packages -r "$DECLARED_TEST_DEPS" >/dev/null || return $?
+      else
+        install_conventional_test_dependencies
       fi
       ;;
     node)

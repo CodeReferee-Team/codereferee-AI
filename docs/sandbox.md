@@ -115,6 +115,18 @@ testDependencies: requirements/tests.txt
 
 `test`가 있으면 스택별 기본 명령 대신 그대로 돌린다. `testDependencies`가 있으면 의존성 단계에서 함께 설치한다.
 
+### 선언이 없을 때 테스트 의존성을 찾는 자리
+
+`testDependencies`가 없으면 Python은 흔히 쓰는 자리를 순서대로 보고 처음 찾은 하나만 설치한다.
+
+1. 요구사항 파일: `requirements/tests.txt`, `requirements/test.txt`, `requirements-test.txt`, `requirements-tests.txt`, `test-requirements.txt`, `tests/requirements.txt`, `requirements-dev.txt`, `requirements/dev.txt`
+2. `pyproject.toml`의 `[dependency-groups]`(PEP 735) 중 `tests`, `test`, `testing`, `dev`
+3. `pyproject.toml`의 `[project.optional-dependencies]` 중 같은 이름
+
+이 설치가 실패해도 단계를 실패시키지 않는다. 우리가 추측한 자리이므로 그 실패를 레포 탓으로 돌리면 안 된다. 설치하지 못하면 pytest 수집이 깨지고, 선언이 없으므로 `verification_environment_unsupported`로 간다.
+
+이렇게 바꾼 이유는 실측이다(2026-10-20). 최신 릴리스 태그로 고정한 정상 Python 레포 30개 중 14개가 테스트 전용 의존성이 없어 판정 불가로 나왔고, flask와 dateutil은 우리가 최신 pytest를 깔아서 레포가 고정한 버전과 맞지 않았다. 레포가 고정한 pytest가 먼저 설치되면 우리 설치는 건너뛴다.
+
 Kubernetes 샌드박스가 이미 같은 파일로 `deploymentProfile`을 고른다. 1층도 같은 파일을 읽으므로 두 층의 입력이 하나다.
 
 ### 왜 필요한가
