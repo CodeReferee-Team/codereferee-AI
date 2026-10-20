@@ -53,7 +53,10 @@ AI Core는 기존 실행 결과 필드와 함께 다음 Chaos v1 evidence를 보
 
 구조화 결과의 `failed_step`은 `prepare` → `clone` → `patch` → `detect` → `declaration` →
 `compile` → `dependencies` → `smoke` 중 하나다. `compile`은 Python에서 선언이 없을 때만 돌고
-(`python -m compileall -q .`), 의존성 설치보다 앞에 둔다. 문법 오류가 있으면 설치에 쓰는 시간을
+(`python -m compileall -q -x <제외> .`), 의존성 설치보다 앞에 둔다. `tests`, `test`, `testing` 디렉터리와
+`{{`가 들어간 경로(cookiecutter 템플릿)는 컴파일하지 않는다. `psf/black`은 `tests/data`에 일부러 문법이
+틀린 파일을 두고, `cookiecutter`의 테스트 픽스처에는 템플릿 문법이 들어 있다. 둘 다 수정 커밋인데도
+불합격으로 나갔다(BugsInPy 실측). 테스트 코드 자체의 문법 오류는 pytest 수집 단계에서 드러난다. 문법 오류가 있으면 설치에 쓰는 시간을
 아낀다. 판정은 이 단계 실패를 `compile_failed`로 본다(`docs/judge-policy.md` 8절).
 
 ### 89를 둔 이유
@@ -68,6 +71,11 @@ AI Core는 기존 실행 결과 필드와 함께 다음 Chaos v1 evidence를 보
 판정은 FAILED다. 백엔드 최종 상태가 PASSED / FAILED / ERROR 세 가지뿐이고, 89는 우리 인프라
 문제가 아니라 대상 레포의 상태이므로 ERROR가 아니다. 판정 이유에는 "테스트가 없어 안정성을
 확인할 수 없었다"가 그대로 들어간다.
+
+Python은 최상위 `tests` 디렉터리가 있는지 미리 보지 않는다. pytest에 맡기고, 모은 테스트가 없으면
+89로 바꾼다. 전에는 `tests`가 없으면 바로 89를 냈는데, `tqdm`처럼 테스트를 패키지 안(`tqdm/tests`)에
+두는 레포가 "테스트 없음"으로 불합격했다(BugsInPy 실측, 2026-10-20). pytest가 레포의 설정
+(`python_files` 등)까지 읽으므로 우리가 위치를 추측하는 것보다 정확하다.
 
 pytest가 테스트를 하나도 모으지 못하면 5로 끝낸다. `tests` 디렉터리는 있는데 안이 비었거나
 `test_*.py`가 없는 경우다. 같은 "검증할 것이 없음"이므로 스크립트가 89로 바꿔 내보낸다. 선언된
