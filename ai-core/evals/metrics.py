@@ -90,6 +90,28 @@ def warning_summary(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     return metric(hit, len(rows))
 
 
+def narrative_summary(score_dicts: Sequence[dict[str, Any]]) -> dict[str, Any] | None:
+    """서술 채점 집계. score_dicts는 run["scores"] 모음(각 {critic:{...}, refiner:{...}, planner?}).
+
+    모델 교체 비교의 핵심 지표다 — 판정과 달리 모델에 따라 움직인다. 에이전트별 개념/grounding
+    통과율과 스키마 통과율(깨진 JSON 비율)을 낸다.
+    """
+    agents = ("planner", "critic", "refiner")
+    out: dict[str, Any] = {}
+    for agent in agents:
+        scored = [s[agent] for s in score_dicts if agent in s]
+        if not scored:
+            continue
+        passed = sum(1 for s in scored if s.get("passed"))
+        schema_ok = sum(1 for s in scored if s.get("schema_ok"))
+        out[agent] = {
+            "pass_rate": metric(passed, len(scored)),
+            "schema_pass": metric(schema_ok, len(scored)),
+            "n": len(scored),
+        }
+    return out or None
+
+
 def majority(verdicts: Sequence[str]) -> str:
     return collections.Counter(verdicts).most_common(1)[0][0]
 

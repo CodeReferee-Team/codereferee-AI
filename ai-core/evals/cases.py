@@ -143,6 +143,8 @@ class EvalCase:
     ambiguous: bool = False
     note: str | None = None
     slo: dict[str, Any] | None = None
+    # 서술 채점용 정답 주석(개념·grounding·금지주장 등). golden 케이스에만 있다.
+    annotations: dict[str, Any] = field(default_factory=dict)
 
     def build_state(self) -> AgentState:
         state = AgentState(job_id=self.id, repository_url=self.raw_state["repository_url"])
@@ -175,16 +177,23 @@ def _human_cases(slice_name: str) -> list[EvalCase]:
             group=c.get("group"),
             injection=bool(c.get("injection")),
             note=c.get("needs_sandbox_field"),
+            annotations={
+                k: c[k]
+                for k in ("planner_grounding", "critic_concepts", "refiner_concepts",
+                          "evidence_tokens", "forbidden_claims", "judge_status")
+                if k in c
+            },
         )
         for c in raw
     ]
 
 
 def _real_chaos_cases() -> list[EvalCase]:
-    url = "https://github.com/phdcoco/QuickByte_Demo.git"
+    default_url = "https://github.com/phdcoco/QuickByte_Demo.git"
     labels = json.loads(REAL_CHAOS_LABELS.read_text(encoding="utf-8"))
     built: list[EvalCase] = []
     for entry in labels:
+        url = entry.get("repository_url", default_url)
         path = REAL_CHAOS_EVIDENCE / f"{entry['id']}.json"
         if not path.is_file():
             raise FileNotFoundError(f"실측 증거 파일이 없다: {path}")
@@ -204,6 +213,7 @@ def _real_chaos_cases() -> list[EvalCase]:
                     "sandbox_response": path.read_text(encoding="utf-8"),
                 },
                 expected_warnings=entry.get("expected_warnings", []),
+                ambiguous=bool(entry.get("ambiguous")),
                 note=entry.get("note"),
             )
         )

@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Any
 
 from pydantic import ValidationError
@@ -124,6 +125,10 @@ def refiner_node(state: AgentState) -> AgentState:
     _diff_from_edits(state)
     if llm.enabled:
         _retry_rejected_edits(state, packet)
+    # 하이브리드: 규칙 스켈레톤이 유형별 수정부위를 보장 주입한다. LLM이 health endpoint·
+    # manifest 같은 surface를 빠뜨려도 규칙(_refiner_guidance — fallback에서 T0 100%)이 메운다.
+    # retry가 refiner_report를 교체할 수 있으므로 그 뒤에서 마지막으로 보강한다.
+    _ensure_remediation_surface(state)
     _record_patch_inspection(state)
     return state
 
@@ -509,6 +514,17 @@ def chaos_target_configuration(observation: dict[str, object]) -> dict[str, obje
     return config if isinstance(config, dict) else {}
 
 
+def _latency_degraded(baseline: dict[str, Any], measured: dict[str, Any]) -> bool:
+    """실험 구간 p95가 같은 구간의 baseline p95보다 LATENCY_DEGRADATION_FACTOR배 넘게 느린가.
+
+    묶음 응답은 최상위 p95를 null로 보내고 시나리오마다 baseline과 p95를 따로 싣는다.
+    시나리오마다 baseline이 다르므로 다른 시나리오의 baseline과 섞어 비교하지 않는다.
+    """
+    baseline_p95 = _as_float((baseline.get("metrics") or {}).get("p95_latency_ms"))
+    observed_p95 = _as_float(measured.get("p95_latency_ms"))
+    return bool(baseline_p95 and observed_p95 and observed_p95 > baseline_p95 * LATENCY_DEGRADATION_FACTOR)
+
+
 def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple[str | None, list[str]]:
     """docs/judge-policy.md 6절 기준으로 실측 지표를 판정한다.
 
@@ -560,9 +576,11 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
             if recovery >= allowance * 0.2:
                 warnings.append("chaos_error_budget_significant_burn")
 
-        baseline_p95 = _as_float((result.baseline.get("metrics") or {}).get("p95_latency_ms"))
-        observed_p95 = _as_float(measured.get("p95_latency_ms"))
-        if baseline_p95 and observed_p95 and observed_p95 > baseline_p95 * LATENCY_DEGRADATION_FACTOR:
+        if _latency_degraded(result.baseline, measured) or any(
+            _latency_degraded(scenario.get("baseline") or {}, scenario.get("metrics") or {})
+            for scenario in observation.get("scenarios") or []
+            if isinstance(scenario, dict)
+        ):
             warnings.append("chaos_latency_degraded")
         return None, warnings
 
@@ -860,6 +878,57 @@ def _non_empty_evidence(value: object, *fallbacks: object) -> list[str]:
         if isinstance(fallback, str) and fallback.strip():
             evidence.append(fallback)
     return evidence or ["evidence=missing"]
+
+
+def _ensure_remediation_surface(state: AgentState) -> None:
+    """하이브리드 refiner: 규칙 스켈레톤의 수정부위 문장을 LLM 출력에 보장 주입한다.
+
+    판정·원인은 규칙이 정하고 서술만 LLM이 맡는 설계(docs/evaluation-design.md 8.1)의 일부다.
+    규칙(_refiner_guidance)은 실패 유형별 수정부위(health endpoint·manifest·exit_code=0·clone
+    visibility)를 이미 안다 — 그래서 fallback refiner가 T0 개념 커버리지 100%다. LLM이 그 surface를
+    빠뜨리면 이 함수가 patch_guidance에 메워, 표현은 LLM·정확성은 규칙으로 보장한다.
+    """
+    report = state.refiner_report
+    if not report:
+        return
+    skeleton = _refiner_guidance(
+        str(state.critic_feedback.get("issue", "")),
+        str(state.critic_feedback.get("root_cause", "")),
+        str(state.critic_feedback.get("recommended_action", "")),
+    )
+    # 판정 reason_category로 수정부위를 항상 보강한다. reason_category는 규칙이 정한 결정적·권위
+    # 신호라, LLM critic의 표현에 휘둘려 텍스트 라우팅이 엉뚱한 surface로 가도 바로잡는다.
+    surface = _category_surface(str((state.judge_report or {}).get("reason_category", "")))
+    if surface:
+        skeleton = [*skeleton, surface]
+    guidance = list(report.get("patch_guidance") or [])
+    covered = " ".join([str(report.get("summary", ""))] + guidance).casefold()
+    for line in skeleton:
+        if line and line.casefold() not in covered:
+            guidance.append(line)
+            covered += " " + line.casefold()
+    if guidance:
+        report["patch_guidance"] = guidance
+
+
+def _category_surface(category: str) -> str:
+    """판정 reason_category로 수정부위 문장을 고른다(텍스트 라우팅이 비었을 때의 백스톱).
+
+    문구는 _refiner_guidance와 같은 surface를 쓴다 — 개념 커버리지 기준이 동일하기 때문.
+    """
+    # 토큰 단위로 본다. 부분문자열이면 "supported"의 'port'가 service로 오매칭된다(실측 버그).
+    tokens = set(re.split(r"[^a-z0-9]+", category.casefold()))
+    if tokens & {"install", "nonzero", "exit", "build", "compile", "dependency", "pytest", "test"}:
+        return "Fix the failing command from the logs and verify it exits with exit_code=0 in the sandbox."
+    if tokens & {"entrypoint", "manifest"}:
+        return "Add a deterministic supported manifest or validation command and commit it before re-running."
+    if tokens & {"service", "http", "port", "browser", "endpoint"}:
+        return "Fix the service health endpoint/start command and verify HTTP plus browser smoke checks pass."
+    if tokens & {"clone", "reachable", "repository", "intake", "private", "auth"}:
+        return "Verify the repository URL, branch/ref, visibility, and network access before re-running validation."
+    if tokens & {"timeout", "recovery"}:
+        return "Make startup/tests timeout-safe and re-run validation to confirm the sandbox no longer times out."
+    return ""
 
 
 def _refiner_guidance(issue: str, root_cause: str, action: str) -> list[str]:
