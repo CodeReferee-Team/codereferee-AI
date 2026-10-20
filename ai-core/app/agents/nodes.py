@@ -517,6 +517,17 @@ def chaos_target_configuration(observation: dict[str, object]) -> dict[str, obje
     return config if isinstance(config, dict) else {}
 
 
+def _latency_degraded(baseline: dict[str, Any], measured: dict[str, Any]) -> bool:
+    """실험 구간 p95가 같은 구간의 baseline p95보다 LATENCY_DEGRADATION_FACTOR배 넘게 느린가.
+
+    묶음 응답은 최상위 p95를 null로 보내고 시나리오마다 baseline과 p95를 따로 싣는다.
+    시나리오마다 baseline이 다르므로 다른 시나리오의 baseline과 섞어 비교하지 않는다.
+    """
+    baseline_p95 = _as_float((baseline.get("metrics") or {}).get("p95_latency_ms"))
+    observed_p95 = _as_float(measured.get("p95_latency_ms"))
+    return bool(baseline_p95 and observed_p95 and observed_p95 > baseline_p95 * LATENCY_DEGRADATION_FACTOR)
+
+
 def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple[str | None, list[str]]:
     """docs/judge-policy.md 6절 기준으로 실측 지표를 판정한다.
 
@@ -566,9 +577,11 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
             if recovery >= allowance * 0.2:
                 warnings.append("chaos_error_budget_significant_burn")
 
-        baseline_p95 = _as_float((result.baseline.get("metrics") or {}).get("p95_latency_ms"))
-        observed_p95 = _as_float(measured.get("p95_latency_ms"))
-        if baseline_p95 and observed_p95 and observed_p95 > baseline_p95 * LATENCY_DEGRADATION_FACTOR:
+        if _latency_degraded(result.baseline, measured) or any(
+            _latency_degraded(scenario.get("baseline") or {}, scenario.get("metrics") or {})
+            for scenario in observation.get("scenarios") or []
+            if isinstance(scenario, dict)
+        ):
             warnings.append("chaos_latency_degraded")
         return None, warnings
 

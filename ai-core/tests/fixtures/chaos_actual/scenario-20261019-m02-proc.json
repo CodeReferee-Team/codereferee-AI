@@ -1,0 +1,2047 @@
+{
+  "schemaVersion": "chaos-v1",
+  "scenario": "suite_custom__ck__pd__cpu",
+  "observationStatus": "observed",
+  "exitCode": 0,
+  "infraError": null,
+  "stderr": "",
+  "timedOut": false,
+  "baseline": {
+    "metrics": {
+      "availability": 1.0,
+      "p95_latency_ms": 4.09,
+      "error_rate": 0.0,
+      "probe_count": 20,
+      "success_count": 20,
+      "failure_count": 0,
+      "error_rate_denominator": "baseline in-cluster HTTP requests only",
+      "cpu_usage_percent": null,
+      "memory_usage_mb": null,
+      "restart_count": 0
+    }
+  },
+  "metrics": {
+    "availability": 0.989010989010989,
+    "error_rate": 0.01098901098901095,
+    "probe_count": 182,
+    "success_count": 180,
+    "failure_count": 2,
+    "p95_latency_ms": null,
+    "error_rate_denominator": "sum of per-scenario HTTP probe counts; inspect individual scenarios for latency"
+  },
+  "chaos_observation": {
+    "type": "scenario_suite",
+    "recovered": true,
+    "recovery_seconds": 2.1,
+    "target_configuration": {
+      "replicas": 1,
+      "readiness_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 2,
+        "timeout_seconds": 2,
+        "failure_threshold": 3,
+        "success_threshold": 1
+      },
+      "liveness_probe": null,
+      "startup_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 2,
+        "timeout_seconds": 2,
+        "failure_threshold": 90,
+        "success_threshold": 1
+      },
+      "termination_grace_period_seconds": 10
+    },
+    "abort_condition": {
+      "triggered": false,
+      "reason": null
+    },
+    "scenarios": [
+      {
+        "schemaVersion": "chaos-v1",
+        "scenario": "container_kill",
+        "observationStatus": "observed",
+        "exitCode": 0,
+        "infraError": null,
+        "probeTransport": "in_cluster_http",
+        "target": {
+          "namespace": "codereferee-t4218-m02-proc",
+          "deployment": "repository-api",
+          "labelSelector": "app.kubernetes.io/name=repository-api",
+          "service": "repository-api",
+          "servicePort": 8000
+        },
+        "replicas": 1,
+        "chaosEngine": "codereferee-container-kill-repository-api-1792404238",
+        "chaosResult": {
+          "name": "codereferee-container-kill-repository-api-1792404238-container-kill",
+          "verdict": "Pass",
+          "phase": "Completed",
+          "raw": {
+            "experimentStatus": {
+              "phase": "Completed",
+              "probeSuccessPercentage": "100",
+              "verdict": "Pass"
+            },
+            "history": {
+              "failedRuns": 0,
+              "passedRuns": 1,
+              "stoppedRuns": 0,
+              "targets": [
+                {
+                  "chaosStatus": "targeted",
+                  "kind": "pod",
+                  "name": "repository-api-6dd854d5b6-6cv79"
+                }
+              ]
+            }
+          }
+        },
+        "chaos_observation": {
+          "type": "container_kill",
+          "kill_method": "litmus_container_kill",
+          "started_at": "2026-10-19T10:04:03.761973Z",
+          "recovered": true,
+          "recovered_at": "2026-10-19T10:05:36.625486Z",
+          "recovery_seconds": 2.1,
+          "recovery_measurement": "first_failed_http_request_to_first_success_after_last_failure; 0 when no HTTP outage was sampled",
+          "experiment_duration_seconds": 93.05,
+          "fault_parameters": {
+            "TOTAL_CHAOS_DURATION": "15",
+            "CHAOS_INTERVAL": "60",
+            "FORCE": "true",
+            "TARGET_CONTAINER": "api",
+            "PODS_AFFECTED_PERC": "100",
+            "CONTAINER_RUNTIME": "containerd",
+            "SOCKET_PATH": "/run/containerd/containerd.sock",
+            "LIB_IMAGE_PULL_POLICY": "IfNotPresent"
+          },
+          "fault_scope": {
+            "mode": "all",
+            "requested_count": null,
+            "selection_method": "PODS_AFFECTED_PERC=100",
+            "selected_pods": [],
+            "pods_before": [
+              {
+                "name": "repository-api-6dd854d5b6-6cv79",
+                "uid": "af8114c7-3aac-43d2-b56d-96e9ac29ff14",
+                "node": "codereferee-control-plane",
+                "restart_count": 0,
+                "container_id": "containerd://ee2239658f1757342250966c4dfc8a8f30bcbb30bd2f4af4d2b7baa5383b88be",
+                "ready": true,
+                "deletion_timestamp": null
+              }
+            ],
+            "pods_after": [
+              {
+                "name": "repository-api-6dd854d5b6-6cv79",
+                "uid": "af8114c7-3aac-43d2-b56d-96e9ac29ff14",
+                "node": "codereferee-control-plane",
+                "restart_count": 1,
+                "container_id": "containerd://b4545e9661522f3118182e29254531f9840a6799c378be38a2ffe959319e26ca",
+                "ready": true,
+                "deletion_timestamp": null
+              }
+            ],
+            "litmus_reported_targets": [
+              {
+                "chaosStatus": "targeted",
+                "kind": "pod",
+                "name": "repository-api-6dd854d5b6-6cv79"
+              }
+            ],
+            "unexpected_reported_pods": [],
+            "missing_reported_pods": [],
+            "reported_pod_scope_matches": null
+          },
+          "last_terminations": [
+            {
+              "reason": "Error",
+              "exitCode": 137,
+              "startedAt": "2026-10-19T10:03:56Z",
+              "finishedAt": "2026-10-19T10:04:20Z"
+            }
+          ],
+          "oom_observed": null,
+          "target_container": "api",
+          "target_restart_count": 0,
+          "replacement_restart_count": 1,
+          "target_pod_uid": "af8114c7-3aac-43d2-b56d-96e9ac29ff14",
+          "replacement_pod_uid": "af8114c7-3aac-43d2-b56d-96e9ac29ff14",
+          "target_configuration": {
+            "replicas": 1,
+            "readiness_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 3,
+              "success_threshold": 1
+            },
+            "liveness_probe": null,
+            "startup_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 90,
+              "success_threshold": 1
+            },
+            "termination_grace_period_seconds": 10
+          },
+          "observation_window": {
+            "baseline_probe_count": 20,
+            "recovery_timeout_seconds": 240,
+            "error_rate_denominator": "all in-cluster HTTP requests during baseline, experiment, and recovery verification"
+          },
+          "abort_condition": {
+            "triggered": false,
+            "reason": null
+          }
+        },
+        "source": {
+          "real_execution_observed": true,
+          "http_observation_available": true,
+          "target": "repository-api"
+        },
+        "baseline": {
+          "metrics": {
+            "availability": 1.0,
+            "p95_latency_ms": 4.09,
+            "error_rate": 0.0,
+            "probe_count": 20,
+            "success_count": 20,
+            "failure_count": 0,
+            "error_rate_denominator": "baseline in-cluster HTTP requests only",
+            "cpu_usage_percent": null,
+            "memory_usage_mb": null,
+            "restart_count": 0
+          }
+        },
+        "metrics": {
+          "availability": 0.9857142857142858,
+          "p95_latency_ms": 5.78,
+          "error_rate": 0.014285714285714235,
+          "probe_count": 70,
+          "success_count": 69,
+          "failure_count": 1,
+          "error_rate_denominator": "all in-cluster HTTP requests during baseline, experiment, and recovery verification",
+          "cpu_usage_percent": null,
+          "memory_usage_mb": null,
+          "restart_count": 1
+        },
+        "probes": {
+          "baseline": [
+            {
+              "at": "2026-10-19T10:04:03.078013+00:00",
+              "status_code": 200,
+              "latency_ms": 3.58,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.104148+00:00",
+              "status_code": 200,
+              "latency_ms": 3.33,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.132350+00:00",
+              "status_code": 200,
+              "latency_ms": 3.28,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.155472+00:00",
+              "status_code": 200,
+              "latency_ms": 3.48,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.179487+00:00",
+              "status_code": 200,
+              "latency_ms": 3.31,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.202943+00:00",
+              "status_code": 200,
+              "latency_ms": 3.23,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.230173+00:00",
+              "status_code": 200,
+              "latency_ms": 3.21,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.253237+00:00",
+              "status_code": 200,
+              "latency_ms": 3.04,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.276370+00:00",
+              "status_code": 200,
+              "latency_ms": 3.19,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.304589+00:00",
+              "status_code": 200,
+              "latency_ms": 4.03,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.331039+00:00",
+              "status_code": 200,
+              "latency_ms": 3.11,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.357058+00:00",
+              "status_code": 200,
+              "latency_ms": 3.47,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.384742+00:00",
+              "status_code": 200,
+              "latency_ms": 3.57,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.411070+00:00",
+              "status_code": 200,
+              "latency_ms": 4.14,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.449115+00:00",
+              "status_code": 200,
+              "latency_ms": 4.09,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.480168+00:00",
+              "status_code": 200,
+              "latency_ms": 3.2,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.502685+00:00",
+              "status_code": 200,
+              "latency_ms": 3.6,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.528918+00:00",
+              "status_code": 200,
+              "latency_ms": 3.08,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.552099+00:00",
+              "status_code": 200,
+              "latency_ms": 3.17,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:03.576245+00:00",
+              "status_code": 200,
+              "latency_ms": 2.7,
+              "success": true,
+              "error": null
+            }
+          ],
+          "experiment": [
+            {
+              "at": "2026-10-19T10:04:04.081845+00:00",
+              "status_code": 200,
+              "latency_ms": 17.19,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:06.198924+00:00",
+              "status_code": 200,
+              "latency_ms": 5.29,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:08.287114+00:00",
+              "status_code": 200,
+              "latency_ms": 5.11,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:10.381820+00:00",
+              "status_code": 200,
+              "latency_ms": 5.71,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:12.473647+00:00",
+              "status_code": 200,
+              "latency_ms": 4.05,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:14.564033+00:00",
+              "status_code": 200,
+              "latency_ms": 4.0,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:16.647758+00:00",
+              "status_code": 200,
+              "latency_ms": 4.22,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:18.740899+00:00",
+              "status_code": 200,
+              "latency_ms": 4.34,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:20.826025+00:00",
+              "status_code": null,
+              "latency_ms": 1.86,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:04:22.927169+00:00",
+              "status_code": 200,
+              "latency_ms": 4.25,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:25.021881+00:00",
+              "status_code": 200,
+              "latency_ms": 5.02,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:27.114104+00:00",
+              "status_code": 200,
+              "latency_ms": 4.9,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:29.224609+00:00",
+              "status_code": 200,
+              "latency_ms": 4.97,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:31.341265+00:00",
+              "status_code": 200,
+              "latency_ms": 5.78,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:33.437417+00:00",
+              "status_code": 200,
+              "latency_ms": 8.89,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:35.525663+00:00",
+              "status_code": 200,
+              "latency_ms": 4.47,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:37.638077+00:00",
+              "status_code": 200,
+              "latency_ms": 4.88,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:39.727583+00:00",
+              "status_code": 200,
+              "latency_ms": 4.5,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:41.828983+00:00",
+              "status_code": 200,
+              "latency_ms": 4.22,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:43.928783+00:00",
+              "status_code": 200,
+              "latency_ms": 4.34,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:46.014525+00:00",
+              "status_code": 200,
+              "latency_ms": 4.83,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:48.119817+00:00",
+              "status_code": 200,
+              "latency_ms": 3.97,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:50.213294+00:00",
+              "status_code": 200,
+              "latency_ms": 4.42,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:52.292966+00:00",
+              "status_code": 200,
+              "latency_ms": 3.87,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:54.385601+00:00",
+              "status_code": 200,
+              "latency_ms": 5.12,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:56.479629+00:00",
+              "status_code": 200,
+              "latency_ms": 4.43,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:04:58.565804+00:00",
+              "status_code": 200,
+              "latency_ms": 3.97,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:00.653375+00:00",
+              "status_code": 200,
+              "latency_ms": 4.55,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:02.761567+00:00",
+              "status_code": 200,
+              "latency_ms": 4.62,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:04.849650+00:00",
+              "status_code": 200,
+              "latency_ms": 4.28,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:06.942124+00:00",
+              "status_code": 200,
+              "latency_ms": 4.85,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:09.021850+00:00",
+              "status_code": 200,
+              "latency_ms": 4.54,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:11.109561+00:00",
+              "status_code": 200,
+              "latency_ms": 3.77,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:13.214656+00:00",
+              "status_code": 200,
+              "latency_ms": 4.16,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:15.295611+00:00",
+              "status_code": 200,
+              "latency_ms": 4.25,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:17.380499+00:00",
+              "status_code": 200,
+              "latency_ms": 4.35,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:19.474016+00:00",
+              "status_code": 200,
+              "latency_ms": 4.74,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:21.571232+00:00",
+              "status_code": 200,
+              "latency_ms": 4.66,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:23.664229+00:00",
+              "status_code": 200,
+              "latency_ms": 3.9,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:25.753878+00:00",
+              "status_code": 200,
+              "latency_ms": 4.32,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:27.856387+00:00",
+              "status_code": 200,
+              "latency_ms": 6.17,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:29.961565+00:00",
+              "status_code": 200,
+              "latency_ms": 4.86,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:32.052477+00:00",
+              "status_code": 200,
+              "latency_ms": 4.1,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:34.138779+00:00",
+              "status_code": 200,
+              "latency_ms": 4.77,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:36.240961+00:00",
+              "status_code": 200,
+              "latency_ms": 4.35,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:36.322912+00:00",
+              "status_code": 200,
+              "latency_ms": 4.17,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:36.347349+00:00",
+              "status_code": 200,
+              "latency_ms": 3.52,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:36.373511+00:00",
+              "status_code": 200,
+              "latency_ms": 4.07,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:36.405742+00:00",
+              "status_code": 200,
+              "latency_ms": 3.81,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:36.432146+00:00",
+              "status_code": 200,
+              "latency_ms": 3.16,
+              "success": true,
+              "error": null
+            }
+          ]
+        },
+        "timedOut": false,
+        "chaosMode": "litmus_container_kill"
+      },
+      {
+        "schemaVersion": "chaos-v1",
+        "scenario": "pod_delete",
+        "observationStatus": "observed",
+        "exitCode": 0,
+        "infraError": null,
+        "probeTransport": "in_cluster_http",
+        "target": {
+          "namespace": "codereferee-t4218-m02-proc",
+          "deployment": "repository-api",
+          "labelSelector": "app.kubernetes.io/name=repository-api",
+          "service": "repository-api",
+          "servicePort": 8000
+        },
+        "replicas": 1,
+        "chaosEngine": "codereferee-pod-delete-repository-api-1792404336",
+        "chaosResult": {
+          "name": "codereferee-pod-delete-repository-api-1792404336-pod-delete",
+          "verdict": "Pass",
+          "phase": "Completed",
+          "raw": {
+            "experimentStatus": {
+              "phase": "Completed",
+              "probeSuccessPercentage": "100",
+              "verdict": "Pass"
+            },
+            "history": {
+              "failedRuns": 0,
+              "passedRuns": 1,
+              "stoppedRuns": 0,
+              "targets": [
+                {
+                  "chaosStatus": "targeted",
+                  "kind": "deployment",
+                  "name": "repository-api"
+                }
+              ]
+            }
+          }
+        },
+        "chaos_observation": {
+          "type": "pod_delete",
+          "kill_method": "litmus_pod_delete",
+          "started_at": "2026-10-19T10:05:42.152554Z",
+          "recovered": true,
+          "recovered_at": "2026-10-19T10:07:05.331801Z",
+          "recovery_seconds": 2.09,
+          "recovery_measurement": "first_failed_http_request_to_first_success_after_last_failure; 0 when no HTTP outage was sampled",
+          "experiment_duration_seconds": 83.36,
+          "fault_parameters": {
+            "TOTAL_CHAOS_DURATION": "15",
+            "CHAOS_INTERVAL": "60",
+            "FORCE": "true",
+            "TARGET_CONTAINER": "api",
+            "PODS_AFFECTED_PERC": "100",
+            "CONTAINER_RUNTIME": "containerd",
+            "SOCKET_PATH": "/run/containerd/containerd.sock",
+            "LIB_IMAGE_PULL_POLICY": "IfNotPresent"
+          },
+          "fault_scope": {
+            "mode": "all",
+            "requested_count": null,
+            "selection_method": "PODS_AFFECTED_PERC=100",
+            "selected_pods": [],
+            "pods_before": [
+              {
+                "name": "repository-api-6dd854d5b6-6cv79",
+                "uid": "af8114c7-3aac-43d2-b56d-96e9ac29ff14",
+                "node": "codereferee-control-plane",
+                "restart_count": 1,
+                "container_id": "containerd://b4545e9661522f3118182e29254531f9840a6799c378be38a2ffe959319e26ca",
+                "ready": true,
+                "deletion_timestamp": null
+              }
+            ],
+            "pods_after": [
+              {
+                "name": "repository-api-6dd854d5b6-cn887",
+                "uid": "aa031c22-83ed-407f-baa9-297ac87b2f07",
+                "node": "codereferee-control-plane",
+                "restart_count": 0,
+                "container_id": "containerd://48af27ca3bca713d59b7b1b9be5773bad0c01d67c8308419d3a1358861bc9caa",
+                "ready": true,
+                "deletion_timestamp": null
+              }
+            ],
+            "litmus_reported_targets": [
+              {
+                "chaosStatus": "targeted",
+                "kind": "deployment",
+                "name": "repository-api"
+              }
+            ],
+            "unexpected_reported_pods": [],
+            "missing_reported_pods": [],
+            "reported_pod_scope_matches": null
+          },
+          "last_terminations": [],
+          "oom_observed": null,
+          "target_container": "api",
+          "target_restart_count": 1,
+          "replacement_restart_count": 0,
+          "target_pod_uid": "af8114c7-3aac-43d2-b56d-96e9ac29ff14",
+          "replacement_pod_uid": "aa031c22-83ed-407f-baa9-297ac87b2f07",
+          "target_configuration": {
+            "replicas": 1,
+            "readiness_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 3,
+              "success_threshold": 1
+            },
+            "liveness_probe": null,
+            "startup_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 90,
+              "success_threshold": 1
+            },
+            "termination_grace_period_seconds": 10
+          },
+          "observation_window": {
+            "baseline_probe_count": 20,
+            "recovery_timeout_seconds": 240,
+            "error_rate_denominator": "all in-cluster HTTP requests during baseline, experiment, and recovery verification"
+          },
+          "abort_condition": {
+            "triggered": false,
+            "reason": null
+          }
+        },
+        "source": {
+          "real_execution_observed": true,
+          "http_observation_available": true,
+          "target": "repository-api"
+        },
+        "baseline": {
+          "metrics": {
+            "availability": 1.0,
+            "p95_latency_ms": 4.73,
+            "error_rate": 0.0,
+            "probe_count": 20,
+            "success_count": 20,
+            "failure_count": 0,
+            "error_rate_denominator": "baseline in-cluster HTTP requests only",
+            "cpu_usage_percent": null,
+            "memory_usage_mb": null,
+            "restart_count": 0
+          }
+        },
+        "metrics": {
+          "availability": 0.984375,
+          "p95_latency_ms": 8.57,
+          "error_rate": 0.015625,
+          "probe_count": 64,
+          "success_count": 63,
+          "failure_count": 1,
+          "error_rate_denominator": "all in-cluster HTTP requests during baseline, experiment, and recovery verification",
+          "cpu_usage_percent": null,
+          "memory_usage_mb": null,
+          "restart_count": 0
+        },
+        "probes": {
+          "baseline": [
+            {
+              "at": "2026-10-19T10:05:41.401748+00:00",
+              "status_code": 200,
+              "latency_ms": 4.33,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.428548+00:00",
+              "status_code": 200,
+              "latency_ms": 3.86,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.458240+00:00",
+              "status_code": 200,
+              "latency_ms": 3.83,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.484874+00:00",
+              "status_code": 200,
+              "latency_ms": 4.38,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.514636+00:00",
+              "status_code": 200,
+              "latency_ms": 3.94,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.540207+00:00",
+              "status_code": 200,
+              "latency_ms": 3.71,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.568883+00:00",
+              "status_code": 200,
+              "latency_ms": 4.41,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.602630+00:00",
+              "status_code": 200,
+              "latency_ms": 7.54,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.632114+00:00",
+              "status_code": 200,
+              "latency_ms": 3.59,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.659838+00:00",
+              "status_code": 200,
+              "latency_ms": 3.66,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.685824+00:00",
+              "status_code": 200,
+              "latency_ms": 4.73,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.714744+00:00",
+              "status_code": 200,
+              "latency_ms": 3.92,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.740713+00:00",
+              "status_code": 200,
+              "latency_ms": 3.61,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.767641+00:00",
+              "status_code": 200,
+              "latency_ms": 3.83,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.797403+00:00",
+              "status_code": 200,
+              "latency_ms": 4.52,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.830469+00:00",
+              "status_code": 200,
+              "latency_ms": 4.73,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.866386+00:00",
+              "status_code": 200,
+              "latency_ms": 4.53,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.893413+00:00",
+              "status_code": 200,
+              "latency_ms": 4.35,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.921514+00:00",
+              "status_code": 200,
+              "latency_ms": 4.01,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:41.955755+00:00",
+              "status_code": 200,
+              "latency_ms": 3.92,
+              "success": true,
+              "error": null
+            }
+          ],
+          "experiment": [
+            {
+              "at": "2026-10-19T10:05:42.566936+00:00",
+              "status_code": 200,
+              "latency_ms": 9.43,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:44.682295+00:00",
+              "status_code": 200,
+              "latency_ms": 4.77,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:46.778881+00:00",
+              "status_code": 200,
+              "latency_ms": 5.08,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:48.899630+00:00",
+              "status_code": 200,
+              "latency_ms": 4.77,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:50.991270+00:00",
+              "status_code": 200,
+              "latency_ms": 4.23,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:55.088506+00:00",
+              "status_code": null,
+              "latency_ms": 2005.34,
+              "success": false,
+              "error": "<urlopen error timed out>"
+            },
+            {
+              "at": "2026-10-19T10:05:57.180454+00:00",
+              "status_code": 200,
+              "latency_ms": 4.6,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:05:59.414908+00:00",
+              "status_code": 200,
+              "latency_ms": 99.02,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:01.518903+00:00",
+              "status_code": 200,
+              "latency_ms": 4.28,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:03.610814+00:00",
+              "status_code": 200,
+              "latency_ms": 4.26,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:05.711672+00:00",
+              "status_code": 200,
+              "latency_ms": 5.0,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:07.806915+00:00",
+              "status_code": 200,
+              "latency_ms": 4.82,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:09.912655+00:00",
+              "status_code": 200,
+              "latency_ms": 5.11,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:12.515869+00:00",
+              "status_code": 200,
+              "latency_ms": 4.6,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:14.609767+00:00",
+              "status_code": 200,
+              "latency_ms": 4.62,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:16.702219+00:00",
+              "status_code": 200,
+              "latency_ms": 5.93,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:18.788741+00:00",
+              "status_code": 200,
+              "latency_ms": 4.96,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:20.880389+00:00",
+              "status_code": 200,
+              "latency_ms": 4.59,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:22.975906+00:00",
+              "status_code": 200,
+              "latency_ms": 4.92,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:25.079743+00:00",
+              "status_code": 200,
+              "latency_ms": 4.57,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:27.181756+00:00",
+              "status_code": 200,
+              "latency_ms": 4.03,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:29.271951+00:00",
+              "status_code": 200,
+              "latency_ms": 4.39,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:31.365228+00:00",
+              "status_code": 200,
+              "latency_ms": 4.77,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:33.455921+00:00",
+              "status_code": 200,
+              "latency_ms": 4.06,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:35.549565+00:00",
+              "status_code": 200,
+              "latency_ms": 4.94,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:37.639115+00:00",
+              "status_code": 200,
+              "latency_ms": 3.6,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:39.728230+00:00",
+              "status_code": 200,
+              "latency_ms": 3.71,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:41.817472+00:00",
+              "status_code": 200,
+              "latency_ms": 4.43,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:43.921594+00:00",
+              "status_code": 200,
+              "latency_ms": 5.0,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:46.020849+00:00",
+              "status_code": 200,
+              "latency_ms": 4.03,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:48.123867+00:00",
+              "status_code": 200,
+              "latency_ms": 4.71,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:50.250617+00:00",
+              "status_code": 200,
+              "latency_ms": 6.19,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:52.338963+00:00",
+              "status_code": 200,
+              "latency_ms": 4.26,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:54.441345+00:00",
+              "status_code": 200,
+              "latency_ms": 6.07,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:56.535876+00:00",
+              "status_code": 200,
+              "latency_ms": 3.8,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:06:58.625321+00:00",
+              "status_code": 200,
+              "latency_ms": 3.83,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:00.715896+00:00",
+              "status_code": 200,
+              "latency_ms": 5.0,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:02.805279+00:00",
+              "status_code": 200,
+              "latency_ms": 4.23,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:04.888711+00:00",
+              "status_code": 200,
+              "latency_ms": 4.39,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:05.006562+00:00",
+              "status_code": 200,
+              "latency_ms": 4.39,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:05.034092+00:00",
+              "status_code": 200,
+              "latency_ms": 3.84,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:05.066249+00:00",
+              "status_code": 200,
+              "latency_ms": 3.89,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:05.099570+00:00",
+              "status_code": 200,
+              "latency_ms": 8.57,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:05.130525+00:00",
+              "status_code": 200,
+              "latency_ms": 4.22,
+              "success": true,
+              "error": null
+            }
+          ]
+        },
+        "timedOut": false,
+        "chaosMode": "litmus_pod_delete"
+      },
+      {
+        "schemaVersion": "chaos-v1",
+        "scenario": "pod_cpu_hog",
+        "observationStatus": "observed",
+        "exitCode": 0,
+        "infraError": null,
+        "probeTransport": "in_cluster_http",
+        "target": {
+          "namespace": "codereferee-t4218-m02-proc",
+          "deployment": "repository-api",
+          "labelSelector": "app.kubernetes.io/name=repository-api",
+          "service": "repository-api",
+          "servicePort": 8000
+        },
+        "replicas": 1,
+        "chaosEngine": "codereferee-pod-cpu-hog-repository-api-1792404425",
+        "chaosResult": {
+          "name": "codereferee-pod-cpu-hog-repository-api-1792404425-pod-cpu-hog",
+          "verdict": "Pass",
+          "phase": "Completed",
+          "raw": {
+            "experimentStatus": {
+              "phase": "Completed",
+              "probeSuccessPercentage": "100",
+              "verdict": "Pass"
+            },
+            "history": {
+              "failedRuns": 0,
+              "passedRuns": 1,
+              "stoppedRuns": 0,
+              "targets": [
+                {
+                  "chaosStatus": "reverted",
+                  "kind": "pod",
+                  "name": "repository-api-6dd854d5b6-cn887"
+                }
+              ]
+            }
+          }
+        },
+        "chaos_observation": {
+          "type": "pod_cpu_hog",
+          "kill_method": "litmus_pod_cpu_hog",
+          "started_at": "2026-10-19T10:07:10.455637Z",
+          "recovered": true,
+          "recovered_at": "2026-10-19T10:07:57.662844Z",
+          "recovery_seconds": 0.0,
+          "recovery_measurement": "first_failed_http_request_to_first_success_after_last_failure; 0 when no HTTP outage was sampled",
+          "experiment_duration_seconds": 47.4,
+          "fault_parameters": {
+            "TOTAL_CHAOS_DURATION": "15",
+            "CHAOS_INTERVAL": "60",
+            "FORCE": "true",
+            "TARGET_CONTAINER": "api",
+            "PODS_AFFECTED_PERC": "100",
+            "CONTAINER_RUNTIME": "containerd",
+            "SOCKET_PATH": "/run/containerd/containerd.sock",
+            "LIB_IMAGE_PULL_POLICY": "IfNotPresent",
+            "CPU_CORES": "1",
+            "CPU_LOAD": "80"
+          },
+          "fault_scope": {
+            "mode": "all",
+            "requested_count": null,
+            "selection_method": "PODS_AFFECTED_PERC=100",
+            "selected_pods": [],
+            "pods_before": [
+              {
+                "name": "repository-api-6dd854d5b6-cn887",
+                "uid": "aa031c22-83ed-407f-baa9-297ac87b2f07",
+                "node": "codereferee-control-plane",
+                "restart_count": 0,
+                "container_id": "containerd://48af27ca3bca713d59b7b1b9be5773bad0c01d67c8308419d3a1358861bc9caa",
+                "ready": true,
+                "deletion_timestamp": null
+              }
+            ],
+            "pods_after": [
+              {
+                "name": "repository-api-6dd854d5b6-cn887",
+                "uid": "aa031c22-83ed-407f-baa9-297ac87b2f07",
+                "node": "codereferee-control-plane",
+                "restart_count": 0,
+                "container_id": "containerd://48af27ca3bca713d59b7b1b9be5773bad0c01d67c8308419d3a1358861bc9caa",
+                "ready": true,
+                "deletion_timestamp": null
+              }
+            ],
+            "litmus_reported_targets": [
+              {
+                "chaosStatus": "reverted",
+                "kind": "pod",
+                "name": "repository-api-6dd854d5b6-cn887"
+              }
+            ],
+            "unexpected_reported_pods": [],
+            "missing_reported_pods": [],
+            "reported_pod_scope_matches": null
+          },
+          "last_terminations": [],
+          "oom_observed": null,
+          "target_container": "api",
+          "target_restart_count": 0,
+          "replacement_restart_count": 0,
+          "target_pod_uid": "aa031c22-83ed-407f-baa9-297ac87b2f07",
+          "replacement_pod_uid": "aa031c22-83ed-407f-baa9-297ac87b2f07",
+          "target_configuration": {
+            "replicas": 1,
+            "readiness_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 3,
+              "success_threshold": 1
+            },
+            "liveness_probe": null,
+            "startup_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 90,
+              "success_threshold": 1
+            },
+            "termination_grace_period_seconds": 10
+          },
+          "observation_window": {
+            "baseline_probe_count": 20,
+            "recovery_timeout_seconds": 240,
+            "error_rate_denominator": "all in-cluster HTTP requests during baseline, experiment, and recovery verification"
+          },
+          "abort_condition": {
+            "triggered": false,
+            "reason": null
+          }
+        },
+        "source": {
+          "real_execution_observed": true,
+          "http_observation_available": true,
+          "target": "repository-api"
+        },
+        "baseline": {
+          "metrics": {
+            "availability": 1.0,
+            "p95_latency_ms": 5.0,
+            "error_rate": 0.0,
+            "probe_count": 20,
+            "success_count": 20,
+            "failure_count": 0,
+            "error_rate_denominator": "baseline in-cluster HTTP requests only",
+            "cpu_usage_percent": null,
+            "memory_usage_mb": null,
+            "restart_count": 0
+          }
+        },
+        "metrics": {
+          "availability": 1.0,
+          "p95_latency_ms": 8.27,
+          "error_rate": 0.0,
+          "probe_count": 48,
+          "success_count": 48,
+          "failure_count": 0,
+          "error_rate_denominator": "all in-cluster HTTP requests during baseline, experiment, and recovery verification",
+          "cpu_usage_percent": null,
+          "memory_usage_mb": null,
+          "restart_count": 0
+        },
+        "probes": {
+          "baseline": [
+            {
+              "at": "2026-10-19T10:07:09.681422+00:00",
+              "status_code": 200,
+              "latency_ms": 4.41,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:09.714345+00:00",
+              "status_code": 200,
+              "latency_ms": 3.88,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:09.746821+00:00",
+              "status_code": 200,
+              "latency_ms": 4.24,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:09.772221+00:00",
+              "status_code": 200,
+              "latency_ms": 4.06,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:09.797616+00:00",
+              "status_code": 200,
+              "latency_ms": 4.59,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:09.833581+00:00",
+              "status_code": 200,
+              "latency_ms": 6.05,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:09.858206+00:00",
+              "status_code": 200,
+              "latency_ms": 3.91,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:09.885481+00:00",
+              "status_code": 200,
+              "latency_ms": 3.47,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:09.919148+00:00",
+              "status_code": 200,
+              "latency_ms": 3.68,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:09.946315+00:00",
+              "status_code": 200,
+              "latency_ms": 3.38,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:09.972560+00:00",
+              "status_code": 200,
+              "latency_ms": 3.92,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:10.000225+00:00",
+              "status_code": 200,
+              "latency_ms": 4.42,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:10.034168+00:00",
+              "status_code": 200,
+              "latency_ms": 4.38,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:10.068132+00:00",
+              "status_code": 200,
+              "latency_ms": 4.17,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:10.107237+00:00",
+              "status_code": 200,
+              "latency_ms": 5.0,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:10.136778+00:00",
+              "status_code": 200,
+              "latency_ms": 4.17,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:10.168633+00:00",
+              "status_code": 200,
+              "latency_ms": 4.02,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:10.202724+00:00",
+              "status_code": 200,
+              "latency_ms": 4.73,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:10.237343+00:00",
+              "status_code": 200,
+              "latency_ms": 3.76,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:10.263139+00:00",
+              "status_code": 200,
+              "latency_ms": 3.27,
+              "success": true,
+              "error": null
+            }
+          ],
+          "experiment": [
+            {
+              "at": "2026-10-19T10:07:10.932496+00:00",
+              "status_code": 200,
+              "latency_ms": 7.12,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:13.030251+00:00",
+              "status_code": 200,
+              "latency_ms": 4.42,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:15.130439+00:00",
+              "status_code": 200,
+              "latency_ms": 4.64,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:17.228323+00:00",
+              "status_code": 200,
+              "latency_ms": 5.28,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:19.321951+00:00",
+              "status_code": 200,
+              "latency_ms": 15.07,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:21.417442+00:00",
+              "status_code": 200,
+              "latency_ms": 4.0,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:23.532098+00:00",
+              "status_code": 200,
+              "latency_ms": 8.27,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:25.774249+00:00",
+              "status_code": 200,
+              "latency_ms": 98.63,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:27.876503+00:00",
+              "status_code": 200,
+              "latency_ms": 6.6,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:29.976979+00:00",
+              "status_code": 200,
+              "latency_ms": 5.91,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:32.077480+00:00",
+              "status_code": 200,
+              "latency_ms": 6.09,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:34.183496+00:00",
+              "status_code": 200,
+              "latency_ms": 4.47,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:36.281670+00:00",
+              "status_code": 200,
+              "latency_ms": 4.56,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:38.373564+00:00",
+              "status_code": 200,
+              "latency_ms": 4.62,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:40.475435+00:00",
+              "status_code": 200,
+              "latency_ms": 5.19,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:42.570576+00:00",
+              "status_code": 200,
+              "latency_ms": 4.05,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:44.680634+00:00",
+              "status_code": 200,
+              "latency_ms": 5.8,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:46.794196+00:00",
+              "status_code": 200,
+              "latency_ms": 4.35,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:48.886509+00:00",
+              "status_code": 200,
+              "latency_ms": 6.34,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:50.980871+00:00",
+              "status_code": 200,
+              "latency_ms": 4.38,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:53.089070+00:00",
+              "status_code": 200,
+              "latency_ms": 5.94,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:55.188862+00:00",
+              "status_code": 200,
+              "latency_ms": 3.73,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:57.281022+00:00",
+              "status_code": 200,
+              "latency_ms": 3.75,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:57.375515+00:00",
+              "status_code": 200,
+              "latency_ms": 4.1,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:57.397150+00:00",
+              "status_code": 200,
+              "latency_ms": 3.98,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:57.423431+00:00",
+              "status_code": 200,
+              "latency_ms": 3.2,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:57.453150+00:00",
+              "status_code": 200,
+              "latency_ms": 3.65,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:07:57.478483+00:00",
+              "status_code": 200,
+              "latency_ms": 4.06,
+              "success": true,
+              "error": null
+            }
+          ]
+        },
+        "timedOut": false,
+        "chaosMode": "litmus_pod_cpu_hog"
+      }
+    ],
+    "requested": [
+      "litmus_container_kill",
+      "litmus_pod_delete",
+      "litmus_pod_cpu_hog"
+    ],
+    "not_executed": []
+  },
+  "source": {
+    "real_execution_observed": true,
+    "workspace_cleanup": {
+      "removed": true,
+      "error": null
+    },
+    "metrics_observation": {
+      "schema_version": "metrics-observation.v1",
+      "status": "disabled",
+      "request_id": "t4218-m02-proc",
+      "cluster": "codereferee",
+      "namespace": "codereferee-t4218-m02-proc",
+      "workload": "repository-api",
+      "observation_namespace": "codereferee-metrics-b765590af22fe83b",
+      "scrape_interval_seconds": 1,
+      "pod_bindings": [],
+      "errors": [],
+      "units": {
+        "cpu": "cores (rate of cumulative CPU seconds)",
+        "memory": "bytes",
+        "restart": "Kubernetes container restartCount snapshots"
+      },
+      "node_metrics_scope": "shared-node diagnostics, not application usage",
+      "cleanup": {
+        "attempted": false,
+        "removed": null
+      }
+    },
+    "artifact_cleanup": {
+      "image": "codereferee/t4218-m02-proc:0cff43ba2668",
+      "host_removed": true,
+      "kind_nodes": [
+        {
+          "node": "codereferee-control-plane",
+          "removed": true
+        }
+      ],
+      "errors": [],
+      "namespace_removed": true
+    }
+  },
+  "serviceCheckAttempted": true,
+  "browserCheckAttempted": false,
+  "requestId": "t4218-m02-proc",
+  "repositoryUrl": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+  "branch": "healthy-fastapi",
+  "commitSha": "0cff43ba266821400a2b55f46e8857db768acc02",
+  "deployment": {
+    "repository": {
+      "url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+      "branch": "healthy-fastapi",
+      "commitSha": "0cff43ba266821400a2b55f46e8857db768acc02"
+    },
+    "target": {
+      "name": "repository-api",
+      "deployment": "repository-api",
+      "service": "repository-api",
+      "servicePort": 8000,
+      "labelSelector": "app.kubernetes.io/name=repository-api",
+      "probePath": "/",
+      "dependencies": {},
+      "namespace": "codereferee-t4218-m02-proc"
+    },
+    "image": "codereferee/t4218-m02-proc:0cff43ba2668",
+    "deploymentProfile": null,
+    "sandboxReport": {
+      "schema_version": "sandbox-result.v1",
+      "detected_stack": "python",
+      "verification_declared": false,
+      "test_execution": "not_declared",
+      "outcome": "passed",
+      "failed_step": "none",
+      "steps": [
+        {
+          "name": "install",
+          "command": [
+            "python",
+            "-m",
+            "pip",
+            "install",
+            "--user",
+            "--disable-pip-version-check",
+            "-r",
+            "requirements.txt"
+          ],
+          "exit_code": 0,
+          "duration_ms": 5557,
+          "timed_out": false,
+          "stdout": "Collecting fastapi (from -r requirements.txt (line 1))\n  Downloading fastapi-0.147.0-py3-none-any.whl.metadata (26 kB)\nCollecting uvicorn (from -r requirements.txt (line 2))\n  Downloading uvicorn-0.54.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting starlette>=0.46.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading starlette-1.9.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting pydantic>=2.9.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading pydantic-2.14.1-py3-none-any.whl.metadata (133 kB)\nCollecting typing-extensions>=4.8.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)\nCollecting typing-inspection>=0.4.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)\nCollecting annotated-doc>=0.0.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)\nCollecting opentelemetry-api>=1.44.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading opentelemetry_api-1.45.1-py3-none-any.whl.metadata (1.4 kB)\nCollecting click>=7.0 (from uvicorn->-r requirements.txt (line 2))\n  Downloading click-8.5.0-py3-none-any.whl.metadata (2.6 kB)\nCollecting h11>=0.8 (from uvicorn->-r requirements.txt (line 2))\n  Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)\nCollecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)\nCollecting pydantic-core==2.50.1 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.5 kB)\nCollecting anyio<5,>=4.0.0 (from starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)\nCollecting idna>=2.8 (from anyio<5,>=4.0.0->starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)\nDownloading fastapi-0.147.0-py3-none-any.whl (145 kB)\nDownloading uvicorn-0.54.0-py3-none-any.whl (87 kB)\nDownloading annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)\nDownloading click-8.5.0-py3-none-any.whl (125 kB)\nDownloading h11-0.16.0-py3-none-any.whl (37 kB)\nDownloading opentelemetry_api-1.45.1-py3-none-any.whl (60 kB)\nDownloading pydantic-2.14.1-py3-none-any.whl (488 kB)\nDownloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.2 MB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.2/2.2 MB 26.3 MB/s eta 0:00:00\nDownloading starlette-1.9.0-py3-none-any.whl (80 kB)\nDownloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)\nDownloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)\nDownloading annotated_types-0.8.0-py3-none-any.whl (13 kB)\nDownloading anyio-4.15.1-py3-none-any.whl (132 kB)\nDownloading idna-3.20-py3-none-any.whl (69 kB)\nInstalling collected packages: typing-extensions, idna, h11, click, annotated-types, annotated-doc, uvicorn, typing-inspection, pydantic-core, opentelemetry-api, anyio, starlette, pydantic, fastapi\nSuccessfully installed annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.1 click-8.5.0 fastapi-0.147.0 h11-0.16.0 idna-3.20 opentelemetry-api-1.45.1 pydantic-2.14.1 pydantic-core-2.50.1 starlette-1.9.0 typing-extensions-4.16.0 typing-inspection-0.4.4 uvicorn-0.54.0\n",
+          "stderr": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n"
+        },
+        {
+          "name": "build",
+          "command": [
+            "python",
+            "-m",
+            "compileall",
+            "-q",
+            "."
+          ],
+          "exit_code": 0,
+          "duration_ms": 531,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "check_cache_cleanup": {
+        "removed": true,
+        "error": null
+      }
+    },
+    "workspaceCleanup": {
+      "removed": true,
+      "error": null
+    },
+    "executionPlan": {
+      "source": "stack_detection",
+      "dockerfile": "generated",
+      "warnings": [],
+      "servicePort": 8000
+    }
+  },
+  "sandboxReport": {
+    "detected_stack": "python",
+    "verification_declared": false,
+    "test_execution": "not_declared",
+    "steps": [
+      {
+        "name": "install",
+        "command": [
+          "python",
+          "-m",
+          "pip",
+          "install",
+          "--user",
+          "--disable-pip-version-check",
+          "-r",
+          "requirements.txt"
+        ],
+        "exit_code": 0,
+        "duration_ms": 5557,
+        "timed_out": false,
+        "stdout": "Collecting fastapi (from -r requirements.txt (line 1))\n  Downloading fastapi-0.147.0-py3-none-any.whl.metadata (26 kB)\nCollecting uvicorn (from -r requirements.txt (line 2))\n  Downloading uvicorn-0.54.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting starlette>=0.46.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading starlette-1.9.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting pydantic>=2.9.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading pydantic-2.14.1-py3-none-any.whl.metadata (133 kB)\nCollecting typing-extensions>=4.8.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)\nCollecting typing-inspection>=0.4.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)\nCollecting annotated-doc>=0.0.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)\nCollecting opentelemetry-api>=1.44.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading opentelemetry_api-1.45.1-py3-none-any.whl.metadata (1.4 kB)\nCollecting click>=7.0 (from uvicorn->-r requirements.txt (line 2))\n  Downloading click-8.5.0-py3-none-any.whl.metadata (2.6 kB)\nCollecting h11>=0.8 (from uvicorn->-r requirements.txt (line 2))\n  Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)\nCollecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)\nCollecting pydantic-core==2.50.1 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.5 kB)\nCollecting anyio<5,>=4.0.0 (from starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)\nCollecting idna>=2.8 (from anyio<5,>=4.0.0->starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)\nDownloading fastapi-0.147.0-py3-none-any.whl (145 kB)\nDownloading uvicorn-0.54.0-py3-none-any.whl (87 kB)\nDownloading annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)\nDownloading click-8.5.0-py3-none-any.whl (125 kB)\nDownloading h11-0.16.0-py3-none-any.whl (37 kB)\nDownloading opentelemetry_api-1.45.1-py3-none-any.whl (60 kB)\nDownloading pydantic-2.14.1-py3-none-any.whl (488 kB)\nDownloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.2 MB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.2/2.2 MB 26.3 MB/s eta 0:00:00\nDownloading starlette-1.9.0-py3-none-any.whl (80 kB)\nDownloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)\nDownloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)\nDownloading annotated_types-0.8.0-py3-none-any.whl (13 kB)\nDownloading anyio-4.15.1-py3-none-any.whl (132 kB)\nDownloading idna-3.20-py3-none-any.whl (69 kB)\nInstalling collected packages: typing-extensions, idna, h11, click, annotated-types, annotated-doc, uvicorn, typing-inspection, pydantic-core, opentelemetry-api, anyio, starlette, pydantic, fastapi\nSuccessfully installed annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.1 click-8.5.0 fastapi-0.147.0 h11-0.16.0 idna-3.20 opentelemetry-api-1.45.1 pydantic-2.14.1 pydantic-core-2.50.1 starlette-1.9.0 typing-extensions-4.16.0 typing-inspection-0.4.4 uvicorn-0.54.0\n",
+        "stderr": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n"
+      },
+      {
+        "name": "build",
+        "command": [
+          "python",
+          "-m",
+          "compileall",
+          "-q",
+          "."
+        ],
+        "exit_code": 0,
+        "duration_ms": 531,
+        "timed_out": false,
+        "stdout": "",
+        "stderr": ""
+      }
+    ],
+    "check_cache_cleanup": {
+      "removed": true,
+      "error": null
+    },
+    "repository_check_outcome": "passed"
+  },
+  "durationMillis": 308000
+}

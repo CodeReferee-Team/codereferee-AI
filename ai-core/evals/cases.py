@@ -189,10 +189,11 @@ def _human_cases(slice_name: str) -> list[EvalCase]:
 
 
 def _real_chaos_cases() -> list[EvalCase]:
-    url = "https://github.com/phdcoco/QuickByte_Demo.git"
+    default_url = "https://github.com/phdcoco/QuickByte_Demo.git"
     labels = json.loads(REAL_CHAOS_LABELS.read_text(encoding="utf-8"))
     built: list[EvalCase] = []
     for entry in labels:
+        url = entry.get("repository_url", default_url)
         path = REAL_CHAOS_EVIDENCE / f"{entry['id']}.json"
         if not path.is_file():
             raise FileNotFoundError(f"실측 증거 파일이 없다: {path}")
@@ -212,6 +213,7 @@ def _real_chaos_cases() -> list[EvalCase]:
                     "sandbox_response": path.read_text(encoding="utf-8"),
                 },
                 expected_warnings=entry.get("expected_warnings", []),
+                ambiguous=bool(entry.get("ambiguous")),
                 note=entry.get("note"),
             )
         )
