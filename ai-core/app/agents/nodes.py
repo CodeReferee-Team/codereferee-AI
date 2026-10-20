@@ -376,6 +376,7 @@ _FAILED_STEP_CATEGORIES = {
     "clone": "repository_not_accessible",
     "patch": "sandbox_nonzero_exit",
     "detect": "no_manifest_detected",
+    "compile": "compile_failed",
     "dependencies": "dependency_install_failed",
 }
 # 스크립트가 약속한 종료 코드. 사유 문장(_EXIT_CODE_REASONS)과 짝을 맞춘다.
@@ -437,7 +438,8 @@ _DEPENDENCY_SIGNS = (
 _TEST_SIGNS = ("failures ===", "short test summary", "assertionerror", "[test]")
 _TEST_TOKENS = ("test", "pytest", "spec")
 _FAILURE_TOKENS = ("fail", "error")
-# 컴파일 실패 전용 카테고리는 없다. 원인을 단정하지 않고 일반 실패로 남긴다.
+# 로그만 있을 때는 컴파일 실패를 단정하지 않고 일반 실패로 남긴다. 테스트 출력에도 SyntaxError가
+# 찍힐 수 있다. compile_failed는 sandbox가 compile 단계 실패를 알려줄 때만 낸다.
 _COMPILE_SIGNS = ("error compiling", "syntaxerror", "indentationerror")
 
 

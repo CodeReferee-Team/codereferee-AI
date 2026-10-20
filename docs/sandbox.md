@@ -49,6 +49,13 @@ AI Core는 기존 실행 결과 필드와 함께 다음 Chaos v1 evidence를 보
 | 88 | 패치 파일이 sandbox에 없다 |
 | **89** | **검증할 테스트가 없다** |
 
+### 단계
+
+구조화 결과의 `failed_step`은 `prepare` → `clone` → `patch` → `detect` → `declaration` →
+`compile` → `dependencies` → `smoke` 중 하나다. `compile`은 Python에서 선언이 없을 때만 돌고
+(`python -m compileall -q .`), 의존성 설치보다 앞에 둔다. 문법 오류가 있으면 설치에 쓰는 시간을
+아낀다. 판정은 이 단계 실패를 `compile_failed`로 본다(`docs/judge-policy.md` 8절).
+
 ### 89를 둔 이유
 
 이전에는 테스트가 없는 레포가 통과로 나왔다. Python은 `compileall` 뒤에 `tests` 디렉터리가 없으면
@@ -61,6 +68,10 @@ AI Core는 기존 실행 결과 필드와 함께 다음 Chaos v1 evidence를 보
 판정은 FAILED다. 백엔드 최종 상태가 PASSED / FAILED / ERROR 세 가지뿐이고, 89는 우리 인프라
 문제가 아니라 대상 레포의 상태이므로 ERROR가 아니다. 판정 이유에는 "테스트가 없어 안정성을
 확인할 수 없었다"가 그대로 들어간다.
+
+pytest가 테스트를 하나도 모으지 못하면 5로 끝낸다. `tests` 디렉터리는 있는데 안이 비었거나
+`test_*.py`가 없는 경우다. 같은 "검증할 것이 없음"이므로 스크립트가 89로 바꿔 내보낸다. 선언된
+명령에는 적용하지 않는다. 그 명령이 pytest인지 우리가 알 수 없고, 다른 도구의 5는 다른 뜻이다.
 
 Gradle과 Maven은 테스트가 0건이어도 `test` 태스크가 성공한다. 이를 구분하려면 테스트 리포트를
 읽어야 하므로 아직 다루지 않는다.

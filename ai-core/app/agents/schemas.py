@@ -45,6 +45,8 @@ REASON_CATEGORIES = (
     "sandbox_nonzero_exit",
     "sandbox_not_executed",
     "test_failure",
+    # 문법 오류. sandbox의 compile 단계가 실패했다는 구조화 신호에서만 나온다.
+    "compile_failed",
     # 테스트가 없어 검증 자체를 못 한 경우. 코드 결함과 구분해야 집계가 의미를 갖는다.
     "no_tests_detected",
     # 우리가 그 레포를 검증할 수 없었던 경우. 레포 결함과 구분해야 한다.

@@ -206,7 +206,7 @@ preflight 통과 여부와 무관하게 돌린다. 실패한 경우에도 "무�
 
 입력은 증거 묶음이다. preflight 결과, 샌드박스 구조화 리포트(`detected_stack`, `outcome`, `failed_step`, `steps[]`), 종료 코드, SRE 메트릭, 카오스 관측값. 로그는 1200자로 자르고 카오스 이벤트는 20건까지만 넣는다.
 
-출력은 `status`, `reason_category`(32종), `reason`, `evidence`다.
+출력은 `status`, `reason_category`(35종), `reason`, `evidence`다.
 
 카오스 분기는 일반 smoke 검사보다 앞에 둔다. 카오스 실행은 별도 서버 프로세스를 띄우지 않고 Kubernetes Service probe로 관측하므로 `server_started=false`와 `http_status=null`이 실패가 아니라 "그 검사를 하지 않았다"는 뜻이기 때문이다. 순서를 잘못 두면 모든 카오스 실행이 smoke 실패로 판정된다. 실제로 그렇게 오판했고 그것이 이 분기를 만든 계기다.
 
