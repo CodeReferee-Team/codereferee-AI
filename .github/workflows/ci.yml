@@ -2,6 +2,7 @@ name: AI CI
 
 # 푸시·PR마다 유닛 테스트를 돌리고 Docker 이미지가 빌드되는지 확인한다.
 # 외부 서비스(Redis·LLM)가 필요한 eval은 여기서 돌리지 않는다(유닛 테스트는 목으로 격리됨).
+# LLM 없이 규칙만 쓰는 eval은 결정적이고 비용이 없어 매번 돌려 기준선과 비교한다.
 on:
   push:
     branches: [main]
@@ -27,6 +28,9 @@ jobs:
           pip install pytest
       - name: Unit tests
         run: python -m pytest tests -q
+      - name: Rule eval gate
+        # 판정·카테고리·경고가 커밋된 기준선보다 나빠지면 실패한다. docs/evaluation-design.md 참조.
+        run: bash scripts/eval_gate.sh
 
   # PR에서는 빌드되는지만 본다. 푸시는 하지 않는다.
   docker-build:

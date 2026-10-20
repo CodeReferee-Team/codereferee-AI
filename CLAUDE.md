@@ -55,7 +55,7 @@ python -m evals.runner compare --gate evals/baselines/fallback.json <report.json
 
 `--model none`은 LLM 없이 규칙만 채점한다. 결정적이고 비용이 들지 않는다.
 
-`evals/`와 `tests/fixtures/chaos_actual/`은 아직 기본 브랜치에 없다. 미머지 브랜치에서 온다.
+CI가 `ai-core/scripts/eval_gate.sh`로 같은 비교를 매번 돌린다. 판정·카테고리·경고 일치율이 기준선보다 나빠지면 실패한다.
 
 주 지표는 사람이 만든 T0와 T0-adv뿐이다. 합성 슬라이스는 회귀 감시용으로 따로 집계한다. **인젝션 false-pass가 1건이라도 나오면 무조건 회귀다.**
 

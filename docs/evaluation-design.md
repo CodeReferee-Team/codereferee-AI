@@ -83,6 +83,8 @@ CodeReferee는 남의 레포 출력을 그대로 LLM에 넣는다. 그래서 인
 - `ai-core/evals/metrics.py`: 정확도, false-pass/false-fail, macro-F1, confusion matrix, Wilson 신뢰구간, 반복 일관성, 지연 백분위.
 - `ai-core/tests/fixtures/agent_adversarial_cases.json`: T0-adv 케이스.
 - `ai-core/evals/baselines/fallback.json`: 커밋해 두는 기준선 리포트. 회귀 게이트가 이 파일과 비교한다.
+- `ai-core/evals/baselines/fallback-chaos-real.json`: 실측 카오스 응답(T1-chaos-real) 기준선. 2026-10-20 32건으로 처음 찍었다(판정·카테고리 100%, 경고 100%, OOM 3건은 ambiguous로 제외).
+- `ai-core/scripts/eval_gate.sh`: 두 기준선과 비교하는 게이트. CI(`.github/workflows/ci.yml`)의 `Rule eval gate` 단계가 이것을 부른다. 판정·카테고리에 더해 경고 일치율도 비교한다.
 
 기존 파일 변경
 - `ai-core/tests/agent_quality.py`: 채점 함수(`_score_*`, grounding, 환각 검사)는 그대로 두고 import해서 재사용한다. 기존 0.80 게이트 테스트도 유지한다.
