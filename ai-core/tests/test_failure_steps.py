@@ -105,6 +105,31 @@ class ScriptExecutionTests(unittest.TestCase):
         self.assertEqual(result["failed_step"], "smoke")
         self.assertEqual(result["exit_code"], docker_runner.NOTHING_TO_VERIFY_EXIT_CODE)
 
+    # 아래 둘은 BugsInPy 실측에서 나온 오판이다(2026-10-20). 수정 커밋인데도 불합격으로 나갔다.
+    def test_intentionally_invalid_test_data_does_not_fail_the_compile_step(self) -> None:
+        # psf/black은 tests/data에 일부러 문법이 틀린 파일을 둔다. 포매터의 입력이다.
+        result = self._run({
+            "requirements.txt": "",
+            "app.py": "x = 1\n",
+            "tests/data/invalid_input.py": "return outside_function\n",
+            "tests/test_app.py": "def test_ok():\n    assert True\n",
+        })
+        self.assertEqual(result["outcome"], "success")
+
+    def test_tests_inside_the_package_are_found(self) -> None:
+        # tqdm은 tests를 패키지 안(tqdm/tests)에 둔다. 최상위 tests가 없다고 "테스트 없음"으로 내면 안 된다.
+        result = self._run({
+            "requirements.txt": "",
+            "pkg/__init__.py": "",
+            "pkg/tests/__init__.py": "",
+            "pkg/tests/test_pkg.py": "def test_ok():\n    assert True\n",
+        })
+        self.assertEqual(result["outcome"], "success")
+
+    def test_no_test_files_anywhere_is_still_nothing_to_verify(self) -> None:
+        result = self._run({"requirements.txt": "", "app.py": "x = 1\n"})
+        self.assertEqual(result["exit_code"], docker_runner.NOTHING_TO_VERIFY_EXIT_CODE)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -13,9 +13,10 @@ class ScriptContractTests(unittest.TestCase):
             "https://github.com/o/r", None, None, patch_file=""
         )
 
-    def test_python_without_a_tests_directory_does_not_pass(self) -> None:
+    def test_python_without_tests_does_not_pass(self) -> None:
+        # 위치는 pytest가 찾고, 모은 테스트가 없을 때(5) 89로 바꾼다. 실행 검증은 test_failure_steps.
         self.assertIn(
-            f'[ -d tests ] || {{ echo "No tests directory to verify"; return {docker_runner.NOTHING_TO_VERIFY_EXIT_CODE}; }}',
+            f'[ "$_pytest_rc" -eq 5 ] && {{ echo "No tests to verify: pytest collected none"; return {docker_runner.NOTHING_TO_VERIFY_EXIT_CODE}; }}',
             self.script,
         )
 
