@@ -1,0 +1,146 @@
+name: Deploy AI
+
+# ②AI 인스턴스에 배포한다. Actions 탭에서 Run workflow 를 눌러야 돈다.
+#
+# push 에 걸지 않는 이유: 발표 기간에는 머지가 곧바로 운영에 반영되는 것보다
+# 사람이 시점을 고르는 쪽이 낫다. 자동으로 돌릴 때가 되면 트리거만 바꾸면 된다.
+#
+# 하는 일은 ci.yml 이 ECR 에 올려둔 이미지를 인스턴스가 받아가게 하는 것뿐이다.
+# 실제 작업은 codereferee-infra 의 instances/ai/deploy.sh 가 한다. 그 스크립트가
+# infra 레포를 먼저 동기화하므로 prometheus.yml 과 Grafana 설정도 같이 반영된다.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '이미지 태그. 비우면 main 최신. 롤백은 sha-<커밋해시>'
+        required: false
+        default: ''
+
+# 두 사람이 동시에 누르면 인스턴스에서 docker compose 가 겹친다. 한 번에 하나만.
+# 진행 중인 배포를 취소하면 인스턴스가 어중간한 상태로 남으므로 취소하지 않는다.
+concurrency:
+  group: deploy-ai
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # 액세스 키를 저장하지 않는다. OIDC 로 역할을 잠깐 빌린다.
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      AWS_REGION: ap-northeast-2
+      INSTANCE_ID: i-04873bed11345977e
+      DEPLOY_SCRIPT: /opt/codereferee/infra/instances/ai/deploy.sh
+
+    steps:
+      - name: Check role ARN is configured
+        env:
+          ROLE: ${{ secrets.AWS_ROLE_ARN }}
+        run: |
+          [ -n "$ROLE" ] || {
+            echo "::error::AWS_ROLE_ARN 시크릿이 없다. Settings > Secrets and variables > Actions 에서 추가한다."
+            exit 1
+          }
+
+      - name: Assume AWS role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-session-name: gha-deploy-${{ github.run_id }}
+          aws-region: ap-northeast-2
+
+      - name: Send deploy command
+        id: send
+        env:
+          # 입력값을 run 스크립트에 ${{ }} 로 직접 박으면 셸 주입이 된다.
+          # 환경변수로 받아서 형식을 먼저 가둔다.
+          TAG: ${{ inputs.tag }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+
+          # 이 값은 원격 셸의 명령줄에 들어간다. 허용 문자를 좁혀둔다.
+          if [ -n "$TAG" ] && ! printf '%s' "$TAG" | grep -qE '^[A-Za-z0-9._-]{1,128}$'; then
+            echo "::error::태그에 쓸 수 없는 문자가 있다: $TAG"
+            exit 1
+          fi
+
+          COMMAND="$DEPLOY_SCRIPT${TAG:+ $TAG}"
+          echo "실행할 명령: $COMMAND"
+
+          # 셰이프가 까다로워서 shorthand 대신 JSON 파일로 넘긴다.
+          # TAG 를 위에서 검사했으므로 따옴표 탈출 문제는 없다.
+          printf '{"commands":["%s"]}' "$COMMAND" > params.json
+
+          if ! CMD_ID=$(aws ssm send-command \
+                --instance-ids "$INSTANCE_ID" \
+                --document-name AWS-RunShellScript \
+                --comment "GHA deploy by $ACTOR run $GITHUB_RUN_ID" \
+                --parameters file://params.json \
+                --query Command.CommandId --output text 2>send.err); then
+            cat send.err
+            echo "::error::send-command 실패. 인스턴스가 꺼져 있거나 SSM 에이전트가 오프라인일 수 있다."
+            exit 1
+          fi
+
+          echo "command-id: $CMD_ID"
+          echo "command_id=$CMD_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for completion
+        id: wait
+        env:
+          CMD_ID: ${{ steps.send.outputs.command_id }}
+        run: |
+          set -euo pipefail
+
+          # send-command 는 즉시 반환한다. 여기서 기다리지 않으면 배포가 실패해도
+          # 버튼은 늘 초록불이라 버튼이 없는 것보다 나쁘다.
+          STATUS=Pending
+          for _ in $(seq 1 120); do
+            sleep 5
+            # 보낸 직후에는 InvocationDoesNotExist 가 날 수 있다.
+            STATUS=$(aws ssm get-command-invocation \
+                       --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+                       --query Status --output text 2>/dev/null || echo Pending)
+            echo "  $STATUS"
+            case "$STATUS" in
+              Success|Failed|Cancelled|TimedOut) break ;;
+            esac
+          done
+
+          # SSM 은 본문을 24,000자에서 자른다. deploy.sh 출력은 그보다 훨씬 짧다.
+          OUT=$(aws ssm get-command-invocation --command-id "$CMD_ID" \
+                  --instance-id "$INSTANCE_ID" --query StandardOutputContent --output text)
+          ERR=$(aws ssm get-command-invocation --command-id "$CMD_ID" \
+                  --instance-id "$INSTANCE_ID" --query StandardErrorContent --output text)
+
+          {
+            echo "### 배포 결과: $STATUS"
+            echo ""
+            echo "인스턴스 \`$INSTANCE_ID\` / command \`$CMD_ID\`"
+            echo ""
+            echo '```'
+            echo "$OUT"
+            echo '```'
+            if [ -n "$ERR" ]; then
+              echo ""
+              echo "표준 에러"
+              echo ""
+              echo '```'
+              echo "$ERR"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "$OUT"
+          [ -z "$ERR" ] || { echo "--- stderr ---"; echo "$ERR"; }
+
+          [ "$STATUS" = Success ] || {
+            echo "::error::배포가 끝나지 않았거나 실패했다 (status=$STATUS). 요약 탭의 로그를 본다."
+            exit 1
+          }

@@ -71,7 +71,9 @@ def _normalize_github_url(repository_url: str) -> str | None:
     if parsed.scheme != "https" or parsed.netloc.lower() not in _GITHUB_HOSTS:
         return None
     parts = [part for part in parsed.path.strip("/").split("/") if part]
-    if len(parts) < 2:
+    # 정확히 owner/repo 두 조각만 허용한다. blob, tree, pull 같은 경로를 잘라내고 레포 루트로
+    # 바꾸면 사용자가 지정하지 않은 대상을 검증하게 된다.
+    if len(parts) != 2:
         return None
     owner, repo = parts[0], parts[1].removesuffix(".git")
     if not owner or not repo:

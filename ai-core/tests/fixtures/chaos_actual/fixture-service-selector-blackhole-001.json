@@ -1,0 +1,86 @@
+{
+  "schemaVersion": "chaos-v1",
+  "scenario": "service_selector_blackhole",
+  "observationStatus": "observed",
+  "target": {
+    "namespace": "codereferee-sandbox",
+    "deployment": "fixture-api",
+    "service": "fixture-api",
+    "servicePort": 5678,
+    "labelSelector": "app.kubernetes.io/name=fixture-api"
+  },
+  "replicas": 1,
+  "baseline": {
+    "metrics": {
+      "availability": 1.0,
+      "p95_latency_ms": 44.05,
+      "error_rate": 0.0,
+      "probe_count": 5,
+      "success_count": 5,
+      "failure_count": 0,
+      "error_rate_denominator": "all HTTP GET / probes collected during baseline; readiness wait probes are excluded",
+      "cpu_usage_percent": null,
+      "memory_usage_mb": null,
+      "restart_count": 0
+    }
+  },
+  "metrics": {
+    "availability": 0.5,
+    "p95_latency_ms": 34.88,
+    "error_rate": 0.5,
+    "probe_count": 16,
+    "success_count": 8,
+    "failure_count": 8,
+    "error_rate_denominator": "HTTP baseline/recovery probes plus explicit Service-without-endpoints observations during the routing fault",
+    "cpu_usage_percent": null,
+    "memory_usage_mb": null,
+    "restart_count": 0
+  },
+  "chaos_observation": {
+    "type": "service_selector_blackhole",
+    "kill_method": "kubectl_patch_service_selector",
+    "started_at": "2026-10-02T05:15:15.358451Z",
+    "recovered_at": "2026-10-02T05:15:27.568764Z",
+    "recovery_seconds": 10.77,
+    "target_pod_uid": "6d1b4098-faa2-4239-83fd-8bfa410969fa",
+    "replacement_pod_uid": null,
+    "target_configuration": {
+      "replicas": 1,
+      "readiness_probe": {
+        "type": "tcp_socket",
+        "initial_delay_seconds": 1,
+        "period_seconds": 2,
+        "timeout_seconds": 1,
+        "failure_threshold": 3,
+        "success_threshold": 1
+      },
+      "liveness_probe": {
+        "type": "tcp_socket",
+        "initial_delay_seconds": 1,
+        "period_seconds": 2,
+        "timeout_seconds": 1,
+        "failure_threshold": 3,
+        "success_threshold": 1
+      },
+      "startup_probe": null,
+      "termination_grace_period_seconds": 30
+    },
+    "routing_operation": {
+      "original_selector": {
+        "app.kubernetes.io/name": "fixture-api"
+      },
+      "blackhole_selector": {
+        "app.kubernetes.io/name": "codereferee-blackhole"
+      }
+    },
+    "observation_window": {
+      "baseline_probe_count": 5,
+      "fault_seconds": 8,
+      "error_rate_denominator": "HTTP baseline/recovery probes plus explicit Service-without-endpoints observations during the routing fault"
+    },
+    "abort_condition": {
+      "triggered": false,
+      "reason": null
+    }
+  }
+}

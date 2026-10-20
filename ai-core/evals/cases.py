@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.models import SLO, AgentState, RepositoryPreflightReport, SandboxResult
+from app.sandbox.docker_runner import _sandbox_result_from_response
 from app.workflow import repository_validation as workflow
 
 AI_CORE = pathlib.Path(__file__).resolve().parents[1]
@@ -24,6 +25,10 @@ HUMAN_SLICES = {
     "T0-adv": FIXTURES / "agent_adversarial_cases.json",
     "T1-chaos": FIXTURES / "agent_chaos_cases.json",
 }
+# 실측 슬라이스. 케이스 본문을 적지 않고 sandbox가 실제로 보낸 파일을 그대로 읽는다.
+# 손으로 옮기면 합성 슬라이스가 그랬듯 계약 문서를 베껴 쓰게 된다.
+REAL_CHAOS_LABELS = FIXTURES / "agent_chaos_real_labels.json"
+REAL_CHAOS_EVIDENCE = FIXTURES / "chaos_actual"
 SYNTHETIC_SLICES = {
     "T1-sandbox": GENERATED / "sandbox_failures.jsonl",
     "T1-metrics": GENERATED / "metrics_judge_cases.jsonl",
@@ -91,6 +96,40 @@ UNMAPPED_CATEGORIES = {
     "redis_unavailable",
 }
 
+# metrics 슬라이스 라벨도 우리 reason_category보다 잘게 적혀 있다. sandbox와 달리 근거는
+# 종료 코드가 아니라 각 케이스가 실제로 깨뜨리는 단일 SLO다. 아래 라벨들은 모두 명명된
+# 그 하나의 SLO만 위반하고, Judge의 1순위 평가도 같은 코드를 뱉는다(error>availability>
+# latency>cpu, 데이터 전수에서 100% 일치 확인). 이름만 다를 뿐이라 정식 코드로 옮긴다.
+METRIC_LABEL_ALIASES = {
+    # 통과 — 경계값·근접·부하 안정 전부 통과 한 코드로 모인다
+    "all_slo_passed": "all_checks_passed",
+    "boundary_pass": "all_checks_passed",
+    "boundary_values_pass": "all_checks_passed",
+    "near_limit_pass": "all_checks_passed",
+    "near_limit_but_passed": "all_checks_passed",
+    "stable_under_load": "all_checks_passed",
+    "availability_passed": "all_checks_passed",
+    # 지연 — 경계 실패와 콜드스타트는 p95 초과 하나뿐이다
+    "latency_boundary_fail": "latency_slo_violation",
+    "latency_boundary_failure": "latency_slo_violation",
+    "cold_start_latency": "latency_slo_violation",
+    # 오류율
+    "error_boundary_fail": "error_rate_slo_violation",
+    "error_rate_boundary_failure": "error_rate_slo_violation",
+    # CPU
+    "cpu_boundary_fail": "cpu_saturation",
+    "cpu_boundary_failure": "cpu_saturation",
+}
+
+# 여러 SLO가 동시에 깨지는 케이스. Judge는 하나만 고르므로(1순위가 error_rate라 전부
+# error_rate로 나온다) enum 하나로 옮기면 "어느 위반을 대표로 볼지"를 점수 매핑이 몰래
+# 정하게 된다. 그 대표 선정은 SLO 우선순위 정책이라 judge-policy에서 정할 일이다.
+# 그때까지 보류하고 틀린 것으로 센다(카테고리 정확도 상한에 포함).
+METRIC_UNMAPPED = {
+    "multiple_slo_violations",
+    "request_spike_degradation",
+}
+
 
 @dataclass
 class EvalCase:
@@ -109,7 +148,10 @@ class EvalCase:
         state = AgentState(job_id=self.id, repository_url=self.raw_state["repository_url"])
         if pf := self.raw_state.get("preflight_report"):
             state.preflight_report = RepositoryPreflightReport(**pf)
-        if ex := self.raw_state.get("execution_result"):
+        if body := self.raw_state.get("sandbox_response"):
+            # 운영과 같은 HTTP 파서를 통과시킨다. 필드 이름이 어긋나면 여기서 드러난다.
+            state.execution_result = _sandbox_result_from_response(body, 0.0)
+        elif ex := self.raw_state.get("execution_result"):
             state.execution_result = SandboxResult(**ex)
         # 워크플로와 같은 순서로 지표를 채워야 Judge가 운영과 동일한 입력을 본다.
         state.metrics = workflow._metrics_from_execution(state)
@@ -136,6 +178,36 @@ def _human_cases(slice_name: str) -> list[EvalCase]:
         )
         for c in raw
     ]
+
+
+def _real_chaos_cases() -> list[EvalCase]:
+    url = "https://github.com/phdcoco/QuickByte_Demo.git"
+    labels = json.loads(REAL_CHAOS_LABELS.read_text(encoding="utf-8"))
+    built: list[EvalCase] = []
+    for entry in labels:
+        path = REAL_CHAOS_EVIDENCE / f"{entry['id']}.json"
+        if not path.is_file():
+            raise FileNotFoundError(f"실측 증거 파일이 없다: {path}")
+        built.append(
+            EvalCase(
+                id=entry["id"],
+                slice="T1-chaos-real",
+                expected=dict(entry["label"]),
+                raw_state={
+                    "repository_url": url,
+                    "preflight_report": {
+                        "repository_url": url,
+                        "cloneable": True,
+                        "executable": True,
+                        "reason": "reachable",
+                    },
+                    "sandbox_response": path.read_text(encoding="utf-8"),
+                },
+                expected_warnings=entry.get("expected_warnings", []),
+                note=entry.get("note"),
+            )
+        )
+    return built
 
 
 def _sandbox_failure_case(row: dict[str, Any]) -> EvalCase:
@@ -196,13 +268,14 @@ def _slo_from_row(row: dict[str, Any]) -> dict[str, Any]:
 
 def _metrics_judge_case(row: dict[str, Any]) -> EvalCase:
     sandbox = row["sandbox"]
+    raw_category = row["expected_reason_category"]
     return EvalCase(
         id=row["case_id"],
         slice="T1-metrics",
         expected={
             "verdict": row["expected_judge_status"],
             "stage": "metrics",
-            "category": row["expected_reason_category"],
+            "category": METRIC_LABEL_ALIASES.get(raw_category, raw_category),
         },
         raw_state={
             "repository_url": "https://github.com/example/generated.git",
@@ -219,6 +292,11 @@ def _metrics_judge_case(row: dict[str, Any]) -> EvalCase:
                 "metrics": row["metrics"],
             },
         },
+        note=(
+            f"category_unmapped={raw_category}"
+            if raw_category in METRIC_UNMAPPED
+            else None
+        ),
         slo=_slo_from_row(row),
     )
 
@@ -245,7 +323,9 @@ def load(slices: list[str], *, per_category: int = 3, seed: int = 7) -> list[Eva
     """슬라이스 이름 목록을 받아 EvalCase 목록을 돌려준다."""
     loaded: list[EvalCase] = []
     for name in slices:
-        if name in HUMAN_SLICES:
+        if name == "T1-chaos-real":
+            loaded.extend(_real_chaos_cases())
+        elif name in HUMAN_SLICES:
             loaded.extend(_human_cases(name))
         elif name in SYNTHETIC_SLICES:
             loaded.extend(_synthetic_cases(name, per_category, seed))
@@ -255,4 +335,4 @@ def load(slices: list[str], *, per_category: int = 3, seed: int = 7) -> list[Eva
 
 
 def available() -> list[str]:
-    return sorted(HUMAN_SLICES) + sorted(SYNTHETIC_SLICES)
+    return sorted(HUMAN_SLICES) + ["T1-chaos-real"] + sorted(SYNTHETIC_SLICES)

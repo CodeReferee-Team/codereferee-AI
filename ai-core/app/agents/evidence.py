@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.agents.source_context import strip_caret_lines
 from app.models import AgentState
 
 MAX_LOG_CHARS = 1200
@@ -26,6 +27,7 @@ def build_evidence_packet(state: AgentState) -> dict[str, Any]:
         "sre_metrics": state.sre_metrics.model_dump(),
         "judge": dict(state.judge_report),
         "critic": dict(state.critic_feedback),
+        "source_files": dict(state.source_files),
     }
     if preflight is not None:
         packet["preflight"] = {
@@ -234,3 +236,45 @@ def _build_evidence_refs(state: AgentState, category: str) -> dict[str, str]:
     if isinstance(warnings, list) and warnings:
         refs["policy_warnings"] = " | ".join(str(w) for w in warnings)
     return {key: value for key, value in refs.items() if str(value).strip()}
+
+
+def build_refiner_evidence(state: AgentState) -> dict[str, Any]:
+    """Refiner가 편집을 쓰는 데 필요한 것만 담는다.
+
+    전체 packet에서는 evidence_refs, sre_metrics, secondary_signals가 절반을 넘는데 편집과 상관이
+    없다. 8B가 그 조각을 리포트로 되받아 적는 것을 관측했다(sre_metrics만 담긴 응답).
+    판정은 규칙이 내므로 judge가 권위 있는 서술이다.
+    """
+    result = state.execution_result
+    critic = state.critic_feedback
+    log = truncate_log(strip_caret_lines(result.log)) if result else ""
+    packet = {
+        "schema_version": "agent-evidence.refiner.v1",
+        "repository_url": state.repository_url,
+        "failure_category": classify_failure_category(state),
+        "judge": {
+            "status": state.judge_report.get("status"),
+            "reason_category": state.judge_report.get("reason_category"),
+            "reason": state.judge_report.get("reason"),
+        },
+        "critic": {
+            "root_cause": critic.get("root_cause"),
+            "recommended_action": critic.get("recommended_action"),
+        },
+        "execution": {
+            "exit_code": result.exit_code if result else None,
+            "sandbox": result.sandbox_summary if result else "",
+            "log_excerpt": log,
+        },
+        "source_files": dict(state.source_files),
+    }
+    observation = (result.chaos_observation if result else None) or {}
+    if observation:
+        # 카오스 실패는 로그가 아니라 구성이 원인이다. 고칠 값(replicas)과 복구 관측을 같이 준다.
+        packet["chaos"] = {
+            "replicas": (observation.get("target_configuration") or {}).get("replicas"),
+            "recovered": observation.get("recovered"),
+            "recovery_seconds": observation.get("recovery_seconds"),
+        }
+        packet["policy_warnings"] = list((state.metrics or {}).get("policy_warnings") or [])
+    return packet

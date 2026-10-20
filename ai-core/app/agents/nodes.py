@@ -1,27 +1,32 @@
-import difflib
+import json
 from typing import Any
-from urllib.error import URLError
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
 
 from pydantic import ValidationError
 
-from app.agents.evidence import build_evidence_packet, build_llm_evidence_packet, classify_failure_category, render_evidence_packet, truncate_log
+from app.agents.evidence import (
+    build_evidence_packet,
+    build_llm_evidence_packet,
+    build_refiner_evidence,
+    classify_failure_category,
+    render_evidence_packet,
+    truncate_log,
+)
+from app.agents.patching import apply_edits, build_diff, inspect_diff, inspect_rewrite
 from app.agents.llm import llm, parse_json_strict
 from app.agents.prompts import CRITIC_PROMPT, JUDGE_PROMPT, PLANNER_PROMPT, REFINER_PROMPT
 from app.agents.schemas import CriticReport, JudgeReport, PlannerReport, RefinerReport, StrictAgentReport, validate_report
 from app.config import get_settings
 from app.models import SLO, DEFAULT_SLO, AgentState, JobStatus, RepositoryPreflightReport, SandboxResult
+from app.sandbox.docker_runner import (
+    NO_MANIFEST_EXIT_CODE,
+    NOTHING_TO_VERIFY_EXIT_CODE,
+    PATCH_MISSING_EXIT_CODE,
+    UNSUPPORTED_STACK_EXIT_CODE,
+)
 
-# Refiner가 고칠 수 있는 설정 파일. 복원력 수정(replicas·probe·resources)은 여기 모여 있다.
-# 내용을 Refiner에 보여줘야 LLM이 파일에 실재하는 find 문자열을 고를 수 있다.
-_REFINER_CONFIG_PATHS = (".codereferee/validation.yaml", ".codereferee/validation.yml")
-_GITHUB_RAW_HOSTS = {"github.com", "www.github.com"}
-_REFINER_FETCH_TIMEOUT = 5.0
-
-
-# 카오스 구간 p95가 baseline의 몇 배를 넘으면 경고할지. 출처 있는 값이 아니라 우리 관례다
-# (docs/judge-policy.md 6.3). Sandbox가 p99를 보내기 시작하면 임계값을 다시 정한다.
+# 우리가 정한 값이다. 출처가 없다. Sandbox가 p95만 보내서 임시로 쓰는 배수이고,
+# SRE Book은 p95 단일 임계값이 아니라 p50과 p99를 함께 보라고 권고한다.
+# docs/judge-policy.md 9.2·9.3. p50·p99가 들어오면 이 값을 다시 정한다.
 LATENCY_DEGRADATION_FACTOR = 10
 
 
@@ -98,129 +103,142 @@ def critic_node(state: AgentState) -> AgentState:
 
 def refiner_node(state: AgentState) -> AgentState:
     state.events.append("Refiner: remediation guidance prepared")
-    packet = build_llm_evidence_packet(state)
+    packet = build_refiner_evidence(state)
     fallback = _fallback_refiner(state)
-    if not llm.enabled:
+    if llm.enabled:
+        state.refiner_report = _invoke_validated_report(
+            role="Refiner",
+            schema=RefinerReport,
+            system_prompt=REFINER_PROMPT,
+            user_prompt="Repository: {repository_url}\nEvidence packet:\n{evidence}",
+            values={
+                "repository_url": state.repository_url,
+                "evidence": render_evidence_packet(packet),
+            },
+            fallback=fallback,
+            events=state.events,
+        )
+    else:
         state.refiner_report = validate_report(RefinerReport, fallback)
-        return state
 
-    # 설정 파일 원문을 패킷에 실어야 LLM이 파일에 실재하는 find 문자열을 집어낼 수 있다.
-    # 못 받아오면(비공개·네트워크·404) edits 경로를 비우고 기존 서술형 가이드로 돈다.
-    repo_files = _fetch_repository_files(state)
-    if repo_files:
-        packet["repository_files"] = repo_files
-
-    report = _invoke_validated_report(
-        role="Refiner",
-        schema=RefinerReport,
-        system_prompt=REFINER_PROMPT,
-        user_prompt="Repository: {repository_url}\nEvidence packet:\n{evidence}",
-        values={
-            "repository_url": state.repository_url,
-            "evidence": render_evidence_packet(packet),
-        },
-        fallback=fallback,
-        events=state.events,
-    )
-    _attach_patch_diff(report, repo_files, state.events)
-    state.refiner_report = report
+    _diff_from_edits(state)
+    if llm.enabled:
+        _retry_rejected_edits(state, packet)
+    _record_patch_inspection(state)
     return state
 
 
-def _attach_patch_diff(report: dict[str, Any], repo_files: dict[str, str], events: list[str]) -> None:
-    """Refiner가 고른 edits를 원본 파일과 대조해 git apply가 먹는 diff로 렌더한다.
+# 재요청은 한 번만 한다. 같은 실수를 반복하는 모델에 호출을 계속 쓸 이유가 없다.
+RETRYABLE_EDIT_REJECTIONS = ("edit_anchor_not_found", "edit_anchor_ambiguous", "edit_path_unknown")
 
-    LLM에 diff 형식을 맡기지 않는 이유: 7B급 모델은 @@ 헤더·라인 번호를 자주 틀리고
-    sandbox는 strict git apply라 한 글자만 어긋나도 적용이 실패한다. 값 선택만 LLM이,
-    형식 보장은 결정적 코드가 한다.
+
+def _retry_rejected_edits(state: AgentState, packet: dict[str, object]) -> None:
+    """편집이 거부되면 그 이유를 들고 한 번만 다시 묻는다.
+
+    거부 이유는 우리가 파일과 대조해 만든 결정적 신호다(앵커가 없다/여럿이다/모르는 파일이다).
+    모델에게 무엇이 어긋났는지 알려주면 고칠 수 있다. 스키마 수리와 같은 구조다.
     """
-    edits = report.get("edits") or []
-    diff = _build_patch_diff_from_edits(edits, repo_files, events)
-    if diff:
-        report["patch_diff"] = diff
+    check = state.metrics.get("patch_check") or {}
+    if check.get("reason_code") != "edits_not_applicable":
+        return
+    reason = str(check.get("reason") or "")
+    if not any(code in reason for code in RETRYABLE_EDIT_REJECTIONS):
+        return
 
-
-def _build_patch_diff_from_edits(
-    edits: list[dict[str, Any]], repo_files: dict[str, str], events: list[str]
-) -> str | None:
-    sections: list[str] = []
-    for edit in edits:
-        path = str(edit.get("path", "")).strip()
-        find = edit.get("find")
-        replace = edit.get("replace")
-        if not path or not isinstance(find, str) or not isinstance(replace, str):
-            continue
-        before = repo_files.get(path)
-        if before is None:
-            events.append(f"Refiner: edit skipped, {path} not in fetched files")
-            continue
-        if find not in before:
-            events.append(f"Refiner: edit skipped, find string not present in {path}")
-            continue
-        after = before.replace(find, replace, 1)
-        if after == before:
-            continue
-        sections.append(_unified_file_diff(path, before, after))
-    return "".join(sections) or None
-
-
-def _unified_file_diff(path: str, before: str, after: str) -> str:
-    before_lines = before.splitlines(keepends=True)
-    after_lines = after.splitlines(keepends=True)
-    body = "".join(
-        difflib.unified_diff(before_lines, after_lines, fromfile=f"a/{path}", tofile=f"b/{path}")
+    state.events.append(f"Refiner: retrying edits after {reason}")
+    retry = _invoke_validated_report(
+        role="Refiner",
+        schema=RefinerReport,
+        system_prompt=REFINER_PROMPT,
+        user_prompt=(
+            "Your previous edits were thrown away: {reason}\n"
+            "edit_anchor_not_found means the lines in find do not exist in the file. "
+            "edit_anchor_ambiguous means they appear more than once, so add an adjacent line. "
+            "edit_path_unknown means that path is not in evidence.source_files.\n"
+            "Copy find character for character from evidence.source_files below. Do not use log text.\n"
+            "Previous find values: {anchors}\n"
+            "Repository: {repository_url}\nEvidence packet:\n{evidence}"
+        ),
+        values={
+            "reason": reason,
+            "anchors": json.dumps(check.get("attempted_anchors") or [], ensure_ascii=False)[:600],
+            "repository_url": state.repository_url,
+            "evidence": render_evidence_packet(packet),
+        },
+        fallback=state.refiner_report or _fallback_refiner(state),
+        events=state.events,
     )
-    if not body:
-        return ""
-    return f"diff --git a/{path} b/{path}\n{body}"
+    if not retry.get("edits"):
+        return
+    # 재시도 결과로 갈아끼운 뒤 같은 검증을 다시 지난다.
+    state.refiner_report = retry
+    state.metrics.pop("patch_check", None)
+    _diff_from_edits(state)
+    outcome = (state.metrics.get("patch_check") or {}).get("reason_code")
+    state.events.append(
+        "Refiner: retry produced an applicable edit" if not outcome else f"Refiner: retry still rejected ({outcome})"
+    )
 
 
-def _fetch_repository_files(state: AgentState) -> dict[str, str]:
-    """공개 GitHub 레포에서 설정 파일 원문을 받아온다. 실패는 조용히 {}로 흡수한다.
+def _diff_from_edits(state: AgentState) -> None:
+    """모델이 준 편집 목록을 적용해 diff를 만든다.
 
-    patch_diff는 원본과 대조해야 만들 수 있고, 원본은 레포에만 있다. clone은 preflight가
-    이미 했지만 그 내용을 state에 남기지 않으므로 raw endpoint로 다시 읽는다. 비공개
-    레포는 받지 못하고, 그 경우 Refiner는 patch 없이 서술형 가이드만 낸다(기존 동작).
+    치환은 우리가 하므로 모델이 파일의 다른 부분을 건드릴 수 없다. 전문을 받던 방식에서는
+    모델이 뒤를 잘라먹어 멀쩡한 코드가 지워졌다(docs/evaluation-design.md 14.7).
     """
-    owner_repo = _github_owner_repo(state.repository_url)
-    if owner_repo is None:
-        return {}
-    owner, repo = owner_repo
-    # state.branch가 있으면 그것만, 없으면 기본 브랜치 후보를 차례로 시도한다.
-    branches = [state.branch] if state.branch else ["main", "master"]
-    files: dict[str, str] = {}
-    for path in _REFINER_CONFIG_PATHS:
-        for branch in branches:
-            content = _fetch_raw_github(owner, repo, branch, path)
-            if content is not None:
-                files[path] = content
-                break
-    return files
+    edits = state.refiner_report.pop("edits", None)
+    if not isinstance(edits, list) or not edits:
+        return
+    outcome = apply_edits(state.source_files, [dict(edit) for edit in edits])
+    if outcome.rejected:
+        state.events.append(f"Refiner: edits rejected ({', '.join(outcome.rejected)})")
+    if not outcome.patched:
+        state.metrics["patch_check"] = {
+            "accepted": False,
+            "reason_code": "edits_not_applicable",
+            "reason": ", ".join(outcome.rejected) or "no edit changed a file",
+            # 모델이 무엇을 앵커로 썼는지 남긴다. 프롬프트를 고칠 근거가 된다.
+            "attempted_anchors": [str(edit.get("find")) [:200] for edit in edits if isinstance(edit, dict)],
+        }
+        return
+    diff = build_diff(state.source_files, outcome.patched)
+    state.refiner_report["patched_paths"] = sorted(outcome.patched)
+    if diff:
+        rewrite = inspect_rewrite(diff, state.source_files)
+        if not rewrite.accepted:
+            # 모델이 파일 뒤를 잘라먹은 경우다. 적용되더라도 멀쩡한 코드를 지운다.
+            state.events.append(f"Refiner: patch rejected as a rewrite: {rewrite.reason}")
+            state.metrics["patch_check"] = {
+                "accepted": False,
+                "reason_code": rewrite.reason_code,
+                "reason": rewrite.reason,
+                "touched_paths": rewrite.touched_paths,
+            }
+            state.refiner_report["patch_diff"] = None
+            return
+    state.refiner_report["patch_diff"] = diff or None
 
 
-def _github_owner_repo(repository_url: str) -> tuple[str, str] | None:
-    parsed = urlparse(repository_url)
-    if parsed.scheme != "https" or parsed.netloc.lower() not in _GITHUB_RAW_HOSTS:
-        return None
-    parts = [part for part in parsed.path.strip("/").split("/") if part]
-    if len(parts) < 2:
-        return None
-    owner, repo = parts[0], parts[1].removesuffix(".git")
-    if not owner or not repo:
-        return None
-    return owner, repo
-
-
-def _fetch_raw_github(owner: str, repo: str, branch: str, path: str) -> str | None:
-    url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"
-    request = Request(url, headers={"User-Agent": "codereferee-refiner"})
-    try:
-        with urlopen(request, timeout=_REFINER_FETCH_TIMEOUT) as response:
-            if getattr(response, "status", 200) != 200:
-                return None
-            return response.read().decode("utf-8", errors="replace")
-    except (URLError, TimeoutError, ValueError, OSError):
-        return None
+def _record_patch_inspection(state: AgentState) -> None:
+    """생성된 패치를 내용 기준으로 먼저 거른다. 적용 검사(git apply)는 워크플로가 레포를 받은 뒤 한다."""
+    diff = state.refiner_report.get("patch_diff")
+    if not diff:
+        # 앞 단계가 구체적인 이유를 남겼으면 덮지 않는다. patch_absent로 덮으면
+        # 편집이 왜 거부됐는지(앵커 불일치, 재작성 등)가 사라진다.
+        existing = state.metrics.get("patch_check") or {}
+        if not existing.get("reason_code"):
+            state.metrics["patch_check"] = {"accepted": False, "reason_code": "patch_absent"}
+        return
+    verdict = inspect_diff(str(diff))
+    state.metrics["patch_check"] = {
+        "accepted": verdict.accepted,
+        "reason_code": verdict.reason_code,
+        "reason": verdict.reason,
+        "touched_paths": verdict.touched_paths,
+    }
+    if not verdict.accepted:
+        state.events.append(f"Refiner: patch rejected before sandbox: {verdict.reason_code}")
+        state.refiner_report["patch_diff"] = None
 
 
 def _fallback_plan(state: AgentState) -> dict[str, object]:
@@ -355,12 +373,54 @@ _FAILED_STEP_CATEGORIES = {
     "detect": "no_manifest_detected",
     "dependencies": "dependency_install_failed",
 }
-# 스크립트가 약속한 종료 코드. fix/unverifiable-repo가 89(검증할 테스트 없음)를 추가하면
-# 그 값을 no_tests_detected로 잇는다. 지금은 두 코드만 쓴다.
+# 스크립트가 약속한 종료 코드. 사유 문장(_EXIT_CODE_REASONS)과 짝을 맞춘다.
+# 88(패치 없음)은 우리가 패치를 못 넣은 것이라 레포 탓이 아니고, 재검증 라운드에서만 나오므로
+# 여기 넣지 않는다. 그 경로는 patch_check가 기록한다.
 _EXIT_CODE_CATEGORIES = {
-    86: "no_manifest_detected",
-    87: "unsupported_project_stack",
+    NO_MANIFEST_EXIT_CODE: "no_manifest_detected",
+    UNSUPPORTED_STACK_EXIT_CODE: "unsupported_project_stack",
+    NOTHING_TO_VERIFY_EXIT_CODE: "no_tests_detected",
 }
+
+# 우리가 검증할 수 없었던 경우. 레포 결함이 아니다.
+#
+# 종료 코드는 도구마다 뜻이 다르다. npm의 127은 "명령을 찾지 못함"이 아니고 make의 2는
+# pytest의 수집 오류가 아니다. 평가셋에서 실제로 겪었다. 그래서 코드만 보지 않고
+# 어떤 스택의 어떤 단계에서 났는지를 함께 본다. 둘 다 구조화 결과에 있다.
+#
+# pytest는 수집이 깨지면 2로, 사용법이 틀리면 4로, 테스트가 실패하면 1로 끝낸다.
+# 수집 오류는 대개 테스트 전용 의존성을 우리가 설치하지 못한 것이고, 사용법 오류는
+# 우리가 부르는 방법이 틀린 것이다. 둘 다 레포 탓이 아니다.
+_PYTEST_COLLECTION_ERROR = 2
+_PYTEST_USAGE_ERROR = 4
+# 137은 SIGKILL이다. 우리가 건 sandbox_memory_limit에 걸린 것이라 스택과 무관하다.
+_OOM_KILLED = 137
+ENVIRONMENT_LIMIT_CATEGORY = "verification_environment_unsupported"
+
+
+def _verification_was_declared(result: SandboxResult) -> bool:
+    """레포가 .codereferee/validation.yaml로 검증 방법을 선언했는가.
+
+    선언이 없으면 테스트 명령을 우리가 추측한 것이다. 추측이 틀려서 난 실패를
+    레포 탓으로 돌리면 안 된다.
+    """
+    return bool((result.sandbox_report or {}).get("verification_declared"))
+
+
+def _environment_limit_category(result: SandboxResult) -> str | None:
+    if result.exit_code == _OOM_KILLED:
+        return ENVIRONMENT_LIMIT_CATEGORY
+
+    report = result.sandbox_report or {}
+    if report.get("detected_stack") != "python" or report.get("failed_step") != "smoke":
+        return None
+    if result.exit_code == _PYTEST_USAGE_ERROR:
+        return ENVIRONMENT_LIMIT_CATEGORY
+    if result.exit_code == _PYTEST_COLLECTION_ERROR and not _verification_was_declared(result):
+        return ENVIRONMENT_LIMIT_CATEGORY
+    return None
+
+
 # pip이 실제로 찍는 해결 실패 문구만 본다. "install"은 성공 로그에도 나온다.
 _DEPENDENCY_SIGNS = (
     "no matching distribution found",
@@ -383,6 +443,9 @@ def _nonzero_exit_category(result: SandboxResult) -> str:
     로그 문구로 내려간다. 로그 전체를 substring으로 뒤지면 준비 과정 출력에 걸린다.
     """
     if category := _EXIT_CODE_CATEGORIES.get(result.exit_code):
+        return category
+    # 우리가 검증할 수 없었던 것을 레포 결함으로 보고하지 않는다.
+    if category := _environment_limit_category(result):
         return category
 
     report = result.sandbox_report or {}
@@ -507,10 +570,13 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
     if (finding := _unmeasurable_reason(measured, slo)) is not None:
         return finding, warnings
 
-    error_rate = _as_float(measured.get("error_rate"))
-    if error_rate is not None and slo.error_rate_max is not None and error_rate > slo.error_rate_max:
-        return f"error_rate_slo_violation: error_rate {error_rate} exceeds {slo.error_rate_max}.", warnings
+    # 원인 우선 (judge-policy 3.1). 여러 지표가 함께 깨지면 구체적 원인(연결 오류·자원
+    # 포화·재시작)을 증상보다 먼저 적는다. 진단 리포트는 "왜 떨어졌나"를 알려줘야 한다.
+    if (finding := _resource_reason(measured, slo)) is not None:
+        return finding, warnings
 
+    # 증상 fallback. 구체적 원인이 특정되지 않을 때 사용자 영향 큰 순으로 대표를 고른다:
+    # 가용성(다운) > 오류율(요청 실패) > 지연(느림).
     availability = _as_float(measured.get("availability"))
     if (
         availability is not None
@@ -523,19 +589,25 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
             warnings,
         )
 
+    error_rate = _as_float(measured.get("error_rate"))
+    if error_rate is not None and slo.error_rate_max is not None and error_rate > slo.error_rate_max:
+        return f"error_rate_slo_violation: error_rate {error_rate} exceeds {slo.error_rate_max}.", warnings
+
     p95 = _as_float(measured.get("p95_latency_ms"))
     if p95 is not None and slo.p95_latency_ms_max is not None and p95 > slo.p95_latency_ms_max:
         return f"latency_slo_violation: p95 {p95}ms exceeds {slo.p95_latency_ms_max}ms.", warnings
 
-    return _resource_reason(measured, slo), warnings
+    return None, warnings
 
 
 # (사유 코드, 관측 키, SLO 임계 필드, 단위). 상한을 넘으면 Fail이다.
+# 원인 우선 순서(judge-policy 3.1): 의존성 연결 실패 > 크래시 루프 > 자원 포화.
+# 둘 이상 겹칠 때 가장 구체적인 의존성 원인을 대표로 삼는다.
 _RESOURCE_CEILINGS = (
-    ("cpu_saturation", "cpu_usage_percent", "cpu_usage_percent_max", "%"),
-    ("unexpected_restart", "restart_count", "restart_count_max", " restarts"),
     ("database_connection_errors", "db_connection_errors", "db_connection_errors_max", " errors"),
     ("redis_connection_errors", "redis_connection_errors", "redis_connection_errors_max", " errors"),
+    ("unexpected_restart", "restart_count", "restart_count_max", " restarts"),
+    ("cpu_saturation", "cpu_usage_percent", "cpu_usage_percent_max", "%"),
 )
 # 이 중 하나라도 측정되면 판정할 근거가 있다고 본다.
 _JUDGEABLE_KEYS = ("error_rate", "availability", "p95_latency_ms", "p99_latency_ms", "cpu_usage_percent")
@@ -702,18 +774,52 @@ def _fallback_refiner(state: AgentState) -> dict[str, object]:
     }
 
 
+# 스크립트가 약속한 종료 코드의 의미. 숫자만 문장에 넣으면 사용자가 원인을 알 수 없다.
+_EXIT_CODE_REASONS = {
+    NO_MANIFEST_EXIT_CODE: "No supported project manifest was detected.",
+    UNSUPPORTED_STACK_EXIT_CODE: "The repository stack has no runner available in the sandbox.",
+    PATCH_MISSING_EXIT_CODE: "The patch file was not present in the sandbox.",
+    NOTHING_TO_VERIFY_EXIT_CODE: (
+        "The repository has no tests to verify, so its stability could not be checked. "
+        "Compiling is not verification."
+    ),
+}
+
+
 def _sandbox_failure_reason(result: SandboxResult) -> str:
     """실패 이유를 한 문장으로. 로그 원문은 evidence 쪽에 따로 들어간다.
 
     스택을 모를 때 "unknown"을 문장에 넣으면 진단이 모호해지므로 생략한다.
     """
+    if known := _EXIT_CODE_REASONS.get(result.exit_code):
+        return known
     report = result.sandbox_report or {}
     stack = report.get("detected_stack")
     suffix = f" in the {stack} build" if stack and stack != "unknown" else ""
     failed_step = report.get("failed_step")
+    # 어느 단계가 실패했는지만 말하면 무엇이 잘못됐는지 알 수 없다. 사용자도, Refiner도 그렇다.
+    # 구조화 결과가 준 단계 이름에 실제 실패 문구를 한 줄 붙인다.
+    detail = f" {_failure_detail(result)}" if _failure_detail(result) else ""
     if failed_step and failed_step != "none":
-        return f"Sandbox step '{failed_step}' failed with exit_code={result.exit_code}{suffix}."
-    return f"Sandbox command exited with exit_code={result.exit_code}{suffix}."
+        return f"Sandbox step '{failed_step}' failed with exit_code={result.exit_code}{suffix}.{detail}"
+    return f"Sandbox command exited with exit_code={result.exit_code}{suffix}.{detail}"
+
+
+# 판정 이유에 붙일 실패 문구의 길이 상한. 이보다 길면 이유가 로그 덤프가 된다.
+MAX_FAILURE_DETAIL_CHARS = 200
+# 단계 마커와 진행 표시는 실패 문구가 아니다.
+_NOT_A_FAILURE_LINE = ("[CodeReferee]", "detected_stack=", "Cloning into", "stdout:", "stderr:")
+
+
+def _failure_detail(result: SandboxResult) -> str:
+    """실패 문구 한 줄. 도구들은 오류를 마지막에 찍으므로 뒤에서부터 찾는다."""
+    for source in (result.stderr, result.stdout):
+        for line in reversed(source.splitlines()):
+            stripped = line.strip()
+            if not stripped or stripped.startswith(_NOT_A_FAILURE_LINE):
+                continue
+            return stripped[:MAX_FAILURE_DETAIL_CHARS]
+    return ""
 
 
 def _sandbox_evidence(result: SandboxResult) -> list[str]:

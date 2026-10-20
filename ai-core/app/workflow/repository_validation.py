@@ -1,10 +1,13 @@
 from pathlib import Path
+import threading
+from contextlib import contextmanager
 from typing import Any
 from uuid import uuid4
 
 from prometheus_client import Counter, Histogram
 
-from app.agents.nodes import chaos_aborted, chaos_recovered, critic_node, judge_node, planner_node, refiner_node
+from app.agents import source_context
+from app.agents.nodes import ENVIRONMENT_LIMIT_CATEGORY, chaos_aborted, chaos_recovered, critic_node, judge_node, planner_node, refiner_node
 from app.report import build_pdf_report, report_from_state
 from app.models import (
     DEFAULT_SLO,
@@ -15,6 +18,7 @@ from app.models import (
     SandboxResult,
     SREMetrics,
 )
+from app.metrics import prometheus
 from app.config import get_settings
 from app import events as event_builder
 from app.queue.redis_queue import redis_task_queue
@@ -68,6 +72,34 @@ def process_next_repository_validation(
     return execute_repository_validation(state, output_queue=output_queue or queue)
 
 
+@contextmanager
+def _sandbox_heartbeat(emit_progress, step: str, *, interval: float = 20.0,
+                       detail: str = "샌드박스 실행 중 (clone/build/배포/장애주입)"):
+    """긴 샌드박스 호출 동안 progress를 주기적으로 재방출한다.
+
+    layer-2는 샌드박스 안에서 수 분 걸리는데 그 사이 이벤트가 없으면 서버 stale
+    스위퍼가 진행 중 작업을 '갱신 없음'으로 보고 ERROR로 확정한다(running-timeout).
+    주기적 재방출로 updated_at을 살려 두고, 프론트가 멈춘 듯 보이지 않게 한다.
+    heartbeat 실패는 본 실행을 절대 깨뜨리지 않는다(best-effort).
+    """
+    stop = threading.Event()
+
+    def _beat() -> None:
+        while not stop.wait(interval):
+            try:
+                emit_progress(step, detail=detail)
+            except Exception:  # noqa: BLE001 - heartbeat는 본 실행을 깨면 안 된다
+                pass
+
+    thread = threading.Thread(target=_beat, name="sandbox-heartbeat", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=1.0)
+
+
 def run_repository_validation(request: RepositoryValidationRequest, job_id: str | None = None) -> AgentState:
     """Run validation synchronously, bypassing Redis. Useful for local smoke tests."""
     state = create_validation_state(request, job_id)
@@ -100,11 +132,22 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
     if preflight_passed:
         state.events.append("Sandbox: repository clone and smoke validation started")
         emit_progress(event_builder.BASELINE)
-        state.execution_result = sandbox_runner.run_repository(
-            state.preflight_report.repository_url,
-            branch=state.branch,
-            commit_sha=state.requested_commit_sha,
-            **_sandbox_contract_options(state),
+        # layer-2는 샌드박스 안에서 수 분 걸린다. 그 동안 heartbeat로 progress를 살려
+        # 두지 않으면 서버 stale 스위퍼가 진행 중 작업을 ERROR로 확정한다.
+        with _sandbox_heartbeat(emit_progress, event_builder.BASELINE):
+            state.execution_result = sandbox_runner.run_repository(
+                state.preflight_report.repository_url,
+                branch=state.branch,
+                commit_sha=state.requested_commit_sha,
+                **_sandbox_contract_options(state),
+            )
+        # cpu/memory는 샌드박스가 null로 보낸다(Agent는 remote_write만, 질의 API 없음).
+        # 바깥 Prometheus에서 request_id로 장애 구간 값을 뽑아 채운다. 연동 전(설정 없음)이면 no-op.
+        prometheus.enrich_resource_metrics(
+            state.execution_result.metrics,
+            state.request_id,
+            state.execution_result.chaos_observation,
+            get_settings(),
         )
         state.metrics = _metrics_from_execution(state)
         state.sre_metrics = _sre_metrics_from_execution(state)
@@ -128,9 +171,19 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
     else:
         emit_progress(event_builder.JUDGING)
         state = judge_node(state)
-        state = critic_node(state)
-        state = refiner_node(state)
-        state = _run_refinement_rounds(state, emit_progress)
+        if state.judge_report.get("reason_category") == ENVIRONMENT_LIMIT_CATEGORY:
+            # 환경 한계는 "검증을 못 한 것"이지 레포 결함이 아니다(판정 불가 = ERROR).
+            # 코드 결함 FAILED로 두면 화면이 "코드 결함으로 실패"라 말하고, Critic이 멀쩡한
+            # 코드에서 고칠 곳을 찾게 된다. infra_error와 같은 이유로 Critic/Refiner를 건너뛴다.
+            state.status = JobStatus.error
+            state.events.append(
+                "Workflow: verification environment unsupported, not a code defect (judgement unavailable)"
+            )
+        else:
+            attach_source_files(state)
+            state = critic_node(state)
+            state = refiner_node(state)
+            state = _run_refinement_rounds(state, emit_progress)
     VALIDATION_COUNTER.labels(status=state.status).inc()
     _generate_report_pdf(state)
     _record_sqlite_artifacts(state)
@@ -234,6 +287,49 @@ def _preflight_passed(report) -> bool:
     return bool(report and report.cloneable and report.executable)
 
 
+# pytest는 수집 단계에서 깨지면 2로, 테스트가 실패하면 1로 끝낸다. 수집 오류는 대개 테스트
+# 전용 의존성이 없는 것이고, 고칠 자리는 의존성 선언인데 로그는 테스트 파일 경로만 말한다.
+# 매니페스트를 함께 주지 않으면 모델이 가진 파일은 테스트 파일뿐이라 그것을 고치려 한다.
+# 실측으로 겪었다(pallets/itsdangerous, freezegun 없음).
+_COLLECTION_ERROR_EXIT_CODE = 2
+_MANIFEST_CONTEXT_CATEGORIES = ("dependency_install_failed", "no_manifest_detected")
+
+
+def _needs_manifest_context(state: AgentState) -> bool:
+    if state.judge_report.get("reason_category") in _MANIFEST_CONTEXT_CATEGORIES:
+        return True
+    result = state.execution_result
+    return bool(result and result.exit_code == _COLLECTION_ERROR_EXIT_CODE)
+
+
+def attach_source_files(state: AgentState, applied_patch: str | None = None) -> None:
+    """Refiner가 고칠 파일의 현재 내용을 state에 담는다.
+
+    통과한 검증에는 고칠 것이 없으므로 clone하지 않는다.
+    """
+    result = state.execution_result
+    if result is None or state.status != JobStatus.failed:
+        return
+    paths = source_context.extract_paths(result.log)
+    if result.chaos_observation:
+        paths = list(source_context.CHAOS_CONFIG_CANDIDATES) + paths
+    elif _needs_manifest_context(state) or not paths:
+        # pip은 패키지 이름만 말한다. 고칠 파일은 매니페스트이므로 직접 붙인다.
+        paths = list(source_context.MANIFEST_CANDIDATES) + [p for p in paths if p not in source_context.MANIFEST_CANDIDATES]
+    if not paths:
+        return
+    state.source_files = source_context.collect(
+        state.repository_url,
+        paths,
+        branch=state.branch,
+        applied_patch=applied_patch or state.metrics.get("applied_patch"),
+        clone_timeout_seconds=get_settings().repository_clone_timeout_seconds,
+    )
+    if state.source_files:
+        state.events.append(f"Refiner: source files attached ({', '.join(state.source_files)})")
+    else:
+        # 파일을 못 읽으면 Refiner는 diff를 쓰지 못한다. 지어내는 것보다 남기는 것이 낫다.
+        state.events.append(f"Refiner: source files unavailable for {', '.join(paths)}")
 def _sandbox_contract_options(state: AgentState) -> dict[str, str]:
     """Pass optional external-Sandbox deployment context without changing legacy calls."""
     options: dict[str, str] = {}
@@ -292,6 +388,16 @@ def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
     if max_rounds <= 0 or state.preflight_report is None:
         return state
 
+    # 제출된 레포에 대한 판정이 최종 산출물이다. 라운드에서 패치를 적용해 통과했다고
+    # 제출된 코드가 통과한 것은 아니므로, 판정과 실행 결과를 되돌릴 수 있게 보관한다.
+    submitted = {
+        "judge_report": dict(state.judge_report),
+        "status": state.status,
+        "execution_result": state.execution_result,
+        "metrics": dict(state.metrics),
+        "sre_metrics": state.sre_metrics,
+    }
+
     for round_number in range(1, max_rounds + 1):
         if state.status != JobStatus.failed:
             break
@@ -341,9 +447,32 @@ def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
             state.events.append(f"Refine: round {round_number} passed after applying the patch")
             break
 
+
+        attach_source_files(state, applied_patch=patch_diff)
         state = critic_node(state)
         state = refiner_node(state)
 
+    return _restore_submitted_verdict(state, submitted)
+
+
+def _restore_submitted_verdict(state: AgentState, submitted: dict[str, object]) -> AgentState:
+    """라운드가 덮어쓴 판정을 제출 시점 값으로 되돌린다.
+
+    패치를 적용해 통과한 것은 "이 변경이면 고쳐진다"는 증거이고, 제출된 코드가 통과한 것이 아니다.
+    심사 서비스가 "우리가 고쳐줬으니 합격"이라고 내보내면 심사가 아니게 된다.
+    검증된 패치는 refiner_report에, 라운드별 기록은 refine_rounds에 남는다.
+    """
+    verified = any(record.get("after_judge_status") == "Pass" for record in state.refine_rounds)
+    state.judge_report = submitted["judge_report"]
+    state.status = submitted["status"]
+    state.execution_result = submitted["execution_result"]
+    state.metrics = submitted["metrics"]
+    state.sre_metrics = submitted["sre_metrics"]
+    state.metrics["patch_verified"] = verified
+    if verified:
+        state.events.append(
+            "Refine: a patch made the sandbox pass; the verdict for the submitted commit is unchanged"
+        )
     return state
 
 

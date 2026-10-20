@@ -1,4 +1,4 @@
-"""Refiner가 고른 edits를 git apply가 먹는 diff로 렌더하는지.
+"""카오스 설정 결함의 edits가 git apply가 먹는 diff로 렌더되는지.
 
 핵심 불변식: 생성한 patch_diff는 sandbox의 strict `git apply`(docker_runner.py,
 deploy_repository.py 둘 다)에서 실패 없이 적용돼야 한다. LLM에 diff 형식을 맡기지
@@ -10,7 +10,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from app.agents import nodes
+from unittest import mock
+
+from app.agents import source_context
+from app.agents.evidence import build_refiner_evidence
+from app.agents.patching import apply_edits, build_diff
+from app.models import AgentState, JobStatus, SandboxResult
+from app.workflow import repository_validation as workflow
 
 VALIDATION_YAML = (
     "# CodeReferee 검증 설정. 복원력 결함: replicas 1 — 그 한 대가 죽으면 전면 중단.\n"
@@ -50,43 +56,60 @@ def _apply_in_temp_repo(diff: str, path: str, content: str) -> str:
         return target.read_text(encoding="utf-8")
 
 
-class BuildPatchDiffTests(unittest.TestCase):
+class ReplicasEditTests(unittest.TestCase):
+    """main의 줄 단위 편집(patching.apply_edits)으로 같은 수정이 나오는지 본다."""
+
+    def _diff(self, edits: list[dict]) -> str | None:
+        outcome = apply_edits({PATH: VALIDATION_YAML}, edits)
+        return build_diff({PATH: VALIDATION_YAML}, outcome.patched) if outcome.patched else None
+
     def test_replicas_edit_applies_cleanly(self) -> None:
-        edits = [{"path": PATH, "find": "replicas: 1", "replace": "replicas: 2"}]
-        diff = nodes._build_patch_diff_from_edits(edits, {PATH: VALIDATION_YAML}, [])
+        diff = self._diff([{"path": PATH, "find": ["  replicas: 1"], "replace": ["  replicas: 2"]}])
         self.assertIsNotNone(diff)
-        self.assertIn(f"diff --git a/{PATH} b/{PATH}", diff)
         result = _apply_in_temp_repo(diff, PATH, VALIDATION_YAML)
         self.assertIn("replicas: 2", result)
-        self.assertNotIn("replicas: 1", result)
+        self.assertNotIn("replicas: 1\n", result)
 
-    def test_find_not_present_is_skipped(self) -> None:
-        edits = [{"path": PATH, "find": "replicas: 9", "replace": "replicas: 2"}]
-        self.assertIsNone(nodes._build_patch_diff_from_edits(edits, {PATH: VALIDATION_YAML}, []))
+    def test_find_not_present_is_rejected(self) -> None:
+        outcome = apply_edits({PATH: VALIDATION_YAML}, [{"path": PATH, "find": ["  replicas: 9"], "replace": ["x"]}])
+        self.assertFalse(outcome.patched)
+        self.assertIn(f"edit_anchor_not_found:{PATH}", outcome.rejected)
 
-    def test_unknown_path_is_skipped(self) -> None:
-        edits = [{"path": "k8s/deploy.yaml", "find": "x", "replace": "y"}]
-        self.assertIsNone(nodes._build_patch_diff_from_edits(edits, {PATH: VALIDATION_YAML}, []))
+    def test_unknown_path_is_rejected(self) -> None:
+        outcome = apply_edits({PATH: VALIDATION_YAML}, [{"path": "k8s/deploy.yaml", "find": ["x"], "replace": ["y"]}])
+        self.assertFalse(outcome.patched)
 
     def test_noop_replace_produces_no_diff(self) -> None:
-        edits = [{"path": PATH, "find": "replicas: 1", "replace": "replicas: 1"}]
-        self.assertIsNone(nodes._build_patch_diff_from_edits(edits, {PATH: VALIDATION_YAML}, []))
+        self.assertFalse(self._diff([{"path": PATH, "find": ["  replicas: 1"], "replace": ["  replicas: 1"]}]))
 
 
-class GithubOwnerRepoTests(unittest.TestCase):
-    def test_parses_https_github(self) -> None:
-        self.assertEqual(
-            nodes._github_owner_repo("https://github.com/CodeReferee-Team/codereferee-chaos-demo"),
-            ("CodeReferee-Team", "codereferee-chaos-demo"),
-        )
+def _chaos_failed_state() -> AgentState:
+    state = AgentState(job_id="c", repository_url="https://github.com/o/r.git", status=JobStatus.failed)
+    state.execution_result = SandboxResult(
+        exit_code=1,
+        chaos_observation={"recovered": True, "recovery_seconds": 125.9, "target_configuration": {"replicas": 1}},
+    )
+    state.judge_report = {"status": "Fail", "reason_category": "chaos_recovery_exceeds_expected_bound"}
+    return state
 
-    def test_strips_dot_git(self) -> None:
-        self.assertEqual(nodes._github_owner_repo("https://github.com/o/r.git"), ("o", "r"))
 
-    def test_rejects_non_github(self) -> None:
-        self.assertIsNone(nodes._github_owner_repo("https://gitlab.com/o/r"))
-        self.assertIsNone(nodes._github_owner_repo("http://github.com/o/r"))
-        self.assertIsNone(nodes._github_owner_repo("https://github.com/only-owner"))
+class ChaosSourceContextTests(unittest.TestCase):
+    """카오스 실패 로그에는 경로가 없다. 검증 설정을 Refiner에 보여줘야 replicas를 고칠 수 있다."""
+
+    def test_chaos_failure_attaches_validation_config(self) -> None:
+        state = _chaos_failed_state()
+        with mock.patch.object(source_context, "collect", return_value={PATH: VALIDATION_YAML}) as collect:
+            workflow.attach_source_files(state)
+        requested = collect.call_args.args[1]
+        self.assertEqual(requested[: len(source_context.CHAOS_CONFIG_CANDIDATES)], list(source_context.CHAOS_CONFIG_CANDIDATES))
+        self.assertEqual(state.source_files, {PATH: VALIDATION_YAML})
+
+    def test_refiner_evidence_carries_chaos_configuration(self) -> None:
+        state = _chaos_failed_state()
+        state.source_files = {PATH: VALIDATION_YAML}
+        packet = build_refiner_evidence(state)
+        self.assertEqual(packet["chaos"]["replicas"], 1)
+        self.assertIn(PATH, packet["source_files"])
 
 
 if __name__ == "__main__":

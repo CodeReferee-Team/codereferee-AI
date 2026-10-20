@@ -1,0 +1,44 @@
+[
+  {
+    "id": "fixture-deployment-scale-down-001",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_latency_degraded"],
+    "note": "복구 17.07초, 상한 63초(grace 30 + delay 1 + period 2 x 1 + allowance 30). p95 2011.05 / baseline 61.86 = 32.5배"
+  },
+  {
+    "id": "fixture-rollout-restart-001",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "note": "복구 9.69초. p95 83.79 / baseline 23.76 = 3.5배로 규칙 8 미달"
+  },
+  {
+    "id": "fixture-service-selector-blackhole-001",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "note": "복구 10.77초. 라우팅 차단이라 p95가 오히려 baseline보다 낮다(34.88 / 44.05)"
+  },
+  {
+    "id": "quickbyte-auto-deploy-litmus-001",
+    "label": {"verdict": "Fail", "stage": "runtime", "category": "chaos_recovery_exceeds_expected_bound", "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"},
+    "expected_warnings": [],
+    "note": "복구 125.91초 대 상한 65초. 규칙 4에서 걸리므로 뒤 규칙은 보지 않는다는 전제로 경고를 비워 둔다"
+  },
+  {
+    "id": "quickbyte-litmus-chaos-v1-001",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_latency_degraded"],
+    "note": "recovered_at은 있고 recovery_seconds가 없다. 규칙 4를 계산할 수 없어 통과로 간다. 정책 공백"
+  },
+  {
+    "id": "quickbyte-litmus-pod-delete-001",
+    "label": {"verdict": "Error", "stage": "runtime", "category": "chaos_evidence_missing", "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"},
+    "expected_warnings": [],
+    "note": "chaosEngine과 chaosResult만 있다. 관측 전 단계 산출물이라 판정 근거가 없다"
+  },
+  {
+    "id": "quickbyte-pod-kill-001",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_latency_degraded"],
+    "note": "복구 58.84초 대 상한 65초. 7건 중 recovered 불리언을 가진 유일한 파일"
+  }
+]

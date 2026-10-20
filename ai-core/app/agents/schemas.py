@@ -45,6 +45,11 @@ REASON_CATEGORIES = (
     "sandbox_nonzero_exit",
     "sandbox_not_executed",
     "test_failure",
+    # 테스트가 없어 검증 자체를 못 한 경우. 코드 결함과 구분해야 집계가 의미를 갖는다.
+    "no_tests_detected",
+    # 우리가 그 레포를 검증할 수 없었던 경우. 레포 결함과 구분해야 한다.
+    # 섞으면 사용자가 멀쩡한 코드를 불합격으로 받고, 우리 커버리지 격차가 숨는다.
+    "verification_environment_unsupported",
     "dependency_install_failed",
     "docker_build_failed",
     # runtime
@@ -105,19 +110,14 @@ class CriticReport(StrictAgentReport):
         return _require_non_blank_items(value)
 
 
-class RefinerEdit(StrictAgentReport):
-    """설정/매니페스트 한 곳을 고치는 지시. LLM은 '무엇을 바꿀지'만 고르고,
-    git apply가 먹는 unified diff는 노드가 원본 파일에서 결정적으로 만든다.
-    find는 파일에 그대로 존재하는 부분 문자열이어야 한다(들여쓰기 포함)."""
+class SourceEdit(StrictAgentReport):
+    """내용으로 앵커하는 편집. 줄 번호를 쓰지 않아 off-by-one이 생길 수 없다."""
 
     path: str = Field(min_length=1)
-    find: str = Field(min_length=1)
-    replace: str
-
-    @field_validator("path", "find")
-    @classmethod
-    def _non_blank_text(cls, value: str) -> str:
-        return _require_non_blank(value)
+    # 바꿀 원본 줄. 파일에 정확히 한 번 나타나야 한다.
+    find: list[str] = Field(min_length=1)
+    # 그 자리에 넣을 줄. 비우면 삭제다.
+    replace: list[str]
 
 
 class RefinerReport(StrictAgentReport):
@@ -125,11 +125,13 @@ class RefinerReport(StrictAgentReport):
     patch_guidance: list[str] = Field(min_length=1)
     verification_steps: list[str] = Field(min_length=1)
     risk: Literal["low", "medium", "high"]
-    # repository_files에 내용이 실린 설정/매니페스트 파일에 대한 구체적 수정 지시.
-    # 노드가 이걸 원본과 대조해 patch_diff로 렌더한다. 고칠 파일 내용이 없으면 빈 리스트.
-    edits: list[RefinerEdit] = Field(default_factory=list)
-    # base commit 대비 누적 unified diff. 보통 edits에서 노드가 채운다. LLM 없이 도는
-    # 결정적 fallback은 diff를 만들 수 없어 None이다. 없으면 재검증 루프가 돌지 않는다.
+    # base commit 대비 누적 unified diff. LLM 없이 도는 결정적 fallback은
+    # diff를 만들 수 없으므로 선택 필드다. 없으면 재검증 루프가 돌지 않는다.
+    # 고칠 부분만 담는 편집 목록. 모델은 diff도 파일 전문도 쓰지 않는다.
+    # diff는 형식(context 줄, hunk 헤더)을 못 맞추고, 전문은 끝까지 쓰지 못해 멀쩡한 코드가
+    # 지워졌다. docs/evaluation-design.md 6절.
+    edits: list[SourceEdit] | None = None
+    # 위 편집에서 우리가 difflib으로 만든다. 모델 출력이 아니다.
     patch_diff: str | None = None
 
     @field_validator("summary")

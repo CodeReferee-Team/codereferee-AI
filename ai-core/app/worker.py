@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from typing import Any
+
+from prometheus_client import start_http_server
 
 from app.models import AgentState
 from app.workflow.repository_validation import process_next_repository_validation
@@ -18,6 +21,15 @@ def main() -> None:
         help="BLPOP timeout in seconds. 0 waits forever until a task arrives.",
     )
     args = parser.parse_args()
+
+    # Prometheus가 워커를 scrape할 수 있게 연다. prometheus_client는 프로세스마다
+    # 레지스트리를 따로 두기 때문에, FastAPI의 /metrics를 긁어도 이 루프에서 올린
+    # 카운터는 보이지 않는다. 워커 안에서 직접 열어야 한다.
+    # --once는 테스트와 수동 실행용이라 포트를 잡지 않는다.
+    metrics_port = int(os.getenv("METRICS_PORT", "8000"))
+    if not args.once and metrics_port:
+        start_http_server(metrics_port)
+        print(f"Worker metrics on :{metrics_port}/metrics")
 
     while True:
         state = process_next_repository_validation(block=True, timeout=args.block_timeout)
