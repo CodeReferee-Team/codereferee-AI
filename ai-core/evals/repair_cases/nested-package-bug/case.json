@@ -1,0 +1,16 @@
+{
+  "id": "nested-package-bug",
+  "defect": "wrong comparison in a nested module",
+  "expected_category": "test_failure",
+  "oracle_edits": [
+    {
+      "path": "shop/pricing/discount.py",
+      "find": [
+        "    if price > threshold:"
+      ],
+      "replace": [
+        "    if price >= threshold:"
+      ]
+    }
+  ]
+}

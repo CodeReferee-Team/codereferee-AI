@@ -108,6 +108,53 @@ class SourceReadingTests(unittest.TestCase):
         self.assertEqual(source_context.read_files(self.repo, ["../outside.py"]), {})
 
 
+class ImportFollowingTests(unittest.TestCase):
+    """assert가 테스트 안에서 실패하면 로그에는 테스트 파일만 찍힌다. 고칠 곳은 테스트가 부르는 모듈이다.
+
+    테스트 파일만 주면 Refiner는 고칠 곳을 보지 못하고, 테스트 편집은 가드가 막는다.
+    evals.repair가 8건 중 3건에서 이것을 찾았다(2026-10-20).
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self._tmp.name)
+        for path, body in {
+            "pager.py": "def page(): ...\n",
+            "shop/__init__.py": "",
+            "shop/pricing/__init__.py": "",
+            "shop/pricing/discount.py": "def discounted(): ...\n",
+            "tests/test_pager.py": "import os\nfrom pager import page\nimport shop.pricing.discount\nfrom requests import get\n",
+            "tests/test_broken.py": "def oops(:\n",
+        }.items():
+            (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / path).write_text(body, encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def test_modules_imported_by_a_failing_test_are_attached(self) -> None:
+        files = source_context.read_files(self.repo, ["tests/test_pager.py"])
+        self.assertIn("pager.py", files)
+        self.assertIn("shop/pricing/discount.py", files)
+
+    def test_stdlib_and_third_party_imports_are_ignored(self) -> None:
+        files = source_context.read_files(self.repo, ["tests/test_pager.py"])
+        self.assertFalse(any(path.startswith(("os", "requests")) for path in files))
+
+    def test_the_log_paths_come_first_and_the_cap_holds(self) -> None:
+        files = source_context.read_files(self.repo, ["tests/test_pager.py"])
+        self.assertEqual(next(iter(files)), "tests/test_pager.py")
+        self.assertLessEqual(len(files), source_context.MAX_FILES)
+
+    def test_an_unparseable_test_is_read_without_following(self) -> None:
+        files = source_context.read_files(self.repo, ["tests/test_broken.py"])
+        self.assertEqual(list(files), ["tests/test_broken.py"])
+
+    def test_non_test_files_are_not_followed(self) -> None:
+        (self.repo / "app.py").write_text("import pager\n", encoding="utf-8")
+        self.assertEqual(list(source_context.read_files(self.repo, ["app.py"])), ["app.py"])
+
+
 class WorkflowWiringTests(unittest.TestCase):
     """판정이 Fail일 때만 파일을 모은다. 통과한 검증에는 고칠 것이 없다."""
 

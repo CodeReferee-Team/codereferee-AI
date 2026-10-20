@@ -11,12 +11,15 @@ diff를 쓰는 것은 구조적으로 불가능하다. 코퍼스 파일럿에서
 
 from __future__ import annotations
 
+import ast
 import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from pathlib import Path as pathlib_Path
+
+from app.agents.patching import is_test_path
 
 MAX_FILES = 3
 # 의존성 실패 로그에는 파일 경로가 없다. pip은 패키지 이름만 말한다. 고칠 파일은 매니페스트다.
@@ -120,7 +123,48 @@ def read_files(repo_path: Path, paths: list[str]) -> dict[str, str]:
         if len(content) > MAX_FILE_CHARS:
             continue
         collected[path] = content
+    return _with_tested_modules(root, collected)
+
+
+def _with_tested_modules(root: Path, collected: dict[str, str]) -> dict[str, str]:
+    """실패한 테스트가 부르는 레포 모듈을 붙인다.
+
+    assert가 테스트 안에서 실패하면 로그에는 테스트 파일만 찍힌다. 고칠 곳은 테스트가 부르는
+    모듈인데, 테스트 파일만 주면 Refiner는 그것을 보지 못하고 테스트 편집은 가드가 막는다.
+    레포 안에 실제로 있는 모듈만 붙인다. 표준 라이브러리와 서드파티는 파일이 없어 걸러진다.
+    """
+    for path, content in list(collected.items()):
+        if not path.endswith(".py") or not is_test_path(path):
+            continue
+        for module in _imported_modules(content):
+            if len(collected) >= MAX_FILES:
+                return collected
+            for candidate in (f"{module.replace('.', '/')}.py", f"{module.replace('.', '/')}/__init__.py"):
+                file = root / candidate
+                if candidate in collected or not file.is_file():
+                    continue
+                try:
+                    body = file.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    break
+                if len(body) <= MAX_FILE_CHARS and body.strip():
+                    collected[candidate] = body
+                break
     return collected
+
+
+def _imported_modules(content: str) -> list[str]:
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return []
+    modules: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            modules.append(node.module)
+        elif isinstance(node, ast.Import):
+            modules.extend(alias.name for alias in node.names)
+    return list(dict.fromkeys(modules))
 
 
 def _resolve_basename(root: pathlib_Path, path: str) -> pathlib_Path | None:
