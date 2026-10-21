@@ -81,6 +81,17 @@ pytest가 테스트를 하나도 모으지 못하면 5로 끝낸다. `tests` 디
 `test_*.py`가 없는 경우다. 같은 "검증할 것이 없음"이므로 스크립트가 89로 바꿔 내보낸다. 선언된
 명령에는 적용하지 않는다. 그 명령이 pytest인지 우리가 알 수 없고, 다른 도구의 5는 다른 뜻이다.
 
+89로 바꾸기 전에 `tests`와 `test` 디렉터리에서 `python -m unittest discover -p 'test*.py'`를 한 번
+돌린다. pytest의 기본 파일 규칙은 `test_*.py`라서 `tests/test.py` 같은 unittest 형식 파일을 모으지
+못한다. `micheles/decorator`가 그 모양이라 테스트 25개가 있는데 "테스트 없음"으로 불합격했다(정상 레포
+실측, 2026-10-20). unittest도 아무것도 돌리지 못하면 5로 끝내므로(Python 3.12부터) 그때 89를 낸다.
+unittest가 실패하면 그 종료 코드를 그대로 낸다. 대안 실행기를 썼다고 실패를 덮지 않는다.
+
+Node는 선언이 없을 때 `npm test`를 돌린다. 단 `test:node` 스크립트가 있으면 그것을 돌린다.
+`debug-js/debug`의 `test`는 `test:node`, `test:browser`(karma), `lint`를 차례로 잇는데, 샌드박스에는
+브라우저가 없고 lint는 실행 검증이 아니다. 레포가 Node 전용 테스트를 따로 이름 붙여 두었다면 그것이
+우리가 검증할 수 있는 범위와 정확히 맞는다.
+
 Gradle과 Maven은 테스트가 0건이어도 `test` 태스크가 성공한다. 이를 구분하려면 테스트 리포트를
 읽어야 하므로 아직 다루지 않는다.
 

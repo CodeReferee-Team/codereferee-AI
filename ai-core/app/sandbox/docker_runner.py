@@ -457,8 +457,18 @@ run_smoke_test() {
       python -m pytest -q
       _pytest_rc=$?
       # pytest의 5는 "모은 테스트가 없음"이다. tests 디렉터리만 있고 테스트가 없는 경우라 89와 같다.
-      [ "$_pytest_rc" -eq 5 ] && { echo "No tests to verify: pytest collected none"; return 89; }
-      return "$_pytest_rc"
+      [ "$_pytest_rc" -eq 5 ] || return "$_pytest_rc"
+      # pytest 기본 규칙(test_*.py)은 unittest 형식의 tests/test.py를 못 모은다(micheles/decorator).
+      # unittest도 아무것도 돌리지 못하면 5로 끝낸다.
+      for _dir in tests test; do
+        [ -d "$_dir" ] || continue
+        echo "pytest collected none; trying unittest in $_dir"
+        python -m unittest discover -s "$_dir" -p 'test*.py'
+        _unittest_rc=$?
+        [ "$_unittest_rc" -eq 5 ] || return "$_unittest_rc"
+      done
+      echo "No tests to verify: pytest collected none"
+      return 89
       ;;
     gradle)
       [ -x ./gradlew ] || { echo "Repository has no Gradle wrapper (./gradlew)"; return 87; }
@@ -474,7 +484,13 @@ run_smoke_test() {
       # 테스트가 하나도 없는 레포가 합격으로 나오므로 먼저 존재를 확인한다.
       node -e 'const s=(require("./package.json").scripts||{});process.exit(s.test?0:1)' \
         || { echo "package.json has no test script to verify"; return 89; }
-      npm test
+      # test가 브라우저 테스트와 lint까지 잇는 레포가 있다(debug-js/debug). Node 전용 테스트를
+      # 따로 이름 붙여 두었으면 그것이 샌드박스에서 검증할 수 있는 범위다.
+      if node -e 'process.exit((require("./package.json").scripts||{})["test:node"]?0:1)'; then
+        npm run test:node
+      else
+        npm test
+      fi
       ;;
   esac
 }

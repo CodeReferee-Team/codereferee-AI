@@ -15,10 +15,9 @@ class ScriptContractTests(unittest.TestCase):
 
     def test_python_without_tests_does_not_pass(self) -> None:
         # 위치는 pytest가 찾고, 모은 테스트가 없을 때(5) 89로 바꾼다. 실행 검증은 test_failure_steps.
-        self.assertIn(
-            f'[ "$_pytest_rc" -eq 5 ] && {{ echo "No tests to verify: pytest collected none"; return {docker_runner.NOTHING_TO_VERIFY_EXIT_CODE}; }}',
-            self.script,
-        )
+        # unittest로 한 번 더 찾은 뒤에도 없으면 89다(test_healthy_repo_false_fails).
+        self.assertIn('[ "$_pytest_rc" -eq 5 ] || return "$_pytest_rc"', self.script)
+        self.assertIn(f'echo "No tests to verify: pytest collected none"\n      return {docker_runner.NOTHING_TO_VERIFY_EXIT_CODE}', self.script)
 
     def test_node_checks_for_a_test_script_before_running_it(self) -> None:
         # npm run test --if-present는 test 스크립트가 없으면 성공으로 끝낸다.
