@@ -18,6 +18,7 @@ GitHub 레포지토리 URL을 받아 "이 코드가 돌아가는가, 장애에�
 
 | 원칙 | 내용 |
 | --- | --- |
+| 안정성만 판정한다 | 코드 결함은 판정하지 않는다. 설치·테스트·기동이 실패하면 ERROR(판정 불가)다. `docs/judge-policy.md` 3.0절 |
 | 판정은 규칙이 한다 | Pass/Fail과 `reason_category`는 결정적 규칙이 정한다. `judge_uses_llm` 기본값은 `False` |
 | LLM은 서술과 생성만 | Critic의 원인 설명, Refiner의 수정 편집. 판정에 관여하지 않는다 |
 | 적용과 재검증은 코드 | 패치 적용, 가드, 재실행, 재판정 전부 결정적 코드 |
@@ -90,7 +91,7 @@ T1-metrics 라벨 392건 중 186건은 `reason_category` 코드가 아니라 시
 | 126 | 실행 권한 없음 |
 | 137 | OOM |
 
-89가 중요하다. 테스트가 하나도 없는 레포를 합격으로 내보내지 않기 위한 코드다. Gradle과 Maven은 테스트가 0건이어도 성공하므로 JUnit XML 보고서를 세어 판단한다(`test_report`, `docs/sandbox.md`).
+89가 중요하다. 테스트가 하나도 없는 레포를 합격으로 내보내지 않기 위한 코드다. 판정 불가(ERROR)로 나간다. Gradle과 Maven은 테스트가 0건이어도 성공하므로 JUnit XML 보고서를 세어 판단한다(`test_report`, `docs/sandbox.md`).
 
 ## 건드리지 않는 것
 

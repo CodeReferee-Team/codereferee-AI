@@ -57,6 +57,30 @@ Judge는 아래 순서로 판단한다.
 | Metrics | `redis_connection_errors > 0` | Fail | `redis_connection_errors` |
 | Metrics | `request_count = 0` during runtime validation | Fail | `no_traffic_observed` |
 
+### 3.0 준비 단계가 실패하면 판정 불가다 (2026-10-21)
+
+CodeReferee는 안정성만 판정한다. 코드 결함은 판정 대상이 아니다. 1층 샌드박스의 설치·테스트·기동
+검사는 카오스를 걸기 전에 앱이 정상으로 도는지 보는 준비 단계다. 그래서 Preflight를 통과한 뒤
+아래 카테고리로 떨어지면 Judge는 사유와 카테고리를 그대로 남기되, 워크플로는 최종 상태를 ERROR(판정
+불가)로 보낸다. "장애에 약하다"는 뜻이 아니라 "안정성을 재지 못했다"는 뜻이기 때문이다. 판정 불가, 별도 상태,
+지금대로 세 안 중에서 판정 불가로 정했다. 기존 세 상태 안에서 해결되고 BE 매핑을 바꾸지 않는다.
+
+```text
+timeout, sandbox_nonzero_exit, sandbox_not_executed, test_failure, compile_failed,
+no_tests_detected, dependency_install_failed, docker_build_failed, no_manifest_detected,
+unsupported_project_stack, repository_not_accessible, service_smoke_failed, browser_smoke_failed
+```
+
+- `verification_environment_unsupported`와 같은 갈래로 간다. Critic과 Refiner를 건너뛴다. 안정성
+  문제가 아닌 것을 고치려 들지 않는다. 패치 루프는 안정성 판정(카오스, 지표)이 Fail일 때만 돈다.
+- 89(`no_tests_detected`)도 여기에 든다. 전에는 "레포의 상태"라며 FAILED로 두었다(sandbox.md). 이제는
+  안정성을 재지 못한 경우라 판정 불가다.
+- Preflight 실패(URL, 권한, ref, manifest 없음)는 그대로 Fail이다. 요청 자체가 검증할 수 없는
+  대상을 가리킨 것이고, 이번 결정은 설치·테스트 단계에 대한 것이다.
+- 1층이 통과했지만 카오스가 없었던 경우(Pass)는 이번에 바꾸지 않았다. 안정성을 재지 않았다는 점에서는
+  같은 모양이라 따로 정해야 한다.
+- 인젝션 방어는 그대로다. 준비 단계 실패가 Pass가 되는 경로는 없고, 판정 불가로 바뀔 뿐이다.
+
 ### 3.1 여러 지표가 동시에 깨질 때 — 원인 우선
 
 실측 구간에서는 한 관측에 여러 SLO가 함께 깨지는 일이 흔하다. redis가 죽으면

@@ -59,11 +59,14 @@ def run_case(case: case_loader.EvalCase) -> dict[str, Any]:
             state = nodes.planner_node(state)
         state = nodes.judge_node(state)
         verdict = VERDICT_OF_STATUS[state.status]
+        # 운영 워크플로와 같은 갈래. 준비 단계 실패와 환경 한계는 판정 불가다(judge-policy 3.0절).
+        if verdict == "Fail" and nodes.judgement_unavailable(state):
+            verdict = "Error"
         judge_reason = str(state.judge_report.get("reason", ""))
         category = state.judge_report.get("reason_category")
         # Fail일 때만 Critic/Refiner가 돈다(운영 워크플로와 동일). 여기서 LLM이 실제로 호출돼
         # 모델별 서술 품질 차이가 드러난다. 판정·카테고리는 규칙이라 모델과 무관하다.
-        if annotations and state.status == JobStatus.failed:
+        if annotations and verdict == "Fail":
             state = nodes.critic_node(state)
             state = nodes.refiner_node(state)
         if annotations:
