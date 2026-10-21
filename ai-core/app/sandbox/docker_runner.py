@@ -260,13 +260,14 @@ OUTCOME="error"
 FAILED_STEP="none"
 EXIT_CODE=1
 STEPS=""
+TEST_REPORT="null"
 
 now_ms() { date +%s%3N 2>/dev/null || echo 0; }
 
 # trap으로 걸어두면 중간에 exit해도 구조화 결과가 반드시 마지막 줄에 남는다.
 emit_result() {
-  printf '\n[CodeReferee:RESULT] {"schema_version":"sandbox-result.v1","detected_stack":"%s","outcome":"%s","failed_step":"%s","exit_code":%s,"verification_declared":%s,"steps":[%s]}\n' \
-    "$STACK" "$OUTCOME" "$FAILED_STEP" "$EXIT_CODE" "$DECLARED" "$STEPS"
+  printf '\n[CodeReferee:RESULT] {"schema_version":"sandbox-result.v1","detected_stack":"%s","outcome":"%s","failed_step":"%s","exit_code":%s,"verification_declared":%s,"test_report":%s,"steps":[%s]}\n' \
+    "$STACK" "$OUTCOME" "$FAILED_STEP" "$EXIT_CODE" "$DECLARED" "$TEST_REPORT" "$STEPS"
 }
 trap emit_result EXIT
 
@@ -456,6 +457,38 @@ compile_sources() {
   python -m compileall -q -x '(^|/)(tests?|testing)/|[{][{]' .
 }
 
+summarize_test_reports() {
+  # Maven(surefire)과 Gradle은 같은 JUnit XML을 남긴다. 종료 코드만으로는 "테스트가 0건"과
+  # "테스트는 통과했는데 다른 모듈 빌드가 깨짐"(google/gson)을 가를 수 없다.
+  TEST_REPORT=$(python3 - 2>/dev/null <<'PY'
+import glob, json
+import xml.etree.ElementTree as ET
+files = [f for f in glob.glob("**/TEST-*.xml", recursive=True) if "surefire-reports" in f or "test-results" in f]
+tests = failed = 0
+for path in files:
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError):
+        continue
+    for suite in ([root] if root.tag == "testsuite" else root.iter("testsuite")):
+        tests += int(suite.get("tests") or 0)
+        failed += int(suite.get("failures") or 0) + int(suite.get("errors") or 0)
+print(json.dumps({"files": len(files), "tests": tests, "failed": failed}, separators=(",", ":")))
+PY
+  )
+  [ -n "$TEST_REPORT" ] || TEST_REPORT="null"
+}
+
+finish_jvm_tests() {
+  _build_rc=$1
+  summarize_test_reports
+  [ "$_build_rc" -eq 0 ] || return "$_build_rc"
+  case "$TEST_REPORT" in
+    *'"tests":0,'*) echo "No tests to verify: the build ran no tests"; return 89 ;;
+  esac
+  return 0
+}
+
 run_smoke_test() {
   # 선언이 있으면 추측하지 않는다. 멀티모듈 순서나 브라우저 제외처럼 우리가 알 수 없는
   # 것을 레포가 알려줄 수 있는 유일한 자리다.
@@ -487,11 +520,13 @@ run_smoke_test() {
     gradle)
       [ -x ./gradlew ] || { echo "Repository has no Gradle wrapper (./gradlew)"; return 87; }
       ./gradlew test --no-daemon
+      finish_jvm_tests $?
       ;;
     maven)
       if [ -x ./mvnw ]; then ./mvnw -B test
       elif command -v mvn >/dev/null 2>&1; then mvn -B test
       else echo "No Maven wrapper and no system mvn"; return 87; fi
+      finish_jvm_tests $?
       ;;
     node)
       # --if-present는 test 스크립트가 없으면 아무것도 하지 않고 성공으로 끝낸다.

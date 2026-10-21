@@ -11,7 +11,7 @@ from app.models import AgentState, JobStatus, RepositoryPreflightReport, Sandbox
 from app.sandbox import docker_runner
 
 
-def _run_script(files: dict[str, str], tag: str | None = None) -> tuple[dict, str]:
+def _run_script(files: dict[str, str], tag: str | None = None, executable: tuple[str, ...] = ()) -> tuple[dict, str]:
     root = tempfile.mkdtemp()
     try:
         source = os.path.join(root, "source")
@@ -21,6 +21,8 @@ def _run_script(files: dict[str, str], tag: str | None = None) -> tuple[dict, st
             os.makedirs(os.path.dirname(full), exist_ok=True)
             with open(full, "w") as handle:
                 handle.write(body)
+            if path in executable:
+                os.chmod(full, 0o755)
         git = ["git", "-C", source, "-c", "user.email=t@t", "-c", "user.name=t"]
         subprocess.run(git[:3] + ["init", "-q"], check=True)
         subprocess.run(git + ["add", "-A"], check=True)
@@ -121,6 +123,64 @@ class DockerWordTests(unittest.TestCase):
         state.preflight_report = RepositoryPreflightReport(repository_url="https://github.com/o/r", cloneable=True, executable=True)
         state.execution_result = SandboxResult(exit_code=1, stderr="docker build failed: step 3/7")
         self.assertEqual(nodes._fallback_judge(state)["reason_category"], "docker_build_failed")
+
+
+def _mvnw(exit_code: int, tests: int | None = None, failures: int = 0) -> str:
+    """mvnw 대역. 네트워크 없이 surefire가 남기는 JUnit XML만 흉내 낸다."""
+    report = ""
+    if tests is not None:
+        report = (
+            "mkdir -p core/target/surefire-reports\n"
+            f"echo '<testsuite name=\"T\" tests=\"{tests}\" failures=\"{failures}\" errors=\"0\" skipped=\"0\"/>'"
+            " > core/target/surefire-reports/TEST-T.xml\n"
+        )
+    return f"#!/bin/sh\n{report}exit {exit_code}\n"
+
+
+@unittest.skipUnless(shutil.which("git") and shutil.which("sh") and shutil.which("python3"), "git, sh, python3가 필요하다")
+class JvmTestReportTests(unittest.TestCase):
+    """종료 코드만으로는 "테스트가 0건"과 "테스트는 통과했는데 다른 모듈이 깨짐"을 가를 수 없다.
+    google/gson은 gson 모듈 테스트가 전부 통과한 뒤 test-jpms 모듈 컴파일에서 떨어졌다."""
+
+    def _run(self, mvnw: str, declared: bool = False) -> tuple[dict, dict]:
+        files = {"pom.xml": "<project/>", "mvnw": mvnw}
+        if declared:
+            files[".codereferee/validation.yaml"] = "test: ./mvnw -B test\n"
+        result, _ = _run_script(files, executable=("mvnw",))
+        sandbox = SandboxResult(exit_code=result["exit_code"], stderr="[ERROR] build failure", sandbox_report=result)
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.running)
+        state.preflight_report = RepositoryPreflightReport(repository_url="https://github.com/o/r", cloneable=True, executable=True)
+        state.execution_result = sandbox
+        return result, nodes._fallback_judge(state)
+
+    def test_reports_are_summarized_in_the_result(self) -> None:
+        result, _ = self._run(_mvnw(0, tests=2))
+        self.assertEqual(result["outcome"], "success")
+        self.assertEqual(result["test_report"], {"files": 1, "tests": 2, "failed": 0})
+
+    def test_build_that_ran_no_tests_is_nothing_to_verify(self) -> None:
+        result, _ = self._run(_mvnw(0))
+        self.assertEqual(result["exit_code"], docker_runner.NOTHING_TO_VERIFY_EXIT_CODE)
+
+    def test_build_failure_after_all_tests_passed_is_not_a_code_defect(self) -> None:
+        result, judge = self._run(_mvnw(1, tests=3))
+        self.assertEqual(result["failed_step"], "smoke")
+        self.assertEqual(judge["reason_category"], nodes.ENVIRONMENT_LIMIT_CATEGORY)
+
+    def test_failing_tests_are_still_a_code_defect(self) -> None:
+        _, judge = self._run(_mvnw(1, tests=3, failures=1))
+        self.assertEqual(judge["status"], "Fail")
+        self.assertNotEqual(judge["reason_category"], nodes.ENVIRONMENT_LIMIT_CATEGORY)
+
+    def test_build_that_failed_before_any_test_is_still_a_code_defect(self) -> None:
+        # 단일 모듈의 컴파일 오류는 테스트 보고서를 남기지 않는다.
+        _, judge = self._run(_mvnw(1))
+        self.assertNotEqual(judge["reason_category"], nodes.ENVIRONMENT_LIMIT_CATEGORY)
+
+    def test_declared_command_failure_stays_a_code_defect(self) -> None:
+        # 레포가 알려준 명령이 깨졌다면 추측이 틀린 것이 아니다.
+        _, judge = self._run(_mvnw(1, tests=3), declared=True)
+        self.assertNotEqual(judge["reason_category"], nodes.ENVIRONMENT_LIMIT_CATEGORY)
 
 
 if __name__ == "__main__":

@@ -418,11 +418,28 @@ def _environment_limit_category(result: SandboxResult) -> str | None:
         return ENVIRONMENT_LIMIT_CATEGORY
 
     report = result.sandbox_report or {}
-    if report.get("detected_stack") != "python" or report.get("failed_step") != "smoke":
+    if report.get("failed_step") != "smoke":
+        return None
+    if report.get("detected_stack") in ("maven", "gradle"):
+        return _jvm_build_limit_category(result)
+    if report.get("detected_stack") != "python":
         return None
     if result.exit_code == _PYTEST_USAGE_ERROR:
         return ENVIRONMENT_LIMIT_CATEGORY
     if result.exit_code == _PYTEST_COLLECTION_ERROR and not _verification_was_declared(result):
+        return ENVIRONMENT_LIMIT_CATEGORY
+    return None
+
+
+def _jvm_build_limit_category(result: SandboxResult) -> str | None:
+    """테스트는 전부 통과했는데 추측한 빌드 명령이 깨졌다(google/gson의 다중 모듈 JPMS 빌드).
+
+    보고서가 없으면 테스트 전에 컴파일이 깨진 것이라 레포 결함으로 둔다.
+    """
+    if _verification_was_declared(result):
+        return None
+    tests = (result.sandbox_report or {}).get("test_report")
+    if isinstance(tests, dict) and int(tests.get("tests") or 0) > 0 and int(tests.get("failed") or 0) == 0:
         return ENVIRONMENT_LIMIT_CATEGORY
     return None
 

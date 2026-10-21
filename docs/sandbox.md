@@ -97,8 +97,17 @@ Node는 선언이 없을 때 `npm test`를 돌린다. 단 `test:node` 스크립�
 브라우저가 없고 lint는 실행 검증이 아니다. 레포가 Node 전용 테스트를 따로 이름 붙여 두었다면 그것이
 우리가 검증할 수 있는 범위와 정확히 맞는다.
 
-Gradle과 Maven은 테스트가 0건이어도 `test` 태스크가 성공한다. 이를 구분하려면 테스트 리포트를
-읽어야 하므로 아직 다루지 않는다.
+Gradle과 Maven은 테스트가 0건이어도 `test` 태스크가 성공한다. 그래서 테스트 명령이 끝나면 두 도구가
+같은 형식으로 남기는 JUnit XML(`**/surefire-reports/TEST-*.xml`, `**/test-results/**/TEST-*.xml`)을 읽어
+구조화 결과의 `test_report`에 `{"files", "tests", "failed"}`로 담는다. `failed`는 failures와 errors의
+합이다. 빌드가 성공했는데 돌린 테스트가 0건이면 89를 낸다. 보고서를 읽지 못하면(`python3` 없음)
+`test_report`는 `null`이고 판정은 종전과 같다. 보고서를 다른 경로에 두도록 바꾼 레포는 0건으로 보여
+89가 날 수 있다. 그런 레포는 `.codereferee/validation.yaml`로 명령을 선언하면 된다.
+
+같은 보고서로 "테스트는 전부 통과했는데 빌드가 깨진" 경우를 가른다. `google/gson`이 그랬다. `gson`
+모듈의 테스트가 전부 통과한 뒤 `test-jpms` 모듈이 테스트 컴파일에서 떨어졌다. 이 레포의 CI는
+`mvn verify`에 일부 모듈을 빼고 돌리는데, 우리가 추측한 `mvn test`로는 그 순서를 맞출 수 없다(정상
+레포 실측, 2026-10-21). 판정 기준은 judge-policy 8절에 있다.
 
 ## 샌드박스 이미지
 
