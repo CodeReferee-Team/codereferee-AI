@@ -51,6 +51,11 @@ AI Core는 기존 실행 결과 필드와 함께 다음 Chaos v1 evidence를 보
 
 ### 단계
 
+`clone`은 `--depth 1`로 받고, 검증하는 커밋에 붙은 태그가 있으면 그 태그만 따로 받는다. 얕은 clone에는
+태그가 없어서 setuptools-scm이나 hatch-vcs가 패키지 버전을 `0.1.dev1`로 계산한다. 정상 릴리스인
+`python-attrs/attrs` 26.1.0이 그래서 버전 테스트 2개에서 떨어졌다(2026-10-21 실측). 태그를 찾는 데는
+`git ls-remote --tags` 한 번이면 되고, 태그가 없는 커밋이면 아무것도 받지 않는다.
+
 구조화 결과의 `failed_step`은 `prepare` → `clone` → `patch` → `detect` → `declaration` →
 `compile` → `dependencies` → `smoke` 중 하나다. `compile`은 Python에서 선언이 없을 때만 돌고
 (`python -m compileall -q -x <제외> .`), 의존성 설치보다 앞에 둔다. `tests`, `test`, `testing` 디렉터리와

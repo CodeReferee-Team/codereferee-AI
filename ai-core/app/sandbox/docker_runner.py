@@ -300,10 +300,24 @@ prepare_sandbox() {
 clone_repository() {
   git clone --depth 1 $BRANCH_CLAUSE "$REPO_URL" /tmp/repository || return $?
   cd /tmp/repository || return $?
-  [ -n "$COMMIT_SHA" ] || return 0
+  [ -n "$COMMIT_SHA" ] || { fetch_release_tags; return 0; }
   # --depth 1 클론에는 해당 커밋이 없을 수 있어 먼저 받아둔다.
   git fetch --depth 1 origin "$COMMIT_SHA" >/dev/null 2>&1 || true
-  git checkout "$COMMIT_SHA"
+  git checkout "$COMMIT_SHA" || return $?
+  fetch_release_tags
+}
+
+fetch_release_tags() {
+  # 얕은 clone에는 태그가 없어 setuptools-scm·hatch-vcs가 버전을 0.1.dev1로 계산한다.
+  # python-attrs/attrs의 버전 테스트가 그래서 깨졌다. 이 커밋에 붙은 태그만 받는다.
+  _head=$(git rev-parse HEAD)
+  git ls-remote --tags origin 2>/dev/null | while read -r _sha _ref; do
+    [ "$_sha" = "$_head" ] || continue
+    _tag=${_ref#refs/tags/}
+    _tag=${_tag%"^{}"}
+    git fetch --depth 1 origin "+refs/tags/$_tag:refs/tags/$_tag" >/dev/null 2>&1 || true
+  done
+  return 0
 }
 
 apply_patch() {

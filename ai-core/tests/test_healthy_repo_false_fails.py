@@ -11,7 +11,7 @@ from app.models import AgentState, JobStatus, RepositoryPreflightReport, Sandbox
 from app.sandbox import docker_runner
 
 
-def _run_script(files: dict[str, str]) -> tuple[dict, str]:
+def _run_script(files: dict[str, str], tag: str | None = None) -> tuple[dict, str]:
     root = tempfile.mkdtemp()
     try:
         source = os.path.join(root, "source")
@@ -25,7 +25,11 @@ def _run_script(files: dict[str, str]) -> tuple[dict, str]:
         subprocess.run(git[:3] + ["init", "-q"], check=True)
         subprocess.run(git + ["add", "-A"], check=True)
         subprocess.run(git + ["commit", "-qm", "init"], check=True)
-        script = docker_runner._repository_validation_script(f"file://{source}", None, None)
+        if tag:
+            subprocess.run(git + ["tag", "-a", tag, "-m", tag], check=True)
+            subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "after release"], check=True)
+            sha = subprocess.run(git[:3] + ["rev-parse", f"{tag}^{{commit}}"], capture_output=True, text=True, check=True).stdout.strip()
+        script = docker_runner._repository_validation_script(f"file://{source}", None, sha if tag else None)
         script = script.replace("/tmp/repository", os.path.join(root, "clone"))
         completed = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=300)
         line = next(l for l in completed.stdout.splitlines() if l.startswith(docker_runner.RESULT_SENTINEL))
@@ -75,6 +79,23 @@ class NodeTestScriptTests(unittest.TestCase):
     def test_plain_test_script_is_unchanged(self) -> None:
         result, _ = _run_script(self._package({"test": "exit 4"}))
         self.assertEqual(result["exit_code"], 4)
+
+
+@unittest.skipUnless(shutil.which("git") and shutil.which("sh"), "git과 sh가 필요하다")
+class ReleaseTagTests(unittest.TestCase):
+    """얕은 clone에는 태그가 없다. setuptools-scm·hatch-vcs가 버전을 0.1.dev1로 계산해
+    python-attrs/attrs의 버전 테스트가 깨졌다. 검증하는 커밋에 붙은 태그는 받아 둔다."""
+
+    CHECK = (
+        "import subprocess\n\n\n"
+        "def test_release_tag_is_visible():\n"
+        "    out = subprocess.run(['git', 'describe', '--tags', '--exact-match'], capture_output=True, text=True)\n"
+        "    assert out.stdout.strip() == 'v1.0'\n"
+    )
+
+    def test_tag_on_the_checked_out_commit_is_fetched(self) -> None:
+        result, log = _run_script({"requirements.txt": "", "tests/test_tag.py": self.CHECK}, tag="v1.0")
+        self.assertEqual(result["outcome"], "success", log[-1500:])
 
 
 def _judged(stack: str, failed_step: str, log: str) -> dict:
