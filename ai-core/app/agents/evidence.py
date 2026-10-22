@@ -84,6 +84,7 @@ def build_llm_evidence_packet(state: AgentState) -> dict[str, Any]:
     result = state.execution_result
     if observation:
         packet["chaos"] = {
+            "fault": observation.get("type"),
             "replicas": config.get("replicas"),
             "recovered": observation.get("recovered"),
             "recovery_seconds": observation.get("recovery_seconds"),
@@ -272,6 +273,7 @@ def build_refiner_evidence(state: AgentState) -> dict[str, Any]:
     if observation:
         # 카오스 실패는 로그가 아니라 구성이 원인이다. 고칠 값(replicas)과 복구 관측을 같이 준다.
         packet["chaos"] = {
+            "fault": observation.get("type"),
             "replicas": (observation.get("target_configuration") or {}).get("replicas"),
             "recovered": observation.get("recovered"),
             "recovery_seconds": observation.get("recovery_seconds"),

@@ -300,6 +300,20 @@ def _needs_manifest_context(state: AgentState) -> bool:
     return bool(result and result.exit_code == _COLLECTION_ERROR_EXIT_CODE)
 
 
+def _dependency_clients(observation: dict[str, Any]) -> tuple[str, ...]:
+    """장애를 건 의존성의 클라이언트 모듈. 묶음 실행이면 시나리오마다 본다."""
+    observations = [observation] + [
+        scenario.get("chaos_observation") or {}
+        for scenario in observation.get("scenarios") or []
+        if isinstance(scenario, dict)
+    ]
+    clients: list[str] = []
+    for item in observations:
+        if isinstance(item, dict):
+            clients.extend(source_context.DEPENDENCY_CLIENTS.get(str(item.get("type")), ()))
+    return tuple(dict.fromkeys(clients))
+
+
 def attach_source_files(state: AgentState, applied_patch: str | None = None) -> None:
     """Refiner가 고칠 파일의 현재 내용을 state에 담는다.
 
@@ -309,6 +323,7 @@ def attach_source_files(state: AgentState, applied_patch: str | None = None) -> 
     if result is None or state.status != JobStatus.failed:
         return
     paths = source_context.extract_paths(result.log)
+    clients = _dependency_clients(result.chaos_observation)
     if result.chaos_observation:
         paths = list(source_context.CHAOS_CONFIG_CANDIDATES) + paths
     elif _needs_manifest_context(state) or not paths:
@@ -322,6 +337,7 @@ def attach_source_files(state: AgentState, applied_patch: str | None = None) -> 
         branch=state.branch,
         applied_patch=applied_patch or state.metrics.get("applied_patch"),
         clone_timeout_seconds=get_settings().repository_clone_timeout_seconds,
+        dependency_clients=clients,
     )
     if state.source_files:
         state.events.append(f"Refiner: source files attached ({', '.join(state.source_files)})")

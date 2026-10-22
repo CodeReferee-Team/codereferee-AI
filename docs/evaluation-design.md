@@ -808,3 +808,11 @@ oracle의 수리율이 처음에 62.5%(5/8)였다. 실패한 3건은 모두 asse
 - 표본 8건은 작다. 수리율 1건 차이가 12.5%p다. 모델끼리 비교할 때는 신뢰구간을 같이 본다
 - Python 1층만 있다. Node, Gradle과 카오스 설정 수리(`replicas` 등)는 아직 없다. 카오스 쪽은 kind 클러스터가 있어야 해서 `scenario-tests/env/up.sh` 환경에서 따로 돌려야 한다
 - 실제 모델로 처음 재는 것이 다음 할 일이다. LLM 키가 있는 곳에서 `--model gemini:gemini-flash-latest`를 3회 반복해 기준을 남긴다
+
+### 15.5 의존성 장애의 수정 대상 파일 (2026-10-22)
+
+실서버 실측에서 카오스 실패의 Refiner가 받는 파일이 `.codereferee/validation.yaml` 하나뿐이라는 것이 드러났다. 카오스 로그에는 경로가 없어서다. `replicas`는 고칠 수 있어도, Redis가 돌아온 뒤 다시 붙지 않는 코드는 볼 수 없었다.
+
+- 의존성 장애(`dependency_redis_outage`, `dependency_database_outage`)로 실패하면 그 클라이언트(`redis`, `psycopg` 등)를 import하는 레포 모듈을 함께 붙인다. 테스트와 가상환경 디렉터리는 뺀다. 상한 3개는 그대로다
+- Critic과 Refiner 패킷의 `chaos`에 `fault`(장애 종류)를 싣는다. Refiner 프롬프트에는 "의존성 장애 미복구는 replicas가 아니라 그 의존성을 부르는 코드를 고친다"를 적었다
+- 검증용 fixture는 chaos-demo 브랜치 `claude/project-thread-ta9s8y`(Redis 실패 후 차단기를 닫지 않는 앱)다. 정답 패치는 레포 밖에 둔다. Refiner가 레포 파일을 읽기 때문이다

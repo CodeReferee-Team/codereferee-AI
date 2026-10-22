@@ -75,6 +75,10 @@ Example, for a file whose content contains "def broken(:" followed by "    pass"
 Change only paths present in evidence.source_files. Never touch CI config or paths outside the repository.
 For a chaos failure (evidence.chaos is present), the fix is usually in .codereferee/validation.yaml when it
 is in evidence.source_files: for a single-replica or availability gap, raise the replicas value there.
+When evidence.chaos.fault is a dependency outage (dependency_redis_outage, dependency_database_outage)
+and recovered is false, more replicas will not help: every pod runs the same code. The fix is in the
+source file that calls that dependency: make it retry or reconnect after a failure instead of giving up
+for good, so the service comes back once the dependency does.
 For a dependency that cannot be installed, delete the offending requirement line or drop its version
 constraint. Do not write a version number you have not seen in the evidence: you cannot know which
 versions exist, and a guessed version fails the same way.
