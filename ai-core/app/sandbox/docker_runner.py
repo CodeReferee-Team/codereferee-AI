@@ -369,6 +369,15 @@ install_dependencies() {
   esac
 }
 
+compile_sources() {
+  # 문법 오류를 테스트 실패와 다른 단계로 남긴다. 같은 smoke 안에 있으면 판정이 로그에서
+  # SyntaxError를 찾아야 했다. 선언이 있으면 선언된 명령만 돌린다는 약속이라 건너뛴다.
+  [ "$STACK" = "python" ] && [ -z "$DECLARED_TEST" ] || return 0
+  # 테스트 데이터와 템플릿은 일부러 Python이 아닌 파일을 .py로 둔다(psf/black의 tests/data,
+  # cookiecutter의 {{ }} 경로). 테스트 코드의 문법 오류는 pytest 수집에서 드러난다.
+  python -m compileall -q -x '(^|/)(tests?|testing)/|[{][{]' .
+}
+
 run_smoke_test() {
   # 선언이 있으면 추측하지 않는다. 멀티모듈 순서나 브라우저 제외처럼 우리가 알 수 없는
   # 것을 레포가 알려줄 수 있는 유일한 자리다.
@@ -378,11 +387,14 @@ run_smoke_test() {
   fi
   case "$STACK" in
     python)
-      python -m compileall -q . || return $?
       # 컴파일이 되는 것과 동작이 검증된 것은 다르다. 테스트가 없으면 통과로 끝내지 않는다.
-      [ -d tests ] || { echo "No tests directory to verify"; return 89; }
+      # 테스트 위치는 pytest가 레포 설정까지 읽어 찾는다. tqdm처럼 패키지 안에 두는 레포가 있다.
       python -m pip install --disable-pip-version-check --break-system-packages pytest >/dev/null || return $?
       python -m pytest -q
+      _pytest_rc=$?
+      # pytest의 5는 "모은 테스트가 없음"이다. tests 디렉터리만 있고 테스트가 없는 경우라 89와 같다.
+      [ "$_pytest_rc" -eq 5 ] && { echo "No tests to verify: pytest collected none"; return 89; }
+      return "$_pytest_rc"
       ;;
     gradle)
       [ -x ./gradlew ] || { echo "Repository has no Gradle wrapper (./gradlew)"; return 87; }
@@ -413,6 +425,8 @@ echo "[CodeReferee] detecting project stack"
 run_step detect detect_stack
 echo "[CodeReferee] reading validation declaration"
 run_step declaration read_declaration
+echo "[CodeReferee] compiling sources"
+run_step compile compile_sources
 echo "[CodeReferee] installing dependencies"
 run_step dependencies install_dependencies
 echo "[CodeReferee] running smoke validation"

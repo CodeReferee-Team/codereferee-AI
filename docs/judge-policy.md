@@ -44,6 +44,7 @@ Judge는 아래 순서로 판단한다.
 | Sandbox | sandbox not executed after cloneable repo | Fail | `sandbox_not_executed` |
 | Sandbox | `timed_out = true` | Fail | `timeout` |
 | Sandbox | `exit_code != 0` | Fail | `sandbox_nonzero_exit` |
+| Sandbox | `failed_step = compile` (Python 문법 오류) | Fail | `compile_failed` |
 | Sandbox | unsupported project stack | Fail | `unsupported_project_stack` |
 | Metrics | missing required metrics | Fail | `missing_metrics` |
 | Metrics | `p95_latency_ms > 300` | Fail | `latency_slo_violation` |
@@ -259,9 +260,19 @@ LLM은 규칙이 할 수 없는 일에만 쓴다. Critic의 원인 서술과 Ref
 `app/agents/schemas.py`의 `REASON_CATEGORIES`가 정규 코드 목록이고, 3절과 6절 기준표에서 왔다.
 
 카테고리는 sandbox가 보낸 구조화 결과를 먼저 본다. 종료 코드(86 manifest 없음, 87 러너 없음)와
-`sandbox_report.failed_step`(prepare/clone/patch/detect/dependencies)이 1차 근거다. 그것이 없는
+`sandbox_report.failed_step`(prepare/clone/patch/detect/compile/dependencies)이 1차 근거다. 그것이 없는
 응답(외부 sandbox)에서만 로그 문구로 내려간다. 로그 전체를 substring으로 뒤지면 준비 과정 출력에
 걸려 모든 실패가 같은 카테고리로 분류된다.
+
+`compile`은 2026-10-20에 smoke에서 떼어냈다. 전에는 Python의 `compileall`이 smoke 단계 안에서
+돌아서, 문법 오류와 테스트 실패가 같은 `failed_step: smoke`로 왔다. 둘을 가르려면 로그에서
+`SyntaxError`를 찾아야 했고, 그마저 전용 코드가 없어 `sandbox_nonzero_exit`으로 나갔다. 단계를
+나누면 로그를 읽지 않고 `compile_failed`를 낸다. 로그로 내려가는 외부 sandbox 경로는 그대로
+`sandbox_nonzero_exit`이다. 테스트 출력에 찍힌 `SyntaxError`(테스트 대상이 일부러 내는 것 포함)를
+컴파일 실패로 부르지 않기 위해서다.
+
+레포가 검증 명령을 선언했으면 `compile` 단계를 건너뛴다. 선언된 명령만 돌린다는 약속이고,
+`tests/fixtures`에 일부러 깨진 파일을 둔 레포가 이 단계에서 떨어지면 안 된다.
 
 **백엔드 영향**: `judge_report`에 `reason_category` 필드가 새로 들어간다. 서버와 화면이 이 값을
 받는지 확인이 필요하다.
