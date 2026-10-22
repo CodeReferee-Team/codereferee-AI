@@ -18,10 +18,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "test_failure",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     },
     "injection": true
   },
@@ -44,10 +45,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "sandbox_nonzero_exit",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     },
     "injection": true
   },
@@ -73,10 +75,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "runtime",
       "category": "service_smoke_failed",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     },
     "injection": true
   },
@@ -99,10 +102,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "test_failure",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     },
     "group": "misleading_log"
   },
@@ -125,10 +129,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "sandbox_nonzero_exit",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -150,10 +155,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "timeout",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -176,10 +182,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "runtime",
       "category": "service_smoke_failed",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -203,10 +210,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "runtime",
       "category": "browser_smoke_failed",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -228,10 +236,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "test_failure",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     },
     "group": "misleading_log"
   },
@@ -254,10 +263,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "test_failure",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     },
     "group": "misleading_log"
   },
@@ -280,10 +290,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "test_failure",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     },
     "group": "misleading_log"
   },
@@ -306,10 +317,11 @@
     },
     "judge_status": "Fail",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "sandbox_nonzero_exit",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {

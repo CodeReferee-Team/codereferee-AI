@@ -404,6 +404,39 @@ _OOM_KILLED = 137
 ENVIRONMENT_LIMIT_CATEGORY = "verification_environment_unsupported"
 
 
+# 준비 단계(설치·테스트·기동)에서 나는 카테고리. CodeReferee는 안정성만 판정하므로 여기서
+# 떨어지면 "장애에 약하다"가 아니라 "안정성을 재지 못했다"다(judge-policy 3.0절).
+BASELINE_FAILURE_CATEGORIES = frozenset({
+    "timeout", "sandbox_nonzero_exit", "sandbox_not_executed", "test_failure", "compile_failed",
+    "no_tests_detected", "dependency_install_failed", "docker_build_failed", "no_manifest_detected",
+    "unsupported_project_stack", "repository_not_accessible", "service_smoke_failed", "browser_smoke_failed",
+})
+BASELINE_NOT_ESTABLISHED = "baseline_not_established"
+
+
+def judgement_unavailable(state: AgentState) -> str | None:
+    """판정을 내지 못한 이유. 내렸으면 None.
+
+    Judge의 사유와 카테고리는 그대로 두고 최종 상태만 ERROR로 보낸다. 리포트에는 무엇이
+    실패했는지가 남아야 사용자가 다시 제출할 수 있다. Preflight 실패는 요청이 검증할 수 없는
+    대상을 가리킨 것이라 여기에 넣지 않는다.
+    """
+    report = state.judge_report or {}
+    if str(report.get("status", "")).lower() == "pass":
+        return None
+    category = report.get("reason_category")
+    if category == ENVIRONMENT_LIMIT_CATEGORY:
+        return ENVIRONMENT_LIMIT_CATEGORY
+    preflight = state.preflight_report
+    if not (preflight and preflight.cloneable and preflight.executable):
+        return None
+    if state.execution_result and is_real_chaos_observation(state.execution_result):
+        return None
+    if category in BASELINE_FAILURE_CATEGORIES:
+        return BASELINE_NOT_ESTABLISHED
+    return None
+
+
 def _verification_was_declared(result: SandboxResult) -> bool:
     """레포가 .codereferee/validation.yaml로 검증 방법을 선언했는가.
 

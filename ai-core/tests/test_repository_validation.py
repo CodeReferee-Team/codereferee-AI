@@ -21,6 +21,19 @@ from app.workflow.repository_validation import (
 from app.models import RepositoryValidationRequest
 
 
+def _chaos_failure() -> SandboxResult:
+    """카오스에서 복구하지 못한 관측. 안정성 Fail이라 Critic/Refiner와 패치 루프가 돈다.
+
+    준비 단계 실패(테스트 실패 등)는 2026-10-21부터 판정 불가라 루프를 타지 않는다(judge-policy 3.0절).
+    """
+    return SandboxResult(
+        exit_code=0, stderr="pod did not recover", duration_ms=5000, observation_status="observed",
+        metrics={"availability": 0.99, "error_rate": 0.01, "p95_latency_ms": 20.0, "recovery_seconds": 3.42},
+        chaos_observation={"type": "pod_kill", "recovered": False},
+        baseline={"metrics": {"availability": 1.0, "p95_latency_ms": 12.0}},
+    )
+
+
 class RepositoryValidationTests(unittest.TestCase):
     def setUp(self) -> None:
         # attach_source_files가 실제 clone을 시도하면 단위 테스트가 네트워크에 의존한다.
@@ -361,10 +374,8 @@ class RepositoryValidationTests(unittest.TestCase):
         ):
             self.assertIn(key, result)
 
-    def test_user_code_failure_reports_status_fail(self) -> None:
-        _, events = self._run_with_output(
-            self._reachable_preflight(), SandboxResult(exit_code=1, stderr="pytest failed")
-        )
+    def test_stability_failure_reports_status_fail(self) -> None:
+        _, events = self._run_with_output(self._reachable_preflight(), _chaos_failure())
         self.assertEqual(events[-1]["status"], "fail")
         self.assertTrue(events[-1]["critic_feedback"])
 
@@ -464,9 +475,8 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(state.critic_feedback, {})
         self.assertEqual(state.refiner_report, {})
 
-    def test_user_code_failure_stays_failed(self) -> None:
-        result = SandboxResult(exit_code=1, stderr="pytest: 3 failed")
-        state = self._run_workflow(self._reachable_preflight(), result)
+    def test_stability_failure_stays_failed(self) -> None:
+        state = self._run_workflow(self._reachable_preflight(), _chaos_failure())
         self.assertEqual(state.status, JobStatus.failed)
         self.assertNotEqual(state.judge_report, {})
 
@@ -844,7 +854,7 @@ class RefinementLoopTests(unittest.TestCase):
 
     def test_no_diff_means_no_refinement_round(self) -> None:
         # LLM이 없으면 결정적 fallback이 diff를 만들지 못한다. 기존 동작이 유지돼야 한다.
-        state, queue, calls = self._run([SandboxResult(exit_code=1, stderr="boom")], diff=None)
+        state, queue, calls = self._run([_chaos_failure()], diff=None)
         self.assertEqual(state.status, JobStatus.failed)
         self.assertEqual(state.refine_rounds, [])
         self.assertEqual(len(calls), 1)
@@ -859,7 +869,7 @@ class RefinementLoopTests(unittest.TestCase):
         검증된 패치는 refiner_report에, 통과 사실은 metrics.patch_verified에 남는다.
         """
         state, queue, calls = self._run(
-            [SandboxResult(exit_code=1, stderr="boom"), SandboxResult(exit_code=0, stdout="ok")],
+            [_chaos_failure(), SandboxResult(exit_code=0, stdout="ok")],
             diff="--- a/x\n+++ b/x\n",
         )
         self.assertEqual(state.status, JobStatus.failed)
@@ -876,7 +886,7 @@ class RefinementLoopTests(unittest.TestCase):
 
     def test_refinement_rerun_keeps_chaos_target_contract(self) -> None:
         _, _, calls = self._run(
-            [SandboxResult(exit_code=1, stderr="boom"), SandboxResult(exit_code=0, stdout="ok")],
+            [_chaos_failure(), SandboxResult(exit_code=0, stdout="ok")],
             diff="--- a/x\n+++ b/x\n",
             chaos_mode="litmus_pod_delete",
             deployment_profile="quickbyte-demo",
@@ -888,7 +898,7 @@ class RefinementLoopTests(unittest.TestCase):
 
     def test_refining_progress_carries_round_and_max_rounds(self) -> None:
         _, queue, _ = self._run(
-            [SandboxResult(exit_code=1, stderr="boom"), SandboxResult(exit_code=0, stdout="ok")],
+            [_chaos_failure(), SandboxResult(exit_code=0, stdout="ok")],
             diff="--- a/x\n+++ b/x\n",
         )
         refining = queue.steps("REFINING")
@@ -897,7 +907,7 @@ class RefinementLoopTests(unittest.TestCase):
         self.assertEqual(refining[0]["max_rounds"], 3)
 
     def test_loop_stops_after_max_rounds_when_patch_never_works(self) -> None:
-        failures = [SandboxResult(exit_code=1, stderr="boom") for _ in range(4)]
+        failures = [_chaos_failure() for _ in range(4)]
         state, queue, calls = self._run(failures, diff="--- a/x\n+++ b/x\n")
         self.assertEqual(state.status, JobStatus.failed)
         self.assertEqual(len(state.refine_rounds), 3)
@@ -906,7 +916,7 @@ class RefinementLoopTests(unittest.TestCase):
 
     def test_oversized_diff_is_rejected_before_rerunning(self) -> None:
         huge = "x" * 1_000_001
-        state, queue, calls = self._run([SandboxResult(exit_code=1, stderr="boom")], diff=huge)
+        state, queue, calls = self._run([_chaos_failure()], diff=huge)
         self.assertEqual(state.status, JobStatus.failed)
         self.assertEqual(len(calls), 1)
         self.assertEqual(queue.steps("REFINING"), [])
@@ -920,7 +930,7 @@ class RefinementLoopTests(unittest.TestCase):
         """
         state, _, _ = self._run(
             [
-                SandboxResult(exit_code=1, stderr="boom"),
+                _chaos_failure(),
                 SandboxResult(exit_code=None, infra_error="sandbox_observation_unavailable"),
             ],
             diff="--- a/x\n+++ b/x\n",
