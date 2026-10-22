@@ -220,6 +220,23 @@ def _real_chaos_cases() -> list[EvalCase]:
     return built
 
 
+def _sandbox_failure_verdict(row: dict[str, Any], category: str) -> str:
+    """합성 sandbox 실패의 기대 판정. 생성기의 Fail 라벨은 2026-10-21 정책 전에 찍혔다.
+
+    준비 단계 실패는 이제 판정 불가다(judge-policy 3.0절). 생성 데이터는 다시 찍지 않으므로
+    여기서 옮긴다. Preflight에서 막힌 행은 그대로 둔다.
+    """
+    if category in INFRA_CATEGORIES:
+        return "Error"
+    verdict = row["expected_judge_status"]
+    preflight = row["preflight_report"]
+    # 이 슬라이스의 행은 전부 1층 실행 실패다. 라벨 카테고리가 정규 코드가 아니라 시나리오 이름이라
+    # (missing_env, port_bind_failure 등) 카테고리로 거르지 않는다.
+    if verdict == "Fail" and preflight["cloneable"] and preflight["executable"]:
+        return "Error"
+    return verdict
+
+
 def _sandbox_failure_case(row: dict[str, Any]) -> EvalCase:
     category = row["expected_failure_type"]
     execution = dict(row["execution_result"])
@@ -232,7 +249,7 @@ def _sandbox_failure_case(row: dict[str, Any]) -> EvalCase:
         id=row["case_id"],
         slice="T1-sandbox",
         expected={
-            "verdict": "Error" if category in INFRA_CATEGORIES else row["expected_judge_status"],
+            "verdict": _sandbox_failure_verdict(row, category),
             "stage": "sandbox",
             "category": CATEGORY_SYNONYMS.get(category, category),
         },
@@ -283,7 +300,10 @@ def _metrics_judge_case(row: dict[str, Any]) -> EvalCase:
         id=row["case_id"],
         slice="T1-metrics",
         expected={
-            "verdict": row["expected_judge_status"],
+            # 1층 실행 자체가 실패한 행은 지표를 보기 전에 판정 불가다(judge-policy 3.0절).
+            "verdict": "Error" if row["expected_judge_status"] == "Fail" and (
+                sandbox.get("timed_out") or sandbox.get("exit_code") not in (0, None)
+            ) else row["expected_judge_status"],
             "stage": "metrics",
             "category": METRIC_LABEL_ALIASES.get(raw_category, raw_category),
         },

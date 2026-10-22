@@ -404,6 +404,39 @@ _OOM_KILLED = 137
 ENVIRONMENT_LIMIT_CATEGORY = "verification_environment_unsupported"
 
 
+# 준비 단계(설치·테스트·기동)에서 나는 카테고리. CodeReferee는 안정성만 판정하므로 여기서
+# 떨어지면 "장애에 약하다"가 아니라 "안정성을 재지 못했다"다(judge-policy 3.0절).
+BASELINE_FAILURE_CATEGORIES = frozenset({
+    "timeout", "sandbox_nonzero_exit", "sandbox_not_executed", "test_failure", "compile_failed",
+    "no_tests_detected", "dependency_install_failed", "docker_build_failed", "no_manifest_detected",
+    "unsupported_project_stack", "repository_not_accessible", "service_smoke_failed", "browser_smoke_failed",
+})
+BASELINE_NOT_ESTABLISHED = "baseline_not_established"
+
+
+def judgement_unavailable(state: AgentState) -> str | None:
+    """판정을 내지 못한 이유. 내렸으면 None.
+
+    Judge의 사유와 카테고리는 그대로 두고 최종 상태만 ERROR로 보낸다. 리포트에는 무엇이
+    실패했는지가 남아야 사용자가 다시 제출할 수 있다. Preflight 실패는 요청이 검증할 수 없는
+    대상을 가리킨 것이라 여기에 넣지 않는다.
+    """
+    report = state.judge_report or {}
+    if str(report.get("status", "")).lower() == "pass":
+        return None
+    category = report.get("reason_category")
+    if category == ENVIRONMENT_LIMIT_CATEGORY:
+        return ENVIRONMENT_LIMIT_CATEGORY
+    preflight = state.preflight_report
+    if not (preflight and preflight.cloneable and preflight.executable):
+        return None
+    if state.execution_result and is_real_chaos_observation(state.execution_result):
+        return None
+    if category in BASELINE_FAILURE_CATEGORIES:
+        return BASELINE_NOT_ESTABLISHED
+    return None
+
+
 def _verification_was_declared(result: SandboxResult) -> bool:
     """레포가 .codereferee/validation.yaml로 검증 방법을 선언했는가.
 
@@ -418,11 +451,28 @@ def _environment_limit_category(result: SandboxResult) -> str | None:
         return ENVIRONMENT_LIMIT_CATEGORY
 
     report = result.sandbox_report or {}
-    if report.get("detected_stack") != "python" or report.get("failed_step") != "smoke":
+    if report.get("failed_step") != "smoke":
+        return None
+    if report.get("detected_stack") in ("maven", "gradle"):
+        return _jvm_build_limit_category(result)
+    if report.get("detected_stack") != "python":
         return None
     if result.exit_code == _PYTEST_USAGE_ERROR:
         return ENVIRONMENT_LIMIT_CATEGORY
     if result.exit_code == _PYTEST_COLLECTION_ERROR and not _verification_was_declared(result):
+        return ENVIRONMENT_LIMIT_CATEGORY
+    return None
+
+
+def _jvm_build_limit_category(result: SandboxResult) -> str | None:
+    """테스트는 전부 통과했는데 추측한 빌드 명령이 깨졌다(google/gson의 다중 모듈 JPMS 빌드).
+
+    보고서가 없으면 테스트 전에 컴파일이 깨진 것이라 레포 결함으로 둔다.
+    """
+    if _verification_was_declared(result):
+        return None
+    tests = (result.sandbox_report or {}).get("test_report")
+    if isinstance(tests, dict) and int(tests.get("tests") or 0) > 0 and int(tests.get("failed") or 0) == 0:
         return ENVIRONMENT_LIMIT_CATEGORY
     return None
 
@@ -460,13 +510,15 @@ def _nonzero_exit_category(result: SandboxResult) -> str:
     if category := _FAILED_STEP_CATEGORIES.get(failed_step):
         return category
     if failed_step == "smoke":
-        return _smoke_category(result)
+        return _smoke_category(result, image_built=True)
     return _smoke_category(result)
 
 
-def _smoke_category(result: SandboxResult) -> str:
+def _smoke_category(result: SandboxResult, image_built: bool = False) -> str:
     text = f"{result.stderr} {result.stdout}".lower()
-    if "docker" in text:
+    # smoke 단계에 왔다면 이미지는 이미 떴다. 로그의 host.docker.internal(JVM 프록시 설정)에 걸려
+    # 정상 Java 레포가 docker_build_failed로 나갔다(2026-10-20 실측).
+    if "docker" in text and not image_built:
         return "docker_build_failed"
     if any(sign in text for sign in _DEPENDENCY_SIGNS):
         return "dependency_install_failed"

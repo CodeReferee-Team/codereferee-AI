@@ -368,10 +368,11 @@
       "repository not found"
     ],
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "timeout",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -426,10 +427,11 @@
       "browser probe"
     ],
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "timeout",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -484,10 +486,11 @@
       "visibility"
     ],
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "timeout",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -544,10 +547,11 @@
       "clone"
     ],
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "test_failure",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -604,10 +608,11 @@
       "http_status=500"
     ],
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "dependency_install_failed",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -664,10 +669,11 @@
       "authentication"
     ],
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "sandbox",
       "category": "docker_build_failed",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -735,10 +741,11 @@
       "pytest"
     ],
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "runtime",
       "category": "service_smoke_failed",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -805,10 +812,11 @@
       "clone"
     ],
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "runtime",
       "category": "service_smoke_failed",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -876,10 +884,11 @@
       "repository not found"
     ],
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "runtime",
       "category": "browser_smoke_failed",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {
@@ -946,10 +955,11 @@
       "authentication"
     ],
     "label": {
-      "verdict": "Fail",
+      "verdict": "Error",
       "stage": "runtime",
       "category": "service_smoke_failed",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "labeled_by": "human-reviewed 2026-09-27",
+      "relabeled": "2026-10-21: 준비 단계 실패는 판정 불가 (judge-policy 3.0절). 카테고리는 그대로"
     }
   },
   {

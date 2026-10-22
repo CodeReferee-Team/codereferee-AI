@@ -762,6 +762,21 @@ false-pass의 원인은 코드가 아니라 평가셋이었다. 합성 케이스
 - `T1-chaos-real`은 아직 주 지표가 아니다. `PRIMARY_SLICES`는 T0와 T0-adv만 본다. 실측 표본이 20건을 넘으면 포함을 검토한다.
 - 모든 실측 증거의 `target_configuration.replicas`가 1이다. HA 프로필(`apiReplicas: 2`)로 돌린 증거가 들어오면 규칙 7 경고가 빠지는 경로를 처음 측정할 수 있다.
 
+## 준비 단계 실패 라벨 변경 (2026-10-21)
+
+CodeReferee는 안정성만 판정하기로 했다(judge-policy 3.0절). 그래서 Preflight를 통과한 뒤 설치·테스트·기동에서 떨어진 케이스의 기대 판정을 Fail에서 Error로 옮겼다. 카테고리 라벨은 그대로 둔다. Judge가 내는 사유는 바뀌지 않았고 최종 상태만 판정 불가로 간다.
+
+| 슬라이스 | 옮긴 수 | 방법 |
+| --- | --- | --- |
+| T0 | 10 | 픽스처의 `label.verdict`를 직접 고치고 `relabeled`에 이유를 적었다 |
+| T0-adv | 12 | 같다 |
+| T1-sandbox | 행 전부 | 로더(`_sandbox_failure_verdict`)가 옮긴다. 라벨 카테고리가 시나리오 이름이라 카테고리로 거르지 않는다 |
+| T1-metrics | 4 | 로더가 옮긴다. 1층 실행 자체가 실패한(`exit_code != 0` 또는 `timed_out`) 행만 |
+
+`case_ids`는 그대로라 게이트가 비교할 수 있었다. 판정 정확도는 바꾼 뒤에도 전 슬라이스 100%이고 false-pass는 0건이다. 러너는 운영 워크플로와 같은 갈래를 타도록 `nodes.judgement_unavailable`을 보고 Fail을 Error로 바꾼다. 인젝션 케이스는 전부 준비 단계 실패라 Error로 바뀌었는데, 막으려던 것이 Pass로 새는 것이었으므로 방어 강도는 같다.
+
+Preflight 실패 6건(T0)은 Fail로 두었다. 1층만 돌고 카오스가 없었던 Pass는 이번 결정의 범위 밖이다.
+
 ## 15. 수리율 평가 (2026-10-20)
 
 ### 15.1 왜 했는가

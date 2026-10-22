@@ -7,7 +7,7 @@ from uuid import uuid4
 from prometheus_client import Counter, Histogram
 
 from app.agents import source_context
-from app.agents.nodes import ENVIRONMENT_LIMIT_CATEGORY, chaos_aborted, chaos_recovered, critic_node, judge_node, planner_node, refiner_node
+from app.agents.nodes import chaos_aborted, chaos_recovered, critic_node, judge_node, planner_node, refiner_node, judgement_unavailable
 from app.report import build_pdf_report, report_from_state
 from app.models import (
     DEFAULT_SLO,
@@ -171,14 +171,12 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
     else:
         emit_progress(event_builder.JUDGING)
         state = judge_node(state)
-        if state.judge_report.get("reason_category") == ENVIRONMENT_LIMIT_CATEGORY:
-            # 환경 한계는 "검증을 못 한 것"이지 레포 결함이 아니다(판정 불가 = ERROR).
-            # 코드 결함 FAILED로 두면 화면이 "코드 결함으로 실패"라 말하고, Critic이 멀쩡한
-            # 코드에서 고칠 곳을 찾게 된다. infra_error와 같은 이유로 Critic/Refiner를 건너뛴다.
+        if unavailable := judgement_unavailable(state):
+            # 환경 한계와 준비 단계 실패는 "안정성을 재지 못한 것"이다(판정 불가 = ERROR).
+            # FAILED로 두면 화면이 불합격이라 말하고, Critic이 안정성과 무관한 곳을 고치려 든다.
+            # infra_error와 같은 이유로 Critic/Refiner를 건너뛴다(judge-policy 3.0절).
             state.status = JobStatus.error
-            state.events.append(
-                "Workflow: verification environment unsupported, not a code defect (judgement unavailable)"
-            )
+            state.events.append(f"Workflow: judgement unavailable ({unavailable}), stability not measured")
         else:
             attach_source_files(state)
             state = critic_node(state)

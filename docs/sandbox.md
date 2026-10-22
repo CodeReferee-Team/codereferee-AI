@@ -51,6 +51,11 @@ AI Core는 기존 실행 결과 필드와 함께 다음 Chaos v1 evidence를 보
 
 ### 단계
 
+`clone`은 `--depth 1`로 받고, 검증하는 커밋에 붙은 태그가 있으면 그 태그만 따로 받는다. 얕은 clone에는
+태그가 없어서 setuptools-scm이나 hatch-vcs가 패키지 버전을 `0.1.dev1`로 계산한다. 정상 릴리스인
+`python-attrs/attrs` 26.1.0이 그래서 버전 테스트 2개에서 떨어졌다(2026-10-21 실측). 태그를 찾는 데는
+`git ls-remote --tags` 한 번이면 되고, 태그가 없는 커밋이면 아무것도 받지 않는다.
+
 구조화 결과의 `failed_step`은 `prepare` → `clone` → `patch` → `detect` → `declaration` →
 `compile` → `dependencies` → `smoke` 중 하나다. `compile`은 Python에서 선언이 없을 때만 돌고
 (`python -m compileall -q -x <제외> .`), 의존성 설치보다 앞에 둔다. `tests`, `test`, `testing` 디렉터리와
@@ -68,9 +73,9 @@ AI Core는 기존 실행 결과 필드와 함께 다음 Chaos v1 evidence를 보
 
 컴파일이 되는 것과 동작이 검증된 것은 다르다. 89는 그 구분을 남긴다.
 
-판정은 FAILED다. 백엔드 최종 상태가 PASSED / FAILED / ERROR 세 가지뿐이고, 89는 우리 인프라
-문제가 아니라 대상 레포의 상태이므로 ERROR가 아니다. 판정 이유에는 "테스트가 없어 안정성을
-확인할 수 없었다"가 그대로 들어간다.
+판정은 ERROR(판정 불가)다. 2026-10-21부터 준비 단계의 실패는 모두 판정 불가로 보낸다
+(judge-policy 3.0절). 전에는 89를 대상 레포의 상태라며 FAILED로 두었다. 판정 이유에는 "테스트가 없어
+안정성을 확인할 수 없었다"가 그대로 들어간다.
 
 Python은 최상위 `tests` 디렉터리가 있는지 미리 보지 않는다. pytest에 맡기고, 모은 테스트가 없으면
 89로 바꾼다. 전에는 `tests`가 없으면 바로 89를 냈는데, `tqdm`처럼 테스트를 패키지 안(`tqdm/tests`)에
@@ -81,8 +86,28 @@ pytest가 테스트를 하나도 모으지 못하면 5로 끝낸다. `tests` 디
 `test_*.py`가 없는 경우다. 같은 "검증할 것이 없음"이므로 스크립트가 89로 바꿔 내보낸다. 선언된
 명령에는 적용하지 않는다. 그 명령이 pytest인지 우리가 알 수 없고, 다른 도구의 5는 다른 뜻이다.
 
-Gradle과 Maven은 테스트가 0건이어도 `test` 태스크가 성공한다. 이를 구분하려면 테스트 리포트를
-읽어야 하므로 아직 다루지 않는다.
+89로 바꾸기 전에 `tests`와 `test` 디렉터리에서 `python -m unittest discover -p 'test*.py'`를 한 번
+돌린다. pytest의 기본 파일 규칙은 `test_*.py`라서 `tests/test.py` 같은 unittest 형식 파일을 모으지
+못한다. `micheles/decorator`가 그 모양이라 테스트 25개가 있는데 "테스트 없음"으로 불합격했다(정상 레포
+실측, 2026-10-20). unittest도 아무것도 돌리지 못하면 5로 끝내므로(Python 3.12부터) 그때 89를 낸다.
+unittest가 실패하면 그 종료 코드를 그대로 낸다. 대안 실행기를 썼다고 실패를 덮지 않는다.
+
+Node는 선언이 없을 때 `npm test`를 돌린다. 단 `test:node` 스크립트가 있으면 그것을 돌린다.
+`debug-js/debug`의 `test`는 `test:node`, `test:browser`(karma), `lint`를 차례로 잇는데, 샌드박스에는
+브라우저가 없고 lint는 실행 검증이 아니다. 레포가 Node 전용 테스트를 따로 이름 붙여 두었다면 그것이
+우리가 검증할 수 있는 범위와 정확히 맞는다.
+
+Gradle과 Maven은 테스트가 0건이어도 `test` 태스크가 성공한다. 그래서 테스트 명령이 끝나면 두 도구가
+같은 형식으로 남기는 JUnit XML(`**/surefire-reports/TEST-*.xml`, `**/test-results/**/TEST-*.xml`)을 읽어
+구조화 결과의 `test_report`에 `{"files", "tests", "failed"}`로 담는다. `failed`는 failures와 errors의
+합이다. 빌드가 성공했는데 돌린 테스트가 0건이면 89를 낸다. 보고서를 읽지 못하면(`python3` 없음)
+`test_report`는 `null`이고 판정은 종전과 같다. 보고서를 다른 경로에 두도록 바꾼 레포는 0건으로 보여
+89가 날 수 있다. 그런 레포는 `.codereferee/validation.yaml`로 명령을 선언하면 된다.
+
+같은 보고서로 "테스트는 전부 통과했는데 빌드가 깨진" 경우를 가른다. `google/gson`이 그랬다. `gson`
+모듈의 테스트가 전부 통과한 뒤 `test-jpms` 모듈이 테스트 컴파일에서 떨어졌다. 이 레포의 CI는
+`mvn verify`에 일부 모듈을 빼고 돌리는데, 우리가 추측한 `mvn test`로는 그 순서를 맞출 수 없다(정상
+레포 실측, 2026-10-21). 판정 기준은 judge-policy 8절에 있다.
 
 ## 샌드박스 이미지
 
@@ -114,6 +139,18 @@ testDependencies: requirements/tests.txt
 ```
 
 `test`가 있으면 스택별 기본 명령 대신 그대로 돌린다. `testDependencies`가 있으면 의존성 단계에서 함께 설치한다.
+
+### 선언이 없을 때 테스트 의존성을 찾는 자리
+
+`testDependencies`가 없으면 Python은 흔히 쓰는 자리를 순서대로 보고 처음 찾은 하나만 설치한다.
+
+1. 요구사항 파일: `requirements/tests.txt`, `requirements/test.txt`, `requirements-test.txt`, `requirements-tests.txt`, `test-requirements.txt`, `tests/requirements.txt`, `requirements-dev.txt`, `requirements/dev.txt`
+2. `pyproject.toml`의 `[dependency-groups]`(PEP 735) 중 `tests`, `test`, `testing`, `dev`
+3. `pyproject.toml`의 `[project.optional-dependencies]` 중 같은 이름
+
+이 설치가 실패해도 단계를 실패시키지 않는다. 우리가 추측한 자리이므로 그 실패를 레포 탓으로 돌리면 안 된다. 설치하지 못하면 pytest 수집이 깨지고, 선언이 없으므로 `verification_environment_unsupported`로 간다.
+
+이렇게 바꾼 이유는 실측이다(2026-10-20). 최신 릴리스 태그로 고정한 정상 Python 레포 30개 중 14개가 테스트 전용 의존성이 없어 판정 불가로 나왔고, flask와 dateutil은 우리가 최신 pytest를 깔아서 레포가 고정한 버전과 맞지 않았다. 레포가 고정한 pytest가 먼저 설치되면 우리 설치는 건너뛴다.
 
 Kubernetes 샌드박스가 이미 같은 파일로 `deploymentProfile`을 고른다. 1층도 같은 파일을 읽으므로 두 층의 입력이 하나다.
 
