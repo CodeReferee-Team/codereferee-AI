@@ -1,0 +1,17 @@
+{
+  "id": "mutable-default-argument",
+  "defect": "shared mutable default",
+  "expected_category": "test_failure",
+  "oracle_edits": [
+    {
+      "path": "cart.py",
+      "find": [
+        "def add_item(item, cart=[]):"
+      ],
+      "replace": [
+        "def add_item(item, cart=None):",
+        "    cart = [] if cart is None else cart"
+      ]
+    }
+  ]
+}

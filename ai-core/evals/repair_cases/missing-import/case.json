@@ -1,0 +1,19 @@
+{
+  "id": "missing-import",
+  "defect": "module used without import",
+  "expected_category": "test_failure",
+  "oracle_edits": [
+    {
+      "path": "serialize.py",
+      "find": [
+        "def to_json(record):"
+      ],
+      "replace": [
+        "import json",
+        "",
+        "",
+        "def to_json(record):"
+      ]
+    }
+  ]
+}

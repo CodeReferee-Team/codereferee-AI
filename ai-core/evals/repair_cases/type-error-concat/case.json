@@ -1,0 +1,16 @@
+{
+  "id": "type-error-concat",
+  "defect": "str + int concatenation",
+  "expected_category": "test_failure",
+  "oracle_edits": [
+    {
+      "path": "report.py",
+      "find": [
+        "    return \"total: \" + count"
+      ],
+      "replace": [
+        "    return f\"total: {count}\""
+      ]
+    }
+  ]
+}
