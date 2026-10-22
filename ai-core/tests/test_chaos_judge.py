@@ -74,14 +74,18 @@ class ChaosBranchTests(unittest.TestCase):
         self.assertNotEqual(report.get("reason_category"), "service_smoke_failed")
 
     def test_recovered_within_the_bound_passes_with_a_single_replica_warning(self) -> None:
-        # replicas=1, 복구 58.84초. 상한은 grace 30 + probe 5 + allowance 30 = 65초.
+        # 상한은 grace 30 + probe 5 + allowance 10 = 45초(warm-pool 전제). 실측 shape 위에서
+        # 복구만 상한 안쪽 값으로 두어 pass+warning 분기를 확인한다. 실측 58.84초는 콜드
+        # 클러스터 값이라 warm-pool 상한을 넘는다(아래 over-bound 테스트에 해당).
         state = _state("quickbyte-pod-kill-001")
+        state.execution_result.chaos_observation["recovery_seconds"] = 40.0
+        state.sre_metrics = workflow._sre_metrics_from_execution(state)
         report = nodes._fallback_judge(state)
         self.assertEqual(report["status"], "Pass")
         self.assertIn("chaos_single_replica_topology", state.metrics["policy_warnings"])
 
     def test_recovery_over_the_bound_fails(self) -> None:
-        # 같은 설정에서 복구가 125.91초 걸렸다. 상한 65초의 두 배다.
+        # 같은 설정에서 복구가 125.91초 걸렸다. 상한 45초의 세 배 가까이다.
         state = _state("quickbyte-auto-deploy-litmus-001")
         report = nodes._fallback_judge(state)
         self.assertEqual(report["status"], "Fail")
@@ -108,6 +112,34 @@ class RecoveryDerivationTests(unittest.TestCase):
         state = _state("quickbyte-pod-kill-001")
         self.assertEqual(state.execution_result.chaos_observation["abort_condition"]["triggered"], False)
         self.assertIsNone(workflow._infra_error_reason(state))
+
+
+class ScenarioSuiteLatencyTests(unittest.TestCase):
+    """여러 시나리오를 한 배포에서 이어 돌린 묶음 응답.
+
+    fixture는 2026-10-19 kind + Litmus에서 받은 실측이다. 묶음은 최상위 metrics의
+    p95_latency_ms를 null로 보내고 "시나리오별로 보라"고 적는다. 최상위만 보면 지연 경고가 사라진다.
+    """
+
+    def test_suite_reports_latency_only_per_scenario(self) -> None:
+        payload = json.loads((FIXTURES / "scenario-20261019-m03-k8s.json").read_text())
+        self.assertIsNone(payload["metrics"]["p95_latency_ms"])
+        scenario = payload["chaos_observation"]["scenarios"][0]
+        self.assertEqual(scenario["chaosMode"], "service_selector_blackhole")
+        self.assertGreater(scenario["metrics"]["p95_latency_ms"], 1000)
+
+    def test_latency_degraded_in_one_scenario_warns_for_the_suite(self) -> None:
+        # 라우팅 차단에서 p95 1018.93ms 대 그 시나리오 baseline 6.67ms. 단일 시나리오로 돌린
+        # S06(1022.68 / 5.4)은 경고가 나온다. 묶음에 넣었다고 같은 관측이 사라지면 안 된다.
+        state = _state("scenario-20261019-m03-k8s")
+        report = nodes._fallback_judge(state)
+        self.assertEqual(report["status"], "Pass")
+        self.assertIn("chaos_latency_degraded", state.metrics["policy_warnings"])
+
+    def test_suite_without_degraded_scenario_has_no_latency_warning(self) -> None:
+        state = _state("scenario-20261019-m02-proc")
+        nodes._fallback_judge(state)
+        self.assertNotIn("chaos_latency_degraded", state.metrics["policy_warnings"])
 
 
 if __name__ == "__main__":

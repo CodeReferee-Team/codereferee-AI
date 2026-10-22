@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     llm_provider: str = "gemini"
     # openai-compatible일 때의 서버 주소. 예: http://localhost:11434/v1 (Ollama)
     llm_base_url: str | None = None
+    # openai-compatible 호스티드 API의 bearer 토큰(OpenRouter/Groq/DashScope 등).
+    # 키 없는 로컬 서버(Ollama/vLLM)면 비워 둔다. 비밀값 — 로그·직렬화에 노출 금지.
+    llm_api_key: str | None = None
     # 로컬 모델은 첫 토큰까지 오래 걸린다. 클라우드 기준으로 잡으면 멀쩡한 호출이 끊긴다.
     llm_timeout_seconds: int = 120
     redis_url: str = "redis://localhost:6379/0"
@@ -23,6 +26,10 @@ class Settings(BaseSettings):
     sandbox_image: str = "codereferee/sandbox-multi:2"
     sandbox_base_url: str | None = None
     sandbox_repository_path: str = "/repositories/validate"
+    # layer-1(clone/build/smoke)을 layer-2 샌박 서비스로 옮겼으므로 ai-core의 로컬 Docker
+    # 샌박은 기본 비활성화한다. SANDBOX_BASE_URL로 layer-2를 쓴다. 오프라인 폴백이 필요하면
+    # 이 값을 true로 올린다(코드는 _run_repository_via_local_docker에 남아 있다).
+    local_sandbox_enabled: bool = False
     # Repository build, Kubernetes rollout, and Litmus recovery can each take
     # several minutes when the external Sandbox is enabled.
     sandbox_http_timeout_seconds: int = 600
@@ -38,15 +45,19 @@ class Settings(BaseSettings):
     sandbox_nano_cpus: int = 2_000_000_000
     sandbox_pids_limit: int = 512
     repository_clone_timeout_seconds: int = 30
-    # 교체 Pod의 스케줄링과 이미지 pull에 드는 시간. 클러스터마다 달라 측정이 불가능하므로
-    # 설정으로 둔다. docs/judge-policy.md 6.5의 기대 복구 상한 계산식에 쓴다.
-    chaos_recovery_startup_allowance_seconds: float = 30.0
+    # 교체 Pod의 스케줄링에 드는 시간. 클러스터마다 달라 측정이 불가능하므로 설정으로 둔다.
+    # docs/judge-policy.md 6.5의 기대 복구 상한 계산식에 쓴다. 이미지를 미리 pull해 둔
+    # (warm) 클러스터를 전제로 한 값이다. probe가 ready라고 말한 시간 위에 평평한 슬랙을
+    # 너무 크게 주면 느린 복구를 정상으로 눈감아 준다. 콜드 이미지 pull이 전제라면 높여야 한다.
+    chaos_recovery_startup_allowance_seconds: float = 10.0
     # 판정은 규칙이 한다. 측정 결과 LLM은 판정 정확도가 같거나 낮고(100% vs 94%) 원인 분류는
     # 훨씬 낮았으며(94.1% vs 58.8%), 레포 로그에 심어둔 지시에 흔들렸다(0건 vs 2건).
     # docs/evaluation-design.md 12절. 비교 실험을 다시 돌릴 수 있도록 경로는 남겨 둔다.
     judge_uses_llm: bool = False
     planner_uses_llm: bool = False
     max_self_healing_retries: int = 3
+    # 검증마다 생성하는 PDF 추천 리포트의 출력 디렉토리.
+    report_output_dir: str = "artifacts/reports"
     # 1MB가 넘는 diff는 수정 범위가 과도하다는 뜻이라 신뢰하기 어렵다.
     max_patch_diff_bytes: int = 1_000_000
     sqlite_patch_db_path: str = ".codereferee/codereferee.sqlite3"

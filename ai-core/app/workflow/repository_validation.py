@@ -1,3 +1,4 @@
+from pathlib import Path
 import threading
 from contextlib import contextmanager
 from typing import Any
@@ -7,6 +8,7 @@ from prometheus_client import Counter, Histogram
 
 from app.agents import source_context
 from app.agents.nodes import ENVIRONMENT_LIMIT_CATEGORY, chaos_aborted, chaos_recovered, critic_node, judge_node, planner_node, refiner_node
+from app.report import build_pdf_report, report_from_state
 from app.models import (
     DEFAULT_SLO,
     AgentState,
@@ -183,12 +185,28 @@ def execute_repository_validation(state: AgentState, output_queue=redis_task_que
             state = refiner_node(state)
             state = _run_refinement_rounds(state, emit_progress)
     VALIDATION_COUNTER.labels(status=state.status).inc()
+    _generate_report_pdf(state)
     _record_sqlite_artifacts(state)
     job_store.save(state)
     if state.request_id:
         # 종료 이벤트는 정확히 한 번. 이 뒤로는 어떤 progress도 보내지 않는다.
         output_queue.publish(event_builder.result_event(state))
     return state
+
+
+def _generate_report_pdf(state: AgentState) -> None:
+    """검증마다 사람용 PDF 추천 리포트를 만들고 경로를 state에 남긴다.
+
+    리포트 생성 실패(폰트 누락·렌더 오류)가 검증 결과를 망치면 안 된다. 예외는 삼키고
+    이벤트만 남긴다 — PDF는 결과의 부가물이지 판정의 일부가 아니다.
+    """
+    try:
+        out = Path(get_settings().report_output_dir) / f"{state.job_id}.pdf"
+        build_pdf_report(report_from_state(state), out)
+        state.report_pdf_path = str(out)
+        state.events.append(f"Report: recommendation PDF written to {out}")
+    except Exception as exc:  # noqa: BLE001 - 리포트 실패는 판정을 막지 않는다
+        state.events.append(f"Report: PDF generation skipped: {type(exc).__name__}: {exc}")
 
 
 def to_response(state: AgentState, request_id: str | None = None) -> RepositoryValidationResponse:
@@ -208,6 +226,7 @@ def to_response(state: AgentState, request_id: str | None = None) -> RepositoryV
         metrics=state.metrics,
         sre_metrics=state.sre_metrics,
         events=state.events,
+        report_pdf_path=state.report_pdf_path,
     )
 
 
@@ -292,7 +311,9 @@ def attach_source_files(state: AgentState, applied_patch: str | None = None) -> 
     if result is None or state.status != JobStatus.failed:
         return
     paths = source_context.extract_paths(result.log)
-    if _needs_manifest_context(state) or not paths:
+    if result.chaos_observation:
+        paths = list(source_context.CHAOS_CONFIG_CANDIDATES) + paths
+    elif _needs_manifest_context(state) or not paths:
         # pip은 패키지 이름만 말한다. 고칠 파일은 매니페스트이므로 직접 붙인다.
         paths = list(source_context.MANIFEST_CANDIDATES) + [p for p in paths if p not in source_context.MANIFEST_CANDIDATES]
     if not paths:

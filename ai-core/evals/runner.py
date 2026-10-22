@@ -18,11 +18,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.agents import nodes, prompts
+from app.agents.evidence import build_evidence_packet, flatten_evidence_packet
 from app.models import JobStatus
 from app.workflow import repository_validation as workflow
 from evals import cases as case_loader
 from evals import compare as compare_lib
 from evals import metrics as metric_lib
+from evals.narrative import score_narrative
 
 VERDICT_OF_STATUS = {JobStatus.success: "Pass", JobStatus.failed: "Fail", JobStatus.error: "Error"}
 DEFAULT_SLICES = ["T0", "T0-adv", "T1-chaos"]
@@ -46,15 +48,28 @@ def _prompt_hash() -> str:
 def run_case(case: case_loader.EvalCase) -> dict[str, Any]:
     """케이스 하나를 판정한다. 워크플로와 같은 순서로 인프라 오류를 먼저 본다."""
     state = case.build_state()
+    annotations = case.annotations
+    scores = None
     started = time.monotonic()
     if reason := workflow._infra_error_reason(state):
         verdict, category, judge_reason = "Error", reason, f"infra: {reason}"
     else:
+        # 서술 채점이 걸린 케이스는 grounding을 보려고 Planner도 돌린다.
+        if annotations:
+            state = nodes.planner_node(state)
         state = nodes.judge_node(state)
         verdict = VERDICT_OF_STATUS[state.status]
         judge_reason = str(state.judge_report.get("reason", ""))
         category = state.judge_report.get("reason_category")
-    return {
+        # Fail일 때만 Critic/Refiner가 돈다(운영 워크플로와 동일). 여기서 LLM이 실제로 호출돼
+        # 모델별 서술 품질 차이가 드러난다. 판정·카테고리는 규칙이라 모델과 무관하다.
+        if annotations and state.status == JobStatus.failed:
+            state = nodes.critic_node(state)
+            state = nodes.refiner_node(state)
+        if annotations:
+            packet_text = flatten_evidence_packet(build_evidence_packet(state))
+            scores = score_narrative(annotations, state, packet_text)
+    run = {
         "verdict": verdict,
         "category": category,
         "warnings": state.metrics.get("policy_warnings", []),
@@ -62,6 +77,9 @@ def run_case(case: case_loader.EvalCase) -> dict[str, Any]:
         "latency_ms": round((time.monotonic() - started) * 1000, 3),
         "evidence_excerpt": (state.execution_result.log[:2000] if state.execution_result else ""),
     }
+    if scores is not None:
+        run["scores"] = scores
+    return run
 
 
 def evaluate(cases: list[case_loader.EvalCase], repeat: int, delay: float = 0.0) -> list[dict[str, Any]]:
@@ -121,6 +139,9 @@ def _slice_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
             1 for r in results if r["injection"] and r["verdict"] == "Pass" and r["label"]["verdict"] != "Pass"
         ),
         "latency_ms": metric_lib.percentiles([run["latency_ms"] for r in results for run in r["runs"]]),
+        "narrative": metric_lib.narrative_summary(
+            [r["runs"][0]["scores"] for r in results if r["runs"] and "scores" in r["runs"][0]]
+        ),
     }
 
 
@@ -202,6 +223,10 @@ def print_summary(report: dict[str, Any]) -> None:
         print("  " + show("error→fail ", s["verdict"]["error_as_fail"]))
         print("  " + show("카테고리   ", s["category"]["accuracy"]) + f"  macro-F1={s['category']['macro_f1']}")
         print(f"  인젝션 false-pass: {s['injection_false_pass']}건")
+        if s.get("narrative"):
+            for agent, nm in s["narrative"].items():
+                print("  " + show(f"서술:{agent} 통과", nm["pass_rate"])
+                      + " / " + show("스키마", nm["schema_pass"]))
 
 
 def main() -> int:

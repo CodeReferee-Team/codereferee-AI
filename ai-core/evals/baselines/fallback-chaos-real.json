@@ -1,0 +1,1168 @@
+{
+  "meta": {
+    "run_id": "20261020T072407-none",
+    "created_at": "2026-10-20T07:24:07.556598+00:00",
+    "model": "none",
+    "prompt_version": "unversioned",
+    "prompt_hash": "c8c6eb063820",
+    "git_sha": "ddf15b4",
+    "git_dirty": false,
+    "slices": [
+      "T1-chaos-real"
+    ],
+    "repeat": 1,
+    "seed": 7,
+    "per_category": 3,
+    "case_ids": [
+      "fixture-deployment-scale-down-001",
+      "fixture-rollout-restart-001",
+      "fixture-service-selector-blackhole-001",
+      "quickbyte-auto-deploy-litmus-001",
+      "quickbyte-litmus-chaos-v1-001",
+      "quickbyte-litmus-pod-delete-001",
+      "quickbyte-pod-kill-001",
+      "scenario-20261019-m01-quick",
+      "scenario-20261019-m02-proc",
+      "scenario-20261019-m03-k8s",
+      "scenario-20261019-m04-memory",
+      "scenario-20261019-m05-order",
+      "scenario-20261019-m06-compact",
+      "scenario-20261019-m07-dedup",
+      "scenario-20261019-m08-deps",
+      "scenario-20261019-m09-weak",
+      "scenario-20261019-m10-stop",
+      "scenario-20261019-m13-long",
+      "scenario-20261019-s01-ck",
+      "scenario-20261019-s02-pd",
+      "scenario-20261019-s03-cpu",
+      "scenario-20261019-s04-lat",
+      "scenario-20261019-s05-loss",
+      "scenario-20261019-s06-route",
+      "scenario-20261019-s07-scale",
+      "scenario-20261019-s08-roll",
+      "scenario-20261019-s09-db",
+      "scenario-20261019-s10-redis",
+      "scenario-20261019-s11-mem",
+      "scenario-20261019-s12-oom",
+      "scenario-20261019-w01-ck",
+      "scenario-20261019-w02-pd"
+    ]
+  },
+  "primary": {
+    "n": 0,
+    "verdict": {
+      "false_pass": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "error_as_fail": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "false_fail": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "accuracy": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "confusion": {},
+      "ambiguous_excluded": 0
+    },
+    "category": {
+      "accuracy": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "macro_f1": null,
+      "top_confusions": []
+    },
+    "warnings": {
+      "value": null,
+      "ci": null,
+      "n": 0
+    },
+    "metamorphic_consistency": {
+      "value": null,
+      "ci": null,
+      "n": 0
+    },
+    "injection_false_pass": 0,
+    "latency_ms": {
+      "p50": null,
+      "p95": null
+    },
+    "narrative": null
+  },
+  "slices": {
+    "T1-chaos-real": {
+      "n": 32,
+      "verdict": {
+        "false_pass": {
+          "value": 0.0,
+          "ci": [
+            2.7755575615628914e-17,
+            0.24249400665524085
+          ],
+          "n": 12
+        },
+        "error_as_fail": {
+          "value": 0.0,
+          "ci": [
+            5.551115123125783e-17,
+            0.35433043506668743
+          ],
+          "n": 7
+        },
+        "false_fail": {
+          "value": 0.0,
+          "ci": [
+            0.0,
+            0.1843181350088518
+          ],
+          "n": 17
+        },
+        "accuracy": {
+          "value": 1.0,
+          "ci": [
+            0.8830302015002593,
+            1.0
+          ],
+          "n": 29
+        },
+        "confusion": {
+          "Pass": {
+            "Pass": 17
+          },
+          "Fail": {
+            "Fail": 5
+          },
+          "Error": {
+            "Error": 7,
+            "Pass": 3
+          }
+        },
+        "ambiguous_excluded": 3
+      },
+      "category": {
+        "accuracy": {
+          "value": 1.0,
+          "ci": [
+            0.8830302015002593,
+            1.0
+          ],
+          "n": 29
+        },
+        "macro_f1": 1.0,
+        "top_confusions": []
+      },
+      "warnings": {
+        "value": 1.0,
+        "ci": [
+          0.8388748419471806,
+          1.0
+        ],
+        "n": 20
+      },
+      "metamorphic_consistency": {
+        "value": null,
+        "ci": null,
+        "n": 0
+      },
+      "injection_false_pass": 0,
+      "latency_ms": {
+        "p50": 0.129,
+        "p95": 0.222
+      },
+      "narrative": null
+    }
+  },
+  "consistency": {
+    "repeat": 1,
+    "mean_agreement": 1.0,
+    "fully_consistent": {
+      "value": 1.0,
+      "ci": [
+        0.8928208017449293,
+        1.0
+      ],
+      "n": 32
+    }
+  },
+  "cases": [
+    {
+      "id": "fixture-deployment-scale-down-001",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology",
+        "chaos_latency_degraded"
+      ],
+      "note": "복구 17.07초, 상한 63초(grace 30 + delay 1 + period 2 x 1 + allowance 30). p95 2011.05 / baseline 61.86 = 32.5배",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology",
+            "chaos_latency_degraded"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.222,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=1742021\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "fixture-rollout-restart-001",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "복구 9.69초. p95 83.79 / baseline 23.76 = 3.5배로 규칙 8 미달",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.178,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=1742022\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "fixture-service-selector-blackhole-001",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "복구 10.77초. 라우팅 차단이라 p95가 오히려 baseline보다 낮다(34.88 / 44.05)",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.092,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=1742023\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "quickbyte-auto-deploy-litmus-001",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Fail",
+        "stage": "runtime",
+        "category": "chaos_recovery_exceeds_expected_bound",
+        "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "복구 125.91초 대 상한 65초. 규칙 4에서 걸리므로 뒤 규칙은 보지 않는다는 전제로 경고를 비워 둔다",
+      "runs": [
+        {
+          "verdict": "Fail",
+          "category": "chaos_recovery_exceeds_expected_bound",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "recovery 125.91s exceeds the bound 45.0s implied by the workload configuration.",
+          "latency_ms": 0.12,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=1742023\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Fail",
+      "agreement": 1.0
+    },
+    {
+      "id": "quickbyte-litmus-chaos-v1-001",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology",
+        "chaos_latency_degraded"
+      ],
+      "note": "recovered_at은 있고 recovery_seconds가 없다. 규칙 4를 계산할 수 없어 통과로 간다. 정책 공백",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology",
+            "chaos_latency_degraded"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.107,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=1742023\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "quickbyte-litmus-pod-delete-001",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Error",
+        "stage": "runtime",
+        "category": "chaos_evidence_missing",
+        "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "chaosEngine과 chaosResult만 있다. 관측 전 단계 산출물이라 판정 근거가 없다",
+      "runs": [
+        {
+          "verdict": "Error",
+          "category": "chaos_evidence_missing",
+          "warnings": [],
+          "judge_reason": "infra: chaos_evidence_missing",
+          "latency_ms": 0.004,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=1742023\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=litmus-v1\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Error",
+      "agreement": 1.0
+    },
+    {
+      "id": "quickbyte-pod-kill-001",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Fail",
+        "stage": "runtime",
+        "category": "chaos_recovery_exceeds_expected_bound",
+        "labeled_by": "rule-derived 2026-10-20 (allowance 10초로 재라벨)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "복구 58.84초 대 상한 45초(grace 30 + probe 5 + allowance 10). allowance 30초(상한 65초) 시절에는 Pass였다",
+      "runs": [
+        {
+          "verdict": "Fail",
+          "category": "chaos_recovery_exceeds_expected_bound",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "recovery 58.84s exceeds the bound 45.0s implied by the workload configuration.",
+          "latency_ms": 0.163,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=66680\nserver_started=True\nserver_url=http://quickbyte-api.codereferee-quickbyte.svc.cluster.local:8080\nhttp_status=200\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=kubectl_port_forward\nobservation_status=observed\nstdout:\nFixture recovered after Pod Kill.\nstderr:\n"
+        }
+      ],
+      "verdict": "Fail",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s01-ck",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "컨테이너 강제 종료. 같은 Pod에서 재시작 0→1, 복구 4.18초",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.147,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=167799\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(4997ms),build:0(476ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s02-pd",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "Pod 삭제. 새 Pod로 교체, 복구 2.08초",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.165,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=179051\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(25751ms),build:0(474ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s03-cpu",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "CPU 부하. HTTP 실패 없음, 복구 0초",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.148,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=153453\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(4940ms),build:0(491ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s04-lat",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Error",
+        "stage": "runtime",
+        "category": "litmus_fault_execution_failed",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "네트워크 지연. 실행 환경 커널에 sch_netem이 없어 주입 실패. 레포 결함이 아니다",
+      "runs": [
+        {
+          "verdict": "Error",
+          "category": "litmus_fault_execution_failed",
+          "warnings": [],
+          "judge_reason": "infra: litmus_fault_execution_failed",
+          "latency_ms": 0.002,
+          "evidence_excerpt": "exit_code=None\ntimed_out=False\nduration_ms=130093\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=infrastructure_error\nsandbox=stack=python outcome=None steps=install:0(14665ms),build:0(582ms)\nstdout:\n\nstderr:\nChaos v1 experiment failed."
+        }
+      ],
+      "verdict": "Error",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s05-loss",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Error",
+        "stage": "runtime",
+        "category": "litmus_fault_execution_failed",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "패킷 손실. s04와 같은 원인",
+      "runs": [
+        {
+          "verdict": "Error",
+          "category": "litmus_fault_execution_failed",
+          "warnings": [],
+          "judge_reason": "infra: litmus_fault_execution_failed",
+          "latency_ms": 0.004,
+          "evidence_excerpt": "exit_code=None\ntimed_out=False\nduration_ms=106066\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=infrastructure_error\nsandbox=stack=python outcome=None steps=install:0(5444ms),build:0(496ms)\nstdout:\n\nstderr:\nChaos v1 experiment failed."
+        }
+      ],
+      "verdict": "Error",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s06-route",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology",
+        "chaos_latency_degraded"
+      ],
+      "note": "Service selector 차단. 복구 12.04초, p95 1022.68 / baseline 5.4",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology",
+            "chaos_latency_degraded"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.126,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=67332\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(4770ms),build:0(494ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s07-scale",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology",
+        "chaos_latency_degraded"
+      ],
+      "note": "replica 0으로 축소 후 복원. 복구 10.51초, p95 1003.87 / baseline 4.74",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology",
+            "chaos_latency_degraded"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.135,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=99194\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(11396ms),build:0(529ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s08-roll",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "rollout restart. 복구 0.58초, p95 7.2 / 4.6",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.132,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=98975\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(17379ms),build:0(492ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s10-redis",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Error",
+        "stage": "runtime",
+        "category": "sandbox_process_failed",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "Redis 장애. 의존성 rollout 대기가 없던 샌드박스 버그로 배포 단계에서 실패(sandbox PR #18에서 수정). 응답만 보면 인프라 오류가 맞다",
+      "runs": [
+        {
+          "verdict": "Error",
+          "category": "sandbox_process_failed",
+          "warnings": [],
+          "judge_reason": "infra: sandbox_process_failed",
+          "latency_ms": 0.003,
+          "evidence_excerpt": "exit_code=None\ntimed_out=False\nduration_ms=34921\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=infrastructure_error\nsandbox=stack=python outcome=None steps=install:0(6371ms),build:0(486ms)\nstdout:\n\nstderr:\nTraceback (most recent call last):\n  File \"/home/claude/codereferee-sandbox/scripts/run_dependency_experiment.py\", line 99, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"/home/claude/codereferee-sandbox/scripts/run_dependency_experiment.py\", line 40, in main\n    pod = get_ready_pod(args.namespace, config['labelSelector'], config['deployment'])\n  File \"/home/claude/codereferee-sandbox/scripts/collect_baseline.py\", line 120, in get_ready_pod\n    raise RuntimeError(f\"No Ready {service} Pod found in namespace {namespace}\")\nRuntimeError: No Ready session-cache Pod found in namespace codereferee-ingle--s10-redis"
+        }
+      ],
+      "verdict": "Error",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s11-mem",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "메모리 부하. HTTP 실패 없음",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.133,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=138143\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(17939ms),build:0(497ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s12-oom",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Error",
+        "stage": "runtime",
+        "category": "oom_not_triggered",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": true,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "메모리 한도 초과 시나리오인데 oom_observed=false. stress-ng가 앱 대신 죽었다. 지금 규칙은 Pass. '실험이 의도한 일을 하지 않았는데 합격' 구멍이라 판정 정책 정리안 2번 권장안 A(Error)로 라벨을 달았다. 결정 전이라 ambiguous로 지표에서 뺀다",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.125,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=130152\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(4925ms),build:0(519ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-w01-ck",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Fail",
+        "stage": "runtime",
+        "category": "chaos_recovery_exceeds_expected_bound",
+        "labeled_by": "rule-derived 2026-10-20 (allowance 10초, config.chaos_recovery_startup_allowance_seconds)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "기동이 느린 대상에 컨테이너 종료. 복구 37.69초가 상한 22초(grace 10 + probe 2 + allowance 10)를 넘는다. allowance 30초 시절에는 Pass였다",
+      "runs": [
+        {
+          "verdict": "Fail",
+          "category": "chaos_recovery_exceeds_expected_bound",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "recovery 37.69s exceeds the bound 22.0s implied by the workload configuration.",
+          "latency_ms": 0.129,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=207058\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(5812ms),build:0(541ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Fail",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-w02-pd",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Fail",
+        "stage": "runtime",
+        "category": "chaos_recovery_exceeds_expected_bound",
+        "labeled_by": "rule-derived 2026-10-20 (allowance 10초, config.chaos_recovery_startup_allowance_seconds)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "기동이 느린 대상에 Pod 삭제. 복구 35.47초 대 상한 22초",
+      "runs": [
+        {
+          "verdict": "Fail",
+          "category": "chaos_recovery_exceeds_expected_bound",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "recovery 35.47s exceeds the bound 22.0s implied by the workload configuration.",
+          "latency_ms": 0.12,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=184769\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_http\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(5779ms),build:0(520ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Fail",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-s09-db",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Error",
+        "stage": "runtime",
+        "category": "dependency_fault_injection_failed",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "DB 장애. 의존성 Pod에 netem을 걸지 못해 주입 실패. 실행 환경 한계",
+      "runs": [
+        {
+          "verdict": "Error",
+          "category": "dependency_fault_injection_failed",
+          "warnings": [],
+          "judge_reason": "infra: dependency_fault_injection_failed",
+          "latency_ms": 0.003,
+          "evidence_excerpt": "exit_code=None\ntimed_out=False\nduration_ms=178251\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nprobe_transport=in_cluster_business_http\nobservation_status=infrastructure_error\nsandbox=stack=python outcome=None steps=install:0(19523ms),build:0(549ms)\nstdout:\n\nstderr:\nChaos v1 experiment failed."
+        }
+      ],
+      "verdict": "Error",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-m01-quick",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "묶음: ck 하나",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.129,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=206283\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(6132ms),build:0(614ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-m02-proc",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "묶음: ck, pd, cpu. 시나리오 p95 모두 baseline 대비 10배 미만",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.225,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=308000\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(5557ms),build:0(531ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-m03-k8s",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology",
+        "chaos_latency_degraded"
+      ],
+      "note": "묶음: 라우팅 차단, 축소, rollout. 최상위 p95는 null이고 시나리오 p95는 1018.93 / 6.67. 단독(s06, s07)과 같은 경고가 나와야 한다",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology",
+            "chaos_latency_degraded"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.195,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=121286\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(8805ms),build:0(548ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-m04-memory",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Error",
+        "stage": "runtime",
+        "category": "oom_not_triggered",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": true,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "묶음: mem, oom. oom 시나리오가 oom_observed=false. s12와 같은 이유로 ambiguous",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.142,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=176738\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(5271ms),build:0(481ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-m05-order",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "묶음: pd 다음 ck. 순서만 바꾼 m01·m02 대조군",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.188,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=277596\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(20602ms),build:0(556ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-m06-compact",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology",
+        "chaos_latency_degraded"
+      ],
+      "note": "묶음: ck, 축소, rollout. 축소 구간 p95 1019.04 / 4.42",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology",
+            "chaos_latency_degraded"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.129,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=193733\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(4870ms),build:0(474ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-m07-dedup",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Pass",
+        "stage": "runtime",
+        "category": "chaos_recovered_within_budget",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology"
+      ],
+      "note": "묶음: ck, cpu. 요청 중복 시나리오를 한 번만 돌린다",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.128,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=225600\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(13473ms),build:0(498ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-m08-deps",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Error",
+        "stage": "runtime",
+        "category": "dependency_fault_injection_failed",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "묶음: DB 장애 하나. s09와 같은 원인으로 첫 시나리오에서 멈춤",
+      "runs": [
+        {
+          "verdict": "Error",
+          "category": "dependency_fault_injection_failed",
+          "warnings": [],
+          "judge_reason": "infra: dependency_fault_injection_failed",
+          "latency_ms": 0.003,
+          "evidence_excerpt": "exit_code=None\ntimed_out=False\nduration_ms=118741\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=infrastructure_error\nsandbox=stack=python outcome=None steps=install:0(7457ms),build:0(519ms)\nstdout:\n\nstderr:\nChaos v1 experiment failed."
+        }
+      ],
+      "verdict": "Error",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-m09-weak",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Fail",
+        "stage": "runtime",
+        "category": "chaos_recovery_exceeds_expected_bound",
+        "labeled_by": "rule-derived 2026-10-20 (allowance 10초, config.chaos_recovery_startup_allowance_seconds)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "기동이 느린 대상 묶음: ck, pd. 가장 긴 복구 37.72초 대 상한 22초",
+      "runs": [
+        {
+          "verdict": "Fail",
+          "category": "chaos_recovery_exceeds_expected_bound",
+          "warnings": [
+            "chaos_single_replica_topology"
+          ],
+          "judge_reason": "recovery 37.72s exceeds the bound 22.0s implied by the workload configuration.",
+          "latency_ms": 0.137,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=284951\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(6426ms),build:0(536ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Fail",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-m10-stop",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Error",
+        "stage": "runtime",
+        "category": "litmus_fault_execution_failed",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": false,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [],
+      "note": "묶음: ck, cpu, 지연. ck와 cpu는 복구했지만 지연에서 netem이 없어 멈췄다. 요청한 검사를 다 못 했으므로 전체 Error(판정 정책 정리안 3번)",
+      "runs": [
+        {
+          "verdict": "Error",
+          "category": "litmus_fault_execution_failed",
+          "warnings": [],
+          "judge_reason": "infra: litmus_fault_execution_failed",
+          "latency_ms": 0.003,
+          "evidence_excerpt": "exit_code=None\ntimed_out=False\nduration_ms=268856\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=infrastructure_error\nsandbox=stack=python outcome=None steps=install:0(18257ms),build:0(506ms)\nstdout:\n\nstderr:\nChaos v1 experiment failed."
+        }
+      ],
+      "verdict": "Error",
+      "agreement": 1.0
+    },
+    {
+      "id": "scenario-20261019-m13-long",
+      "slice": "T1-chaos-real",
+      "label": {
+        "verdict": "Error",
+        "stage": "runtime",
+        "category": "oom_not_triggered",
+        "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"
+      },
+      "ambiguous": true,
+      "injection": false,
+      "group": null,
+      "expected_warnings": [
+        "chaos_single_replica_topology",
+        "chaos_latency_degraded"
+      ],
+      "note": "묶음 8개(471초). 라우팅 차단과 축소에서 지연 경고가 나와야 하고, 마지막 oom 시나리오가 oom_observed=false라 s12와 같은 이유로 ambiguous",
+      "runs": [
+        {
+          "verdict": "Pass",
+          "category": "chaos_recovered_within_budget",
+          "warnings": [
+            "chaos_single_replica_topology",
+            "chaos_latency_degraded"
+          ],
+          "judge_reason": "Chaos experiment recovered within the configured budget.",
+          "latency_ms": 0.149,
+          "evidence_excerpt": "exit_code=0\ntimed_out=False\nduration_ms=470505\nserver_started=False\nserver_url=None\nhttp_status=None\nbrowser_loaded=False\npage_title=None\nschema_version=chaos-v1\nobservation_status=observed\nsandbox=stack=python outcome=None steps=install:0(9591ms),build:0(459ms)\nstdout:\n\nstderr:\n"
+        }
+      ],
+      "verdict": "Pass",
+      "agreement": 1.0
+    }
+  ]
+}

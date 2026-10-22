@@ -1,0 +1,1133 @@
+{
+  "schemaVersion": "chaos-v1",
+  "scenario": "suite_custom__route__scale__roll",
+  "observationStatus": "observed",
+  "exitCode": 0,
+  "infraError": null,
+  "stderr": "",
+  "timedOut": false,
+  "baseline": {
+    "metrics": {
+      "availability": 1.0,
+      "p95_latency_ms": 6.67,
+      "error_rate": 0.0,
+      "probe_count": 10,
+      "success_count": 10,
+      "failure_count": 0,
+      "error_rate_denominator": "all HTTP GET / probes collected during baseline; readiness wait probes are excluded",
+      "cpu_usage_percent": null,
+      "memory_usage_mb": null,
+      "restart_count": 0
+    }
+  },
+  "metrics": {
+    "availability": 0.6,
+    "error_rate": 0.4,
+    "probe_count": 85,
+    "success_count": 51,
+    "failure_count": 34,
+    "p95_latency_ms": null,
+    "error_rate_denominator": "sum of per-scenario HTTP probe counts; inspect individual scenarios for latency"
+  },
+  "chaos_observation": {
+    "type": "scenario_suite",
+    "recovered": true,
+    "recovery_seconds": 12.04,
+    "target_configuration": {
+      "replicas": 1,
+      "readiness_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 2,
+        "timeout_seconds": 2,
+        "failure_threshold": 3,
+        "success_threshold": 1
+      },
+      "liveness_probe": null,
+      "startup_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 2,
+        "timeout_seconds": 2,
+        "failure_threshold": 90,
+        "success_threshold": 1
+      },
+      "termination_grace_period_seconds": 10
+    },
+    "abort_condition": {
+      "triggered": false,
+      "reason": null
+    },
+    "scenarios": [
+      {
+        "schemaVersion": "chaos-v1",
+        "scenario": "service_selector_blackhole",
+        "observationStatus": "observed",
+        "exitCode": 0,
+        "probeTransport": "in_cluster_http",
+        "probes": {
+          "baseline": [
+            {
+              "at": "2026-10-19T10:09:19.104379+00:00",
+              "status_code": 200,
+              "latency_ms": 6.67,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:19.146141+00:00",
+              "status_code": 200,
+              "latency_ms": 5.62,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:19.179777+00:00",
+              "status_code": 200,
+              "latency_ms": 3.67,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:19.212322+00:00",
+              "status_code": 200,
+              "latency_ms": 3.92,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:19.237248+00:00",
+              "status_code": 200,
+              "latency_ms": 3.42,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:19.268765+00:00",
+              "status_code": 200,
+              "latency_ms": 3.25,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:19.307166+00:00",
+              "status_code": 200,
+              "latency_ms": 3.39,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:19.332439+00:00",
+              "status_code": 200,
+              "latency_ms": 3.4,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:19.366087+00:00",
+              "status_code": 200,
+              "latency_ms": 3.24,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:19.394300+00:00",
+              "status_code": 200,
+              "latency_ms": 3.41,
+              "success": true,
+              "error": null
+            }
+          ],
+          "experiment": [
+            {
+              "at": "2026-10-19T10:09:19.544866+00:00",
+              "status_code": null,
+              "latency_ms": 1.95,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:20.069666+00:00",
+              "status_code": null,
+              "latency_ms": 2.68,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:20.594626+00:00",
+              "status_code": null,
+              "latency_ms": 2.09,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:21.124717+00:00",
+              "status_code": null,
+              "latency_ms": 1.89,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:21.649337+00:00",
+              "status_code": null,
+              "latency_ms": 1.99,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:22.178561+00:00",
+              "status_code": null,
+              "latency_ms": 2.53,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:22.703373+00:00",
+              "status_code": null,
+              "latency_ms": 2.12,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:23.235272+00:00",
+              "status_code": null,
+              "latency_ms": 2.14,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:23.758431+00:00",
+              "status_code": null,
+              "latency_ms": 2.29,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:24.286587+00:00",
+              "status_code": null,
+              "latency_ms": 2.8,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:24.811170+00:00",
+              "status_code": null,
+              "latency_ms": 1.84,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:26.352870+00:00",
+              "status_code": null,
+              "latency_ms": 1018.93,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:26.880339+00:00",
+              "status_code": null,
+              "latency_ms": 2.36,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:28.432656+00:00",
+              "status_code": null,
+              "latency_ms": 1021.72,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:28.957139+00:00",
+              "status_code": null,
+              "latency_ms": 2.25,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:30.512743+00:00",
+              "status_code": null,
+              "latency_ms": 1032.86,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:31.192490+00:00",
+              "status_code": 200,
+              "latency_ms": 5.31,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:31.226446+00:00",
+              "status_code": 200,
+              "latency_ms": 4.77,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:31.252210+00:00",
+              "status_code": 200,
+              "latency_ms": 3.75,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:31.278190+00:00",
+              "status_code": 200,
+              "latency_ms": 3.56,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:31.303325+00:00",
+              "status_code": 200,
+              "latency_ms": 4.18,
+              "success": true,
+              "error": null
+            }
+          ]
+        },
+        "target": {
+          "namespace": "codereferee-t4526-m03-k8s",
+          "deployment": "repository-api",
+          "service": "repository-api",
+          "servicePort": 8000,
+          "labelSelector": "app.kubernetes.io/name=repository-api"
+        },
+        "replicas": 1,
+        "baseline": {
+          "metrics": {
+            "availability": 1.0,
+            "p95_latency_ms": 6.67,
+            "error_rate": 0.0,
+            "probe_count": 10,
+            "success_count": 10,
+            "failure_count": 0,
+            "error_rate_denominator": "all HTTP GET / probes collected during baseline; readiness wait probes are excluded",
+            "cpu_usage_percent": null,
+            "memory_usage_mb": null,
+            "restart_count": 0
+          }
+        },
+        "metrics": {
+          "availability": 0.4838709677419355,
+          "p95_latency_ms": 1018.93,
+          "error_rate": 0.5161290322580645,
+          "probe_count": 31,
+          "success_count": 15,
+          "failure_count": 16,
+          "error_rate_denominator": "all measured in-cluster HTTP requests during baseline, routing fault, and recovery",
+          "cpu_usage_percent": null,
+          "memory_usage_mb": null,
+          "restart_count": 0
+        },
+        "chaos_observation": {
+          "type": "service_selector_blackhole",
+          "kill_method": "kubectl_patch_service_selector",
+          "started_at": "2026-10-19T10:09:15.136526Z",
+          "recovered_at": "2026-10-19T10:09:31.433548Z",
+          "recovered": true,
+          "recovery_seconds": 12.04,
+          "target_pod_uid": "6d2b0c5a-31bb-40ea-9d6d-73dea57c9f25",
+          "replacement_pod_uid": null,
+          "target_configuration": {
+            "replicas": 1,
+            "readiness_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 3,
+              "success_threshold": 1
+            },
+            "liveness_probe": null,
+            "startup_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 90,
+              "success_threshold": 1
+            },
+            "termination_grace_period_seconds": 10
+          },
+          "routing_operation": {
+            "original_selector": {
+              "app.kubernetes.io/name": "repository-api"
+            },
+            "blackhole_selector": {
+              "app.kubernetes.io/name": "codereferee-blackhole"
+            }
+          },
+          "observation_window": {
+            "baseline_probe_count": 10,
+            "fault_seconds": 10,
+            "error_rate_denominator": "all measured in-cluster HTTP requests during baseline, routing fault, and recovery"
+          },
+          "abort_condition": {
+            "triggered": false,
+            "reason": null
+          }
+        },
+        "source": {
+          "real_execution_observed": true,
+          "target": "repository-api"
+        },
+        "timedOut": false,
+        "chaosMode": "service_selector_blackhole"
+      },
+      {
+        "schemaVersion": "chaos-v1",
+        "scenario": "deployment_scale_down",
+        "observationStatus": "observed",
+        "exitCode": 0,
+        "timedOut": false,
+        "probeTransport": "in_cluster_http",
+        "probes": {
+          "baseline": [
+            {
+              "at": "2026-10-19T10:09:35.161559+00:00",
+              "status_code": 200,
+              "latency_ms": 4.07,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:35.186227+00:00",
+              "status_code": 200,
+              "latency_ms": 3.83,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:35.209395+00:00",
+              "status_code": 200,
+              "latency_ms": 4.74,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:35.234268+00:00",
+              "status_code": 200,
+              "latency_ms": 3.69,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:35.266474+00:00",
+              "status_code": 200,
+              "latency_ms": 3.45,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:35.301640+00:00",
+              "status_code": 200,
+              "latency_ms": 4.8,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:35.327349+00:00",
+              "status_code": 200,
+              "latency_ms": 3.61,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:35.352602+00:00",
+              "status_code": 200,
+              "latency_ms": 4.07,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:35.388381+00:00",
+              "status_code": 200,
+              "latency_ms": 5.28,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:35.414674+00:00",
+              "status_code": 200,
+              "latency_ms": 3.49,
+              "success": true,
+              "error": null
+            }
+          ],
+          "experiment": [
+            {
+              "at": "2026-10-19T10:09:35.518202+00:00",
+              "status_code": 200,
+              "latency_ms": 6.23,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:38.049739+00:00",
+              "status_code": null,
+              "latency_ms": 2002.71,
+              "success": false,
+              "error": "<urlopen error timed out>"
+            },
+            {
+              "at": "2026-10-19T10:09:38.580841+00:00",
+              "status_code": null,
+              "latency_ms": 2.5,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:39.114805+00:00",
+              "status_code": null,
+              "latency_ms": 1.92,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:39.643979+00:00",
+              "status_code": null,
+              "latency_ms": 1.96,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:40.176142+00:00",
+              "status_code": null,
+              "latency_ms": 2.03,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:40.728138+00:00",
+              "status_code": null,
+              "latency_ms": 2.07,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:41.259836+00:00",
+              "status_code": null,
+              "latency_ms": 2.58,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:41.785586+00:00",
+              "status_code": null,
+              "latency_ms": 3.1,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:42.313786+00:00",
+              "status_code": null,
+              "latency_ms": 2.46,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:42.837031+00:00",
+              "status_code": null,
+              "latency_ms": 2.39,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:43.370953+00:00",
+              "status_code": null,
+              "latency_ms": 1.93,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:43.907499+00:00",
+              "status_code": null,
+              "latency_ms": 2.08,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:45.456662+00:00",
+              "status_code": null,
+              "latency_ms": 1015.59,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:46.080969+00:00",
+              "status_code": null,
+              "latency_ms": 2.97,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:46.615468+00:00",
+              "status_code": null,
+              "latency_ms": 1.83,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:48.176911+00:00",
+              "status_code": null,
+              "latency_ms": 1032.71,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:48.703713+00:00",
+              "status_code": null,
+              "latency_ms": 2.16,
+              "success": false,
+              "error": "<urlopen error [Errno 111] Connection refused>"
+            },
+            {
+              "at": "2026-10-19T10:09:49.247235+00:00",
+              "status_code": 200,
+              "latency_ms": 6.31,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:49.776140+00:00",
+              "status_code": 200,
+              "latency_ms": 5.07,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:50.301476+00:00",
+              "status_code": 200,
+              "latency_ms": 4.69,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:50.834217+00:00",
+              "status_code": 200,
+              "latency_ms": 4.46,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:51.366247+00:00",
+              "status_code": 200,
+              "latency_ms": 5.74,
+              "success": true,
+              "error": null
+            }
+          ]
+        },
+        "target": {
+          "namespace": "codereferee-t4526-m03-k8s",
+          "deployment": "repository-api",
+          "service": "repository-api",
+          "servicePort": 8000,
+          "labelSelector": "app.kubernetes.io/name=repository-api"
+        },
+        "replicas": 1,
+        "baseline": {
+          "metrics": {
+            "availability": 1.0,
+            "p95_latency_ms": 5.28,
+            "error_rate": 0.0,
+            "probe_count": 10,
+            "success_count": 10,
+            "failure_count": 0,
+            "error_rate_denominator": "all HTTP GET / probes collected during baseline; readiness wait probes are excluded",
+            "cpu_usage_percent": null,
+            "memory_usage_mb": null,
+            "restart_count": 0
+          }
+        },
+        "metrics": {
+          "availability": 0.48484848484848486,
+          "p95_latency_ms": 1015.59,
+          "error_rate": 0.5151515151515151,
+          "probe_count": 33,
+          "success_count": 16,
+          "failure_count": 17,
+          "error_rate_denominator": "all measured in-cluster HTTP requests during baseline, scale-down, and recovery",
+          "cpu_usage_percent": null,
+          "memory_usage_mb": null,
+          "restart_count": 0
+        },
+        "chaos_observation": {
+          "type": "deployment_scale_down",
+          "kill_method": "kubectl_scale",
+          "started_at": "2026-10-19T10:09:35.415713Z",
+          "recovered": true,
+          "recovered_at": "2026-10-19T10:09:51.639652Z",
+          "recovery_seconds": 11.2,
+          "experiment_duration_seconds": 16.22,
+          "target_pod_uid": "6d2b0c5a-31bb-40ea-9d6d-73dea57c9f25",
+          "replacement_pod_uid": "1766486f-439f-4674-b2b6-2eceec96249d",
+          "target_configuration": {
+            "replicas": 1,
+            "readiness_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 3,
+              "success_threshold": 1
+            },
+            "liveness_probe": null,
+            "startup_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 90,
+              "success_threshold": 1
+            },
+            "termination_grace_period_seconds": 10
+          },
+          "scale_operation": {
+            "from_replicas": 1,
+            "to_replicas": 0,
+            "restored_replicas": 1
+          },
+          "observation_window": {
+            "baseline_probe_count": 10,
+            "fault_seconds": 10,
+            "recovery_timeout_seconds": 180,
+            "error_rate_denominator": "all measured in-cluster HTTP requests during baseline, scale-down, and recovery"
+          },
+          "abort_condition": {
+            "triggered": false,
+            "reason": null
+          }
+        },
+        "source": {
+          "real_execution_observed": true,
+          "target": "repository-api"
+        },
+        "chaosMode": "deployment_scale_down"
+      },
+      {
+        "schemaVersion": "chaos-v1",
+        "scenario": "rollout_restart",
+        "observationStatus": "observed",
+        "exitCode": 0,
+        "timedOut": false,
+        "probeTransport": "in_cluster_http",
+        "probes": {
+          "baseline": [
+            {
+              "at": "2026-10-19T10:09:56.229303+00:00",
+              "status_code": 200,
+              "latency_ms": 3.76,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:56.254667+00:00",
+              "status_code": 200,
+              "latency_ms": 4.51,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:56.279389+00:00",
+              "status_code": 200,
+              "latency_ms": 3.47,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:56.312515+00:00",
+              "status_code": 200,
+              "latency_ms": 3.7,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:56.344551+00:00",
+              "status_code": 200,
+              "latency_ms": 5.07,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:56.369991+00:00",
+              "status_code": 200,
+              "latency_ms": 3.33,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:56.393146+00:00",
+              "status_code": 200,
+              "latency_ms": 3.29,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:56.419988+00:00",
+              "status_code": 200,
+              "latency_ms": 3.53,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:56.448692+00:00",
+              "status_code": 200,
+              "latency_ms": 4.35,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:56.484988+00:00",
+              "status_code": 200,
+              "latency_ms": 3.48,
+              "success": true,
+              "error": null
+            }
+          ],
+          "experiment": [
+            {
+              "at": "2026-10-19T10:09:56.624646+00:00",
+              "status_code": 200,
+              "latency_ms": 8.17,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:57.262357+00:00",
+              "status_code": 200,
+              "latency_ms": 4.28,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:57.931984+00:00",
+              "status_code": 200,
+              "latency_ms": 6.96,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:58.574655+00:00",
+              "status_code": 200,
+              "latency_ms": 4.07,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:09:59.182011+00:00",
+              "status_code": 200,
+              "latency_ms": 4.4,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:10:01.816636+00:00",
+              "status_code": null,
+              "latency_ms": 2010.54,
+              "success": false,
+              "error": "<urlopen error timed out>"
+            },
+            {
+              "at": "2026-10-19T10:10:02.412377+00:00",
+              "status_code": 200,
+              "latency_ms": 4.7,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:10:03.003638+00:00",
+              "status_code": 200,
+              "latency_ms": 4.83,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:10:03.588551+00:00",
+              "status_code": 200,
+              "latency_ms": 4.68,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:10:04.191314+00:00",
+              "status_code": 200,
+              "latency_ms": 5.1,
+              "success": true,
+              "error": null
+            },
+            {
+              "at": "2026-10-19T10:10:04.781657+00:00",
+              "status_code": 200,
+              "latency_ms": 4.66,
+              "success": true,
+              "error": null
+            }
+          ]
+        },
+        "target": {
+          "namespace": "codereferee-t4526-m03-k8s",
+          "deployment": "repository-api",
+          "service": "repository-api",
+          "servicePort": 8000,
+          "labelSelector": "app.kubernetes.io/name=repository-api"
+        },
+        "replicas": 1,
+        "baseline": {
+          "metrics": {
+            "availability": 1.0,
+            "p95_latency_ms": 5.07,
+            "error_rate": 0.0,
+            "probe_count": 10,
+            "success_count": 10,
+            "failure_count": 0,
+            "error_rate_denominator": "all HTTP GET / probes collected during baseline; readiness wait probes are excluded",
+            "cpu_usage_percent": null,
+            "memory_usage_mb": null,
+            "restart_count": 0
+          }
+        },
+        "metrics": {
+          "availability": 0.9523809523809523,
+          "p95_latency_ms": 8.17,
+          "error_rate": 0.04761904761904767,
+          "probe_count": 21,
+          "success_count": 20,
+          "failure_count": 1,
+          "error_rate_denominator": "all measured in-cluster HTTP requests during baseline, rollout restart, and replacement verification",
+          "cpu_usage_percent": null,
+          "memory_usage_mb": null,
+          "restart_count": 0
+        },
+        "chaos_observation": {
+          "type": "rollout_restart",
+          "kill_method": "kubectl_rollout_restart",
+          "started_at": "2026-10-19T10:09:56.486062Z",
+          "recovered": true,
+          "recovered_at": "2026-10-19T10:10:04.906774Z",
+          "recovery_seconds": 0.6,
+          "experiment_duration_seconds": 8.42,
+          "target_pod_uid": "1766486f-439f-4674-b2b6-2eceec96249d",
+          "replacement_pod_uid": "f0df4bae-9ca1-432f-b24f-313f2782d2dc",
+          "target_configuration": {
+            "replicas": 1,
+            "readiness_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 3,
+              "success_threshold": 1
+            },
+            "liveness_probe": null,
+            "startup_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 90,
+              "success_threshold": 1
+            },
+            "termination_grace_period_seconds": 10
+          },
+          "rollout_operation": {
+            "deployment": "repository-api",
+            "strategy": "kubectl rollout restart"
+          },
+          "observation_window": {
+            "baseline_probe_count": 10,
+            "recovery_timeout_seconds": 180,
+            "error_rate_denominator": "all measured in-cluster HTTP requests during baseline, rollout restart, and replacement verification"
+          },
+          "abort_condition": {
+            "triggered": false,
+            "reason": null
+          }
+        },
+        "source": {
+          "real_execution_observed": true,
+          "target": "repository-api"
+        },
+        "chaosMode": "rollout_restart"
+      }
+    ],
+    "requested": [
+      "service_selector_blackhole",
+      "deployment_scale_down",
+      "rollout_restart"
+    ],
+    "not_executed": []
+  },
+  "source": {
+    "real_execution_observed": true,
+    "workspace_cleanup": {
+      "removed": true,
+      "error": null
+    },
+    "metrics_observation": {
+      "schema_version": "metrics-observation.v1",
+      "status": "disabled",
+      "request_id": "t4526-m03-k8s",
+      "cluster": "codereferee",
+      "namespace": "codereferee-t4526-m03-k8s",
+      "workload": "repository-api",
+      "observation_namespace": "codereferee-metrics-4564cf24542c01c6",
+      "scrape_interval_seconds": 1,
+      "pod_bindings": [],
+      "errors": [],
+      "units": {
+        "cpu": "cores (rate of cumulative CPU seconds)",
+        "memory": "bytes",
+        "restart": "Kubernetes container restartCount snapshots"
+      },
+      "node_metrics_scope": "shared-node diagnostics, not application usage",
+      "cleanup": {
+        "attempted": false,
+        "removed": null
+      }
+    },
+    "artifact_cleanup": {
+      "image": "codereferee/t4526-m03-k8s:0cff43ba2668",
+      "host_removed": true,
+      "kind_nodes": [
+        {
+          "node": "codereferee-control-plane",
+          "removed": true
+        }
+      ],
+      "errors": [],
+      "namespace_removed": true
+    }
+  },
+  "serviceCheckAttempted": true,
+  "browserCheckAttempted": false,
+  "requestId": "t4526-m03-k8s",
+  "repositoryUrl": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+  "branch": "healthy-fastapi",
+  "commitSha": "0cff43ba266821400a2b55f46e8857db768acc02",
+  "deployment": {
+    "repository": {
+      "url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+      "branch": "healthy-fastapi",
+      "commitSha": "0cff43ba266821400a2b55f46e8857db768acc02"
+    },
+    "target": {
+      "name": "repository-api",
+      "deployment": "repository-api",
+      "service": "repository-api",
+      "servicePort": 8000,
+      "labelSelector": "app.kubernetes.io/name=repository-api",
+      "probePath": "/",
+      "dependencies": {},
+      "namespace": "codereferee-t4526-m03-k8s"
+    },
+    "image": "codereferee/t4526-m03-k8s:0cff43ba2668",
+    "deploymentProfile": null,
+    "sandboxReport": {
+      "schema_version": "sandbox-result.v1",
+      "detected_stack": "python",
+      "verification_declared": false,
+      "test_execution": "not_declared",
+      "outcome": "passed",
+      "failed_step": "none",
+      "steps": [
+        {
+          "name": "install",
+          "command": [
+            "python",
+            "-m",
+            "pip",
+            "install",
+            "--user",
+            "--disable-pip-version-check",
+            "-r",
+            "requirements.txt"
+          ],
+          "exit_code": 0,
+          "duration_ms": 8805,
+          "timed_out": false,
+          "stdout": "Collecting fastapi (from -r requirements.txt (line 1))\n  Downloading fastapi-0.147.0-py3-none-any.whl.metadata (26 kB)\nCollecting uvicorn (from -r requirements.txt (line 2))\n  Downloading uvicorn-0.54.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting starlette>=0.46.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading starlette-1.9.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting pydantic>=2.9.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading pydantic-2.14.1-py3-none-any.whl.metadata (133 kB)\nCollecting typing-extensions>=4.8.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)\nCollecting typing-inspection>=0.4.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)\nCollecting annotated-doc>=0.0.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)\nCollecting opentelemetry-api>=1.44.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading opentelemetry_api-1.45.1-py3-none-any.whl.metadata (1.4 kB)\nCollecting click>=7.0 (from uvicorn->-r requirements.txt (line 2))\n  Downloading click-8.5.0-py3-none-any.whl.metadata (2.6 kB)\nCollecting h11>=0.8 (from uvicorn->-r requirements.txt (line 2))\n  Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)\nCollecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)\nCollecting pydantic-core==2.50.1 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.5 kB)\nCollecting anyio<5,>=4.0.0 (from starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)\nCollecting idna>=2.8 (from anyio<5,>=4.0.0->starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)\nDownloading fastapi-0.147.0-py3-none-any.whl (145 kB)\nDownloading uvicorn-0.54.0-py3-none-any.whl (87 kB)\nDownloading annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)\nDownloading click-8.5.0-py3-none-any.whl (125 kB)\nDownloading h11-0.16.0-py3-none-any.whl (37 kB)\nDownloading opentelemetry_api-1.45.1-py3-none-any.whl (60 kB)\nDownloading pydantic-2.14.1-py3-none-any.whl (488 kB)\nDownloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.2 MB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.2/2.2 MB 14.9 MB/s eta 0:00:00\nDownloading starlette-1.9.0-py3-none-any.whl (80 kB)\nDownloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)\nDownloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)\nDownloading annotated_types-0.8.0-py3-none-any.whl (13 kB)\nDownloading anyio-4.15.1-py3-none-any.whl (132 kB)\nDownloading idna-3.20-py3-none-any.whl (69 kB)\nInstalling collected packages: typing-extensions, idna, h11, click, annotated-types, annotated-doc, uvicorn, typing-inspection, pydantic-core, opentelemetry-api, anyio, starlette, pydantic, fastapi\nSuccessfully installed annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.1 click-8.5.0 fastapi-0.147.0 h11-0.16.0 idna-3.20 opentelemetry-api-1.45.1 pydantic-2.14.1 pydantic-core-2.50.1 starlette-1.9.0 typing-extensions-4.16.0 typing-inspection-0.4.4 uvicorn-0.54.0\n",
+          "stderr": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n"
+        },
+        {
+          "name": "build",
+          "command": [
+            "python",
+            "-m",
+            "compileall",
+            "-q",
+            "."
+          ],
+          "exit_code": 0,
+          "duration_ms": 548,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "check_cache_cleanup": {
+        "removed": true,
+        "error": null
+      }
+    },
+    "workspaceCleanup": {
+      "removed": true,
+      "error": null
+    },
+    "executionPlan": {
+      "source": "stack_detection",
+      "dockerfile": "generated",
+      "warnings": [],
+      "servicePort": 8000
+    }
+  },
+  "sandboxReport": {
+    "detected_stack": "python",
+    "verification_declared": false,
+    "test_execution": "not_declared",
+    "steps": [
+      {
+        "name": "install",
+        "command": [
+          "python",
+          "-m",
+          "pip",
+          "install",
+          "--user",
+          "--disable-pip-version-check",
+          "-r",
+          "requirements.txt"
+        ],
+        "exit_code": 0,
+        "duration_ms": 8805,
+        "timed_out": false,
+        "stdout": "Collecting fastapi (from -r requirements.txt (line 1))\n  Downloading fastapi-0.147.0-py3-none-any.whl.metadata (26 kB)\nCollecting uvicorn (from -r requirements.txt (line 2))\n  Downloading uvicorn-0.54.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting starlette>=0.46.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading starlette-1.9.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting pydantic>=2.9.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading pydantic-2.14.1-py3-none-any.whl.metadata (133 kB)\nCollecting typing-extensions>=4.8.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)\nCollecting typing-inspection>=0.4.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)\nCollecting annotated-doc>=0.0.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)\nCollecting opentelemetry-api>=1.44.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading opentelemetry_api-1.45.1-py3-none-any.whl.metadata (1.4 kB)\nCollecting click>=7.0 (from uvicorn->-r requirements.txt (line 2))\n  Downloading click-8.5.0-py3-none-any.whl.metadata (2.6 kB)\nCollecting h11>=0.8 (from uvicorn->-r requirements.txt (line 2))\n  Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)\nCollecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)\nCollecting pydantic-core==2.50.1 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.5 kB)\nCollecting anyio<5,>=4.0.0 (from starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)\nCollecting idna>=2.8 (from anyio<5,>=4.0.0->starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)\nDownloading fastapi-0.147.0-py3-none-any.whl (145 kB)\nDownloading uvicorn-0.54.0-py3-none-any.whl (87 kB)\nDownloading annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)\nDownloading click-8.5.0-py3-none-any.whl (125 kB)\nDownloading h11-0.16.0-py3-none-any.whl (37 kB)\nDownloading opentelemetry_api-1.45.1-py3-none-any.whl (60 kB)\nDownloading pydantic-2.14.1-py3-none-any.whl (488 kB)\nDownloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.2 MB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.2/2.2 MB 14.9 MB/s eta 0:00:00\nDownloading starlette-1.9.0-py3-none-any.whl (80 kB)\nDownloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)\nDownloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)\nDownloading annotated_types-0.8.0-py3-none-any.whl (13 kB)\nDownloading anyio-4.15.1-py3-none-any.whl (132 kB)\nDownloading idna-3.20-py3-none-any.whl (69 kB)\nInstalling collected packages: typing-extensions, idna, h11, click, annotated-types, annotated-doc, uvicorn, typing-inspection, pydantic-core, opentelemetry-api, anyio, starlette, pydantic, fastapi\nSuccessfully installed annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.1 click-8.5.0 fastapi-0.147.0 h11-0.16.0 idna-3.20 opentelemetry-api-1.45.1 pydantic-2.14.1 pydantic-core-2.50.1 starlette-1.9.0 typing-extensions-4.16.0 typing-inspection-0.4.4 uvicorn-0.54.0\n",
+        "stderr": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n"
+      },
+      {
+        "name": "build",
+        "command": [
+          "python",
+          "-m",
+          "compileall",
+          "-q",
+          "."
+        ],
+        "exit_code": 0,
+        "duration_ms": 548,
+        "timed_out": false,
+        "stdout": "",
+        "stderr": ""
+      }
+    ],
+    "check_cache_cleanup": {
+      "removed": true,
+      "error": null
+    },
+    "repository_check_outcome": "passed"
+  },
+  "durationMillis": 121286
+}

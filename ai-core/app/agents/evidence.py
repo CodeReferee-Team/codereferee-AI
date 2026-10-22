@@ -7,7 +7,6 @@ from app.agents.source_context import strip_caret_lines
 from app.models import AgentState
 
 MAX_LOG_CHARS = 1200
-MAX_CHAOS_EVENTS = 20
 
 
 def build_evidence_packet(state: AgentState) -> dict[str, Any]:
@@ -64,12 +63,55 @@ def build_evidence_packet(state: AgentState) -> dict[str, Any]:
     return packet
 
 
+def build_llm_evidence_packet(state: AgentState) -> dict[str, Any]:
+    """Critic/Refiner LLM 전용 축소 패킷.
+
+    전체 패킷(build_evidence_packet)을 주면 7B급 모델이 분석 대신 입력 JSON을 그대로
+    되뱉는다(실측). 판정에 실제로 쓰는 몇 필드만 남겨 모델이 '복사'가 아니라 '분석'하게
+    한다. 신규 필드를 늘리지 말 것 — 작게 유지하는 게 이 패킷의 존재 이유다.
+    """
+    judge = dict(state.judge_report or {})
+    category = classify_failure_category(state)
+    observation = (state.execution_result.chaos_observation if state.execution_result else None) or {}
+    config = observation.get("target_configuration") or {}
+    packet: dict[str, Any] = {
+        "repository_url": state.repository_url,
+        "failure_category": category,
+        "primary_signal": _primary_signal(state, category),
+        "judge": {k: judge.get(k) for k in ("status", "reason_category", "reason")},
+        "policy_warnings": list((state.metrics or {}).get("policy_warnings") or []),
+    }
+    result = state.execution_result
+    if observation:
+        packet["chaos"] = {
+            "replicas": config.get("replicas"),
+            "recovered": observation.get("recovered"),
+            "recovery_seconds": observation.get("recovery_seconds"),
+        }
+    elif result is not None:
+        # 카오스가 아닌 실패(테스트·빌드·런타임)는 '로그'가 핵심 신호다. chaos만 보던 패킷에
+        # 로그가 없으면 모델은 "테스트가 실패했다"만 복창한다(실측). 과하지 않게 잘라 싣는다.
+        log = (result.stderr or result.log or "").strip()
+        if log:
+            packet["failure_log"] = truncate_log(log, 1200)
+        failed_step = (result.sandbox_report or {}).get("failed_step")
+        if failed_step:
+            packet["failed_step"] = failed_step
+    if state.critic_feedback:
+        packet["critic"] = {
+            k: state.critic_feedback.get(k) for k in ("root_cause", "recommended_action")
+        }
+    return packet
+
+
 def summarize_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
     """프롬프트에 실을 metrics를 줄인다.
 
-    chaos_observation의 kubernetes_events와 replacement_logs는 상한이 없어
-    그대로 넣으면 패킷이 수십 KB가 된다. 원본은 execution_result에 남아
-    Backend까지 전달되므로 여기서는 판단에 필요한 만큼만 남긴다.
+    chaos_observation의 kubernetes_events·replacement_logs 등은 수십 KB에 달해, 7B급
+    로컬 모델은 이 노이즈에 익사해 판정 신호(replicas·recovery·복구 상한)를 놓친다.
+    실측에서 작은 패킷은 단일 replica를 정확히 집는데 큰 패킷은 증상만 복창했다. 그래서
+    LLM 패킷에서는 판정에 쓰지 않는 대용량/보조 필드를 뺀다. 원본은 execution_result에
+    남아 Backend까지 그대로 전달된다.
     """
     summary = dict(metrics)
     observation = summary.get("chaos_observation")
@@ -77,13 +119,18 @@ def summarize_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
         return summary
 
     trimmed = dict(observation)
-    events = trimmed.get("kubernetes_events")
+    events = trimmed.pop("kubernetes_events", None)
     if isinstance(events, list):
         trimmed["kubernetes_events_total"] = len(events)
-        trimmed["kubernetes_events"] = events[-MAX_CHAOS_EVENTS:]
-    logs = trimmed.get("replacement_logs")
-    if isinstance(logs, str):
-        trimmed["replacement_logs"] = truncate_log(logs, 600)
+    for noisy in ("replacement_logs", "fault_parameters", "last_terminations",
+                  "target_pod_uid", "replacement_pod_uid", "recovery_measurement"):
+        trimmed.pop(noisy, None)
+    config = trimmed.get("target_configuration")
+    if isinstance(config, dict):
+        trimmed["target_configuration"] = {
+            key: value for key, value in config.items()
+            if key not in ("liveness_probe", "startup_probe")
+        }
     summary["chaos_observation"] = trimmed
     return summary
 
@@ -112,6 +159,13 @@ def classify_failure_category(state: AgentState) -> str:
         return "clone_failure"
     if not preflight.executable:
         return "no_entrypoint"
+    # 카오스 실행은 exit 0로 끝나므로 아래 smoke 규칙이면 "success"가 되어, Judge가 복구
+    # 상한 초과로 Fail을 냈는데도 패킷 최상위 신호가 "성공"이라 Critic을 오도한다. Judge가
+    # chaos 사유로 떨어뜨렸으면 그 사유를 그대로 failure_category로 쓴다.
+    judge = state.judge_report or {}
+    reason_category = judge.get("reason_category")
+    if judge.get("status") == "Fail" and isinstance(reason_category, str) and reason_category.startswith("chaos_"):
+        return reason_category
     result = state.execution_result
     if result is None:
         return "missing_execution"
@@ -135,6 +189,9 @@ def _service_smoke_passed(result: Any) -> bool:
 def _primary_signal(state: AgentState, category: str) -> str:
     preflight = state.preflight_report
     result = state.execution_result
+    if category.startswith("chaos_"):
+        # 카오스 실패의 결정적 신호는 Judge가 적은 복구/가용성 사유다. exit_code=0이 아니라.
+        return str((state.judge_report or {}).get("reason") or category)
     if category in {"clone_failure", "no_entrypoint"} and preflight is not None:
         return preflight.reason or "; ".join(preflight.evidence) or category
     if result is None:
@@ -173,6 +230,11 @@ def _build_evidence_refs(state: AgentState, category: str) -> dict[str, str]:
         if result.stderr.strip():
             refs["log.stderr"] = truncate_log(result.stderr.strip(), 400)
         refs["log.combined"] = truncate_log(result.log, 600)
+    # 규칙이 계산한 정책 경고(단일 replica 토폴로지, 에러버짓 소진 등)는 구체적 복원력
+    # 신호다. evidence_refs에 올려 Critic/Refiner가 원인으로 집게 한다.
+    warnings = (state.metrics or {}).get("policy_warnings")
+    if isinstance(warnings, list) and warnings:
+        refs["policy_warnings"] = " | ".join(str(w) for w in warnings)
     return {key: value for key, value in refs.items() if str(value).strip()}
 
 
@@ -186,7 +248,7 @@ def build_refiner_evidence(state: AgentState) -> dict[str, Any]:
     result = state.execution_result
     critic = state.critic_feedback
     log = truncate_log(strip_caret_lines(result.log)) if result else ""
-    return {
+    packet = {
         "schema_version": "agent-evidence.refiner.v1",
         "repository_url": state.repository_url,
         "failure_category": classify_failure_category(state),
@@ -206,3 +268,13 @@ def build_refiner_evidence(state: AgentState) -> dict[str, Any]:
         },
         "source_files": dict(state.source_files),
     }
+    observation = (result.chaos_observation if result else None) or {}
+    if observation:
+        # 카오스 실패는 로그가 아니라 구성이 원인이다. 고칠 값(replicas)과 복구 관측을 같이 준다.
+        packet["chaos"] = {
+            "replicas": (observation.get("target_configuration") or {}).get("replicas"),
+            "recovered": observation.get("recovered"),
+            "recovery_seconds": observation.get("recovery_seconds"),
+        }
+        packet["policy_warnings"] = list((state.metrics or {}).get("policy_warnings") or [])
+    return packet

@@ -27,6 +27,8 @@ MANIFEST_CANDIDATES = (
     "package.json",
     "Pipfile",
 )
+# 카오스 실패는 로그에 경로가 없다. 복원력 수정(replicas, probe, resources)은 검증 설정에 모여 있다.
+CHAOS_CONFIG_CANDIDATES = (".codereferee/validation.yaml", ".codereferee/validation.yml")
 # 이보다 큰 파일은 주지 않는다. 자르면 적용 불가능한 diff가 나온다.
 MAX_FILE_CHARS = 20_000
 # sandbox 컨테이너 안의 clone 위치. 로그에 절대 경로로 찍힌다.

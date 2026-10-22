@@ -37,8 +37,186 @@
   },
   {
     "id": "quickbyte-pod-kill-001",
-    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"},
+    "label": {"verdict": "Fail", "stage": "runtime", "category": "chaos_recovery_exceeds_expected_bound", "labeled_by": "rule-derived 2026-10-20 (allowance 10초로 재라벨)"},
+    "expected_warnings": [],
+    "note": "복구 58.84초 대 상한 45초(grace 30 + probe 5 + allowance 10). allowance 30초(상한 65초) 시절에는 Pass였다"
+  },
+  {
+    "id": "scenario-20261019-s01-ck",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "note": "컨테이너 강제 종료. 같은 Pod에서 재시작 0→1, 복구 4.18초"
+  },
+  {
+    "id": "scenario-20261019-s02-pd",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "note": "Pod 삭제. 새 Pod로 교체, 복구 2.08초"
+  },
+  {
+    "id": "scenario-20261019-s03-cpu",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "note": "CPU 부하. HTTP 실패 없음, 복구 0초"
+  },
+  {
+    "id": "scenario-20261019-s04-lat",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Error", "stage": "runtime", "category": "litmus_fault_execution_failed", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": [],
+    "note": "네트워크 지연. 실행 환경 커널에 sch_netem이 없어 주입 실패. 레포 결함이 아니다"
+  },
+  {
+    "id": "scenario-20261019-s05-loss",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Error", "stage": "runtime", "category": "litmus_fault_execution_failed", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": [],
+    "note": "패킷 손실. s04와 같은 원인"
+  },
+  {
+    "id": "scenario-20261019-s06-route",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
     "expected_warnings": ["chaos_single_replica_topology", "chaos_latency_degraded"],
-    "note": "복구 58.84초 대 상한 65초. 7건 중 recovered 불리언을 가진 유일한 파일"
+    "note": "Service selector 차단. 복구 12.04초, p95 1022.68 / baseline 5.4"
+  },
+  {
+    "id": "scenario-20261019-s07-scale",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_latency_degraded"],
+    "note": "replica 0으로 축소 후 복원. 복구 10.51초, p95 1003.87 / baseline 4.74"
+  },
+  {
+    "id": "scenario-20261019-s08-roll",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "note": "rollout restart. 복구 0.58초, p95 7.2 / 4.6"
+  },
+  {
+    "id": "scenario-20261019-s10-redis",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo-deps",
+    "label": {"verdict": "Error", "stage": "runtime", "category": "sandbox_process_failed", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": [],
+    "note": "Redis 장애. 의존성 rollout 대기가 없던 샌드박스 버그로 배포 단계에서 실패(sandbox PR #18에서 수정). 응답만 보면 인프라 오류가 맞다"
+  },
+  {
+    "id": "scenario-20261019-s11-mem",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "note": "메모리 부하. HTTP 실패 없음"
+  },
+  {
+    "id": "scenario-20261019-s12-oom",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Error", "stage": "runtime", "category": "oom_not_triggered", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "ambiguous": true,
+    "note": "메모리 한도 초과 시나리오인데 oom_observed=false. stress-ng가 앱 대신 죽었다. 지금 규칙은 Pass. '실험이 의도한 일을 하지 않았는데 합격' 구멍이라 판정 정책 정리안 2번 권장안 A(Error)로 라벨을 달았다. 결정 전이라 ambiguous로 지표에서 뺀다"
+  },
+  {
+    "id": "scenario-20261019-w01-ck",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Fail", "stage": "runtime", "category": "chaos_recovery_exceeds_expected_bound", "labeled_by": "rule-derived 2026-10-20 (allowance 10초, config.chaos_recovery_startup_allowance_seconds)"},
+    "expected_warnings": [],
+    "note": "기동이 느린 대상에 컨테이너 종료. 복구 37.69초가 상한 22초(grace 10 + probe 2 + allowance 10)를 넘는다. allowance 30초 시절에는 Pass였다"
+  },
+  {
+    "id": "scenario-20261019-w02-pd",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Fail", "stage": "runtime", "category": "chaos_recovery_exceeds_expected_bound", "labeled_by": "rule-derived 2026-10-20 (allowance 10초, config.chaos_recovery_startup_allowance_seconds)"},
+    "expected_warnings": [],
+    "note": "기동이 느린 대상에 Pod 삭제. 복구 35.47초 대 상한 22초"
+  },
+  {
+    "id": "scenario-20261019-s09-db",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo-deps",
+    "label": {"verdict": "Error", "stage": "runtime", "category": "dependency_fault_injection_failed", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": [],
+    "note": "DB 장애. 의존성 Pod에 netem을 걸지 못해 주입 실패. 실행 환경 한계"
+  },
+  {
+    "id": "scenario-20261019-m01-quick",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "note": "묶음: ck 하나"
+  },
+  {
+    "id": "scenario-20261019-m02-proc",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "note": "묶음: ck, pd, cpu. 시나리오 p95 모두 baseline 대비 10배 미만"
+  },
+  {
+    "id": "scenario-20261019-m03-k8s",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_latency_degraded"],
+    "note": "묶음: 라우팅 차단, 축소, rollout. 최상위 p95는 null이고 시나리오 p95는 1018.93 / 6.67. 단독(s06, s07)과 같은 경고가 나와야 한다"
+  },
+  {
+    "id": "scenario-20261019-m04-memory",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Error", "stage": "runtime", "category": "oom_not_triggered", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "ambiguous": true,
+    "note": "묶음: mem, oom. oom 시나리오가 oom_observed=false. s12와 같은 이유로 ambiguous"
+  },
+  {
+    "id": "scenario-20261019-m05-order",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "note": "묶음: pd 다음 ck. 순서만 바꾼 m01·m02 대조군"
+  },
+  {
+    "id": "scenario-20261019-m06-compact",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_latency_degraded"],
+    "note": "묶음: ck, 축소, rollout. 축소 구간 p95 1019.04 / 4.42"
+  },
+  {
+    "id": "scenario-20261019-m07-dedup",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology"],
+    "note": "묶음: ck, cpu. 요청 중복 시나리오를 한 번만 돌린다"
+  },
+  {
+    "id": "scenario-20261019-m08-deps",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Error", "stage": "runtime", "category": "dependency_fault_injection_failed", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": [],
+    "note": "묶음: DB 장애 하나. s09와 같은 원인으로 첫 시나리오에서 멈춤"
+  },
+  {
+    "id": "scenario-20261019-m09-weak",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Fail", "stage": "runtime", "category": "chaos_recovery_exceeds_expected_bound", "labeled_by": "rule-derived 2026-10-20 (allowance 10초, config.chaos_recovery_startup_allowance_seconds)"},
+    "expected_warnings": [],
+    "note": "기동이 느린 대상 묶음: ck, pd. 가장 긴 복구 37.72초 대 상한 22초"
+  },
+  {
+    "id": "scenario-20261019-m10-stop",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Error", "stage": "runtime", "category": "litmus_fault_execution_failed", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": [],
+    "note": "묶음: ck, cpu, 지연. ck와 cpu는 복구했지만 지연에서 netem이 없어 멈췄다. 요청한 검사를 다 못 했으므로 전체 Error(판정 정책 정리안 3번)"
+  },
+  {
+    "id": "scenario-20261019-m13-long",
+    "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+    "label": {"verdict": "Error", "stage": "runtime", "category": "oom_not_triggered", "labeled_by": "rule-derived 2026-10-20 (judge-policy 6.2, 2026-10-19 kind+Litmus 실측)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_latency_degraded"],
+    "ambiguous": true,
+    "note": "묶음 8개(471초). 라우팅 차단과 축소에서 지연 경고가 나와야 하고, 마지막 oom 시나리오가 oom_observed=false라 s12와 같은 이유로 ambiguous"
   }
 ]
