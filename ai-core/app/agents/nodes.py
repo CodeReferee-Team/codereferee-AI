@@ -418,11 +418,28 @@ def _environment_limit_category(result: SandboxResult) -> str | None:
         return ENVIRONMENT_LIMIT_CATEGORY
 
     report = result.sandbox_report or {}
-    if report.get("detected_stack") != "python" or report.get("failed_step") != "smoke":
+    if report.get("failed_step") != "smoke":
+        return None
+    if report.get("detected_stack") in ("maven", "gradle"):
+        return _jvm_build_limit_category(result)
+    if report.get("detected_stack") != "python":
         return None
     if result.exit_code == _PYTEST_USAGE_ERROR:
         return ENVIRONMENT_LIMIT_CATEGORY
     if result.exit_code == _PYTEST_COLLECTION_ERROR and not _verification_was_declared(result):
+        return ENVIRONMENT_LIMIT_CATEGORY
+    return None
+
+
+def _jvm_build_limit_category(result: SandboxResult) -> str | None:
+    """테스트는 전부 통과했는데 추측한 빌드 명령이 깨졌다(google/gson의 다중 모듈 JPMS 빌드).
+
+    보고서가 없으면 테스트 전에 컴파일이 깨진 것이라 레포 결함으로 둔다.
+    """
+    if _verification_was_declared(result):
+        return None
+    tests = (result.sandbox_report or {}).get("test_report")
+    if isinstance(tests, dict) and int(tests.get("tests") or 0) > 0 and int(tests.get("failed") or 0) == 0:
         return ENVIRONMENT_LIMIT_CATEGORY
     return None
 
@@ -460,13 +477,15 @@ def _nonzero_exit_category(result: SandboxResult) -> str:
     if category := _FAILED_STEP_CATEGORIES.get(failed_step):
         return category
     if failed_step == "smoke":
-        return _smoke_category(result)
+        return _smoke_category(result, image_built=True)
     return _smoke_category(result)
 
 
-def _smoke_category(result: SandboxResult) -> str:
+def _smoke_category(result: SandboxResult, image_built: bool = False) -> str:
     text = f"{result.stderr} {result.stdout}".lower()
-    if "docker" in text:
+    # smoke 단계에 왔다면 이미지는 이미 떴다. 로그의 host.docker.internal(JVM 프록시 설정)에 걸려
+    # 정상 Java 레포가 docker_build_failed로 나갔다(2026-10-20 실측).
+    if "docker" in text and not image_built:
         return "docker_build_failed"
     if any(sign in text for sign in _DEPENDENCY_SIGNS):
         return "dependency_install_failed"

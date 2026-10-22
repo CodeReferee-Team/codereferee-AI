@@ -51,6 +51,11 @@ AI Core는 기존 실행 결과 필드와 함께 다음 Chaos v1 evidence를 보
 
 ### 단계
 
+`clone`은 `--depth 1`로 받고, 검증하는 커밋에 붙은 태그가 있으면 그 태그만 따로 받는다. 얕은 clone에는
+태그가 없어서 setuptools-scm이나 hatch-vcs가 패키지 버전을 `0.1.dev1`로 계산한다. 정상 릴리스인
+`python-attrs/attrs` 26.1.0이 그래서 버전 테스트 2개에서 떨어졌다(2026-10-21 실측). 태그를 찾는 데는
+`git ls-remote --tags` 한 번이면 되고, 태그가 없는 커밋이면 아무것도 받지 않는다.
+
 구조화 결과의 `failed_step`은 `prepare` → `clone` → `patch` → `detect` → `declaration` →
 `compile` → `dependencies` → `smoke` 중 하나다. `compile`은 Python에서 선언이 없을 때만 돌고
 (`python -m compileall -q -x <제외> .`), 의존성 설치보다 앞에 둔다. `tests`, `test`, `testing` 디렉터리와
@@ -81,8 +86,28 @@ pytest가 테스트를 하나도 모으지 못하면 5로 끝낸다. `tests` 디
 `test_*.py`가 없는 경우다. 같은 "검증할 것이 없음"이므로 스크립트가 89로 바꿔 내보낸다. 선언된
 명령에는 적용하지 않는다. 그 명령이 pytest인지 우리가 알 수 없고, 다른 도구의 5는 다른 뜻이다.
 
-Gradle과 Maven은 테스트가 0건이어도 `test` 태스크가 성공한다. 이를 구분하려면 테스트 리포트를
-읽어야 하므로 아직 다루지 않는다.
+89로 바꾸기 전에 `tests`와 `test` 디렉터리에서 `python -m unittest discover -p 'test*.py'`를 한 번
+돌린다. pytest의 기본 파일 규칙은 `test_*.py`라서 `tests/test.py` 같은 unittest 형식 파일을 모으지
+못한다. `micheles/decorator`가 그 모양이라 테스트 25개가 있는데 "테스트 없음"으로 불합격했다(정상 레포
+실측, 2026-10-20). unittest도 아무것도 돌리지 못하면 5로 끝내므로(Python 3.12부터) 그때 89를 낸다.
+unittest가 실패하면 그 종료 코드를 그대로 낸다. 대안 실행기를 썼다고 실패를 덮지 않는다.
+
+Node는 선언이 없을 때 `npm test`를 돌린다. 단 `test:node` 스크립트가 있으면 그것을 돌린다.
+`debug-js/debug`의 `test`는 `test:node`, `test:browser`(karma), `lint`를 차례로 잇는데, 샌드박스에는
+브라우저가 없고 lint는 실행 검증이 아니다. 레포가 Node 전용 테스트를 따로 이름 붙여 두었다면 그것이
+우리가 검증할 수 있는 범위와 정확히 맞는다.
+
+Gradle과 Maven은 테스트가 0건이어도 `test` 태스크가 성공한다. 그래서 테스트 명령이 끝나면 두 도구가
+같은 형식으로 남기는 JUnit XML(`**/surefire-reports/TEST-*.xml`, `**/test-results/**/TEST-*.xml`)을 읽어
+구조화 결과의 `test_report`에 `{"files", "tests", "failed"}`로 담는다. `failed`는 failures와 errors의
+합이다. 빌드가 성공했는데 돌린 테스트가 0건이면 89를 낸다. 보고서를 읽지 못하면(`python3` 없음)
+`test_report`는 `null`이고 판정은 종전과 같다. 보고서를 다른 경로에 두도록 바꾼 레포는 0건으로 보여
+89가 날 수 있다. 그런 레포는 `.codereferee/validation.yaml`로 명령을 선언하면 된다.
+
+같은 보고서로 "테스트는 전부 통과했는데 빌드가 깨진" 경우를 가른다. `google/gson`이 그랬다. `gson`
+모듈의 테스트가 전부 통과한 뒤 `test-jpms` 모듈이 테스트 컴파일에서 떨어졌다. 이 레포의 CI는
+`mvn verify`에 일부 모듈을 빼고 돌리는데, 우리가 추측한 `mvn test`로는 그 순서를 맞출 수 없다(정상
+레포 실측, 2026-10-21). 판정 기준은 judge-policy 8절에 있다.
 
 ## 샌드박스 이미지
 
