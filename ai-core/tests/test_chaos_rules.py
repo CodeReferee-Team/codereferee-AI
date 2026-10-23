@@ -44,10 +44,26 @@ class ExpectedRecoveryBoundTests(unittest.TestCase):
         bound = nodes._expected_recovery_bound({"target_configuration": _target_configuration(), "kill_method": "litmus_pod_delete_force"})
         self.assertEqual(bound, 13.0)
 
-    def test_recovery_over_the_bound_fails(self) -> None:
-        reason, _ = nodes._measured_policy_findings(_state(), _result(70.0))
-        self.assertIsNotNone(reason)
-        self.assertTrue(reason.startswith("chaos_recovery_exceeds_expected_bound"))
+    def test_recovery_over_the_bound_is_a_warning_not_a_failure(self) -> None:
+        # 2026-10-23 결정. 상한은 우리가 설정에서 계산한 기대값이지 사용자가 겪은 장애가 아니다.
+        # 레플리카가 여럿이면 교체가 느려도 남은 Pod가 받고, 하나면 다운타임이 버짓으로 잡힌다.
+        # 실서버에서 레플리카를 6까지 올려도 이 규칙에 계속 걸려 치유 루프가 헛돌았다.
+        reason, warnings = nodes._measured_policy_findings(_state(), _result(70.0))
+        self.assertIsNone(reason)
+        self.assertIn("chaos_recovery_slower_than_expected", warnings)
+
+    def test_long_downtime_still_fails_on_the_error_budget(self) -> None:
+        # 버짓 판정은 그대로다. 99.9% 목표의 월간 버짓은 2,592초.
+        reason, _ = nodes._measured_policy_findings(_state(), _result(3000.0))
+        self.assertTrue(reason.startswith("chaos_error_budget_exhausted"))
+
+    def test_the_reason_says_recovery_was_slower_than_the_configuration_implies(self) -> None:
+        observation = {"type": "pod_kill", "recovered": True, "recovery_seconds": 70.0,
+                       "target_configuration": _target_configuration()}
+        sentence = nodes._chaos_reason("recovered within budget", observation,
+                                       ["chaos_recovery_slower_than_expected"])
+        self.assertIn("70.0s", sentence)
+        self.assertIn("43.0s", sentence)
 
     def test_recovery_within_the_bound_passes(self) -> None:
         reason, warnings = nodes._measured_policy_findings(_state(), _result(12.0))

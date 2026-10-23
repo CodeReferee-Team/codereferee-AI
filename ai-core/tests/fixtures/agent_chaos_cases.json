@@ -482,13 +482,16 @@
         }
       }
     },
-    "judge_status": "Fail",
+    "judge_status": "Pass",
     "label": {
-      "verdict": "Fail",
+      "verdict": "Pass",
       "stage": "runtime",
-      "category": "chaos_recovery_exceeds_expected_bound",
-      "labeled_by": "human-reviewed 2026-09-27"
+      "category": "chaos_recovered_within_budget",
+      "labeled_by": "rule-derived 2026-10-23 (복구 상한 초과는 경고, 윤 결정)"
     },
-    "expected_warnings": []
+    "expected_warnings": [
+      "chaos_recovery_slower_than_expected"
+    ],
+    "note": "2026-10-23 재라벨: 복구 상한 초과는 경고로 바뀌었다(judge-policy 6.2 규칙 4). 다운타임이 월간 버짓 안이라 Pass. 이전 라벨은 Fail/chaos_recovery_exceeds_expected_bound."
   }
 ]
