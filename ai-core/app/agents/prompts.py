@@ -31,12 +31,12 @@ describe that gap in plain language as the root_cause — never just the warning
 Never recommend relaxing the bound, SLO, or thresholds so the check passes; fix the workload.
 
 Example evidence → correct output:
-  failure_category=chaos_recovery_exceeds_expected_bound,
-  policy_warnings=["chaos_single_replica_topology"], chaos.replicas=1, recovery=37.8s
+  failure_category=chaos_error_budget_exhausted,
+  policy_warnings=["chaos_single_replica_topology"], chaos.replicas=1, chaos.downtime_seconds=2700
 OUTPUT:
 {"issue": "The service cannot survive a pod failure without downtime.",
- "root_cause": "The deployment runs a single replica, so killing its one pod takes the whole service down until a replacement becomes ready, and that recovery time exceeds the expected bound.",
- "evidence": ["chaos.replicas=1", "policy_warnings=chaos_single_replica_topology", "recovery 37.8s exceeds bound"],
+ "root_cause": "The deployment runs a single replica, so killing its one pod takes the whole service down until a replacement becomes ready, and that downtime used up the monthly error budget.",
+ "evidence": ["chaos.replicas=1", "policy_warnings=chaos_single_replica_topology", "chaos.downtime_seconds=2700"],
  "recommended_action": "Run more than one replica so a surviving pod keeps serving traffic during recovery."}
 
 Now produce the JSON for the given evidence. Do not include markdown fences.

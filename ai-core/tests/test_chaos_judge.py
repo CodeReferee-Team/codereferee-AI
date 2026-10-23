@@ -84,12 +84,13 @@ class ChaosBranchTests(unittest.TestCase):
         self.assertEqual(report["status"], "Pass")
         self.assertIn("chaos_single_replica_topology", state.metrics["policy_warnings"])
 
-    def test_recovery_over_the_bound_fails(self) -> None:
-        # 같은 설정에서 복구가 125.91초 걸렸다. 상한 45초의 세 배 가까이다.
+    def test_recovery_over_the_bound_passes_with_a_warning(self) -> None:
+        # 같은 설정에서 복구가 125.91초 걸렸다. 상한 45초의 세 배 가까이지만 월간 버짓 안이다.
+        # 2026-10-23부터 상한 초과는 경고다(judge-policy 6.2 규칙 4).
         state = _state("quickbyte-auto-deploy-litmus-001")
         report = nodes._fallback_judge(state)
-        self.assertEqual(report["status"], "Fail")
-        self.assertEqual(report["reason_category"], "chaos_recovery_exceeds_expected_bound")
+        self.assertEqual(report["status"], "Pass")
+        self.assertIn("chaos_recovery_slower_than_expected", state.metrics["policy_warnings"])
 
 
 class RecoveryDerivationTests(unittest.TestCase):

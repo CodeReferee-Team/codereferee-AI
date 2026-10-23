@@ -19,9 +19,9 @@
   },
   {
     "id": "quickbyte-auto-deploy-litmus-001",
-    "label": {"verdict": "Fail", "stage": "runtime", "category": "chaos_recovery_exceeds_expected_bound", "labeled_by": "rule-derived 2026-10-04 (judge-policy 6.2)"},
-    "expected_warnings": [],
-    "note": "복구 125.91초 대 상한 65초. 규칙 4에서 걸리므로 뒤 규칙은 보지 않는다는 전제로 경고를 비워 둔다"
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-23 (복구 상한 초과는 경고, 윤 결정)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_recovery_slower_than_expected", "chaos_latency_degraded"],
+    "note": "복구 125.91초 대 상한 65초. 규칙 4에서 걸리므로 뒤 규칙은 보지 않는다는 전제로 경고를 비워 둔다 / 2026-10-23 재라벨: 복구 상한 초과는 경고로 바뀌었다(judge-policy 6.2 규칙 4). 다운타임이 월간 버짓 안이라 Pass. 이전 라벨은 Fail/chaos_recovery_exceeds_expected_bound."
   },
   {
     "id": "quickbyte-litmus-chaos-v1-001",
@@ -37,9 +37,9 @@
   },
   {
     "id": "quickbyte-pod-kill-001",
-    "label": {"verdict": "Fail", "stage": "runtime", "category": "chaos_recovery_exceeds_expected_bound", "labeled_by": "rule-derived 2026-10-20 (allowance 10초로 재라벨)"},
-    "expected_warnings": [],
-    "note": "복구 58.84초 대 상한 45초(grace 30 + probe 5 + allowance 10). allowance 30초(상한 65초) 시절에는 Pass였다"
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-23 (복구 상한 초과는 경고, 윤 결정)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_recovery_slower_than_expected", "chaos_latency_degraded"],
+    "note": "복구 58.84초 대 상한 45초(grace 30 + probe 5 + allowance 10). allowance 30초(상한 65초) 시절에는 Pass였다 / 2026-10-23 재라벨: 복구 상한 초과는 경고로 바뀌었다(judge-policy 6.2 규칙 4). 다운타임이 월간 버짓 안이라 Pass. 이전 라벨은 Fail/chaos_recovery_exceeds_expected_bound."
   },
   {
     "id": "scenario-20261019-s01-ck",
@@ -122,16 +122,16 @@
   {
     "id": "scenario-20261019-w01-ck",
     "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
-    "label": {"verdict": "Fail", "stage": "runtime", "category": "chaos_recovery_exceeds_expected_bound", "labeled_by": "rule-derived 2026-10-20 (allowance 10초, config.chaos_recovery_startup_allowance_seconds)"},
-    "expected_warnings": [],
-    "note": "기동이 느린 대상에 컨테이너 종료. 복구 37.69초가 상한 22초(grace 10 + probe 2 + allowance 10)를 넘는다. allowance 30초 시절에는 Pass였다"
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-23 (복구 상한 초과는 경고, 윤 결정)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_recovery_slower_than_expected"],
+    "note": "기동이 느린 대상에 컨테이너 종료. 복구 37.69초가 상한 22초(grace 10 + probe 2 + allowance 10)를 넘는다. allowance 30초 시절에는 Pass였다 / 2026-10-23 재라벨: 복구 상한 초과는 경고로 바뀌었다(judge-policy 6.2 규칙 4). 다운타임이 월간 버짓 안이라 Pass. 이전 라벨은 Fail/chaos_recovery_exceeds_expected_bound."
   },
   {
     "id": "scenario-20261019-w02-pd",
     "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
-    "label": {"verdict": "Fail", "stage": "runtime", "category": "chaos_recovery_exceeds_expected_bound", "labeled_by": "rule-derived 2026-10-20 (allowance 10초, config.chaos_recovery_startup_allowance_seconds)"},
-    "expected_warnings": [],
-    "note": "기동이 느린 대상에 Pod 삭제. 복구 35.47초 대 상한 22초"
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-23 (복구 상한 초과는 경고, 윤 결정)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_recovery_slower_than_expected"],
+    "note": "기동이 느린 대상에 Pod 삭제. 복구 35.47초 대 상한 22초 / 2026-10-23 재라벨: 복구 상한 초과는 경고로 바뀌었다(judge-policy 6.2 규칙 4). 다운타임이 월간 버짓 안이라 Pass. 이전 라벨은 Fail/chaos_recovery_exceeds_expected_bound."
   },
   {
     "id": "scenario-20261019-s09-db",
@@ -200,9 +200,9 @@
   {
     "id": "scenario-20261019-m09-weak",
     "repository_url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
-    "label": {"verdict": "Fail", "stage": "runtime", "category": "chaos_recovery_exceeds_expected_bound", "labeled_by": "rule-derived 2026-10-20 (allowance 10초, config.chaos_recovery_startup_allowance_seconds)"},
-    "expected_warnings": [],
-    "note": "기동이 느린 대상 묶음: ck, pd. 가장 긴 복구 37.72초 대 상한 22초"
+    "label": {"verdict": "Pass", "stage": "runtime", "category": "chaos_recovered_within_budget", "labeled_by": "rule-derived 2026-10-23 (복구 상한 초과는 경고, 윤 결정)"},
+    "expected_warnings": ["chaos_single_replica_topology", "chaos_recovery_slower_than_expected"],
+    "note": "기동이 느린 대상 묶음: ck, pd. 가장 긴 복구 37.72초 대 상한 22초 / 2026-10-23 재라벨: 복구 상한 초과는 경고로 바뀌었다(judge-policy 6.2 규칙 4). 다운타임이 월간 버짓 안이라 Pass. 이전 라벨은 Fail/chaos_recovery_exceeds_expected_bound."
   },
   {
     "id": "scenario-20261019-m10-stop",

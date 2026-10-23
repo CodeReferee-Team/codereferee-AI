@@ -623,13 +623,13 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
         if recovery is None:
             recovery = _as_float(measured.get("recovery_seconds"))
 
+        # 상한은 워크로드 설정에서 계산한 기대값이다. 넘으면 경고만 붙이고 판정은 다운타임과
+        # 버짓으로 한다(2026-10-23). 레플리카가 여럿이면 교체가 느려도 남은 Pod가 받고, 하나면
+        # 그 시간이 다운타임으로 버짓에 잡힌다. 실서버에서 레플리카를 6까지 올려도 이 규칙에
+        # 계속 걸려 치유 루프가 효과 없는 패치만 반복했다.
         bound = _expected_recovery_bound(observation)
         if recovery is not None and bound is not None and recovery > bound:
-            return (
-                f"chaos_recovery_exceeds_expected_bound: recovery {recovery}s exceeds the bound "
-                f"{round(bound, 3)}s implied by the workload configuration.",
-                warnings,
-            )
+            warnings.append(SLOWER_THAN_EXPECTED)
 
         # 묶음은 장애마다 버짓을 쓴다. 복구 상한은 가장 긴 한 번, 버짓은 합으로 본다.
         downtime = chaos_downtime_seconds(observation)
@@ -782,6 +782,14 @@ def _chaos_reason(head: str, observation: dict[str, object], warnings: list[str]
         sentences.append(f"The workload runs 1 replica, so requests failed for {downtime}s in total during the faults.")
     elif "chaos_single_replica_topology" in warnings:
         sentences.append("The workload runs 1 replica, so it has no spare Pod during a fault.")
+    if SLOWER_THAN_EXPECTED in warnings:
+        recovery = _as_float(observation.get("recovery_seconds"))
+        bound = _expected_recovery_bound(observation)
+        if recovery is not None and bound is not None:
+            sentences.append(f"Recovery took {recovery}s, longer than the {round(bound, 3)}s the workload "
+                             "configuration implies.")
+        else:
+            sentences.append("Recovery took longer than the workload configuration implies.")
     if "chaos_error_budget_significant_burn" in warnings and downtime:
         sentences.append(f"The {downtime}s of downtime used at least 20% of the monthly error budget.")
     if "chaos_latency_degraded" in warnings:
@@ -820,6 +828,9 @@ def _chaos_evidence(result: SandboxResult, warnings: list[str]) -> list[str]:
         items.append(f"executed={','.join(observation.get('executed') or [])}")
         items.append(f"not_checked={','.join(_not_checked(observation))}")
     return items
+
+
+SLOWER_THAN_EXPECTED = "chaos_recovery_slower_than_expected"
 
 
 def _expected_recovery_bound(observation: dict[str, object]) -> float | None:

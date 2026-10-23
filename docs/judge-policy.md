@@ -182,7 +182,7 @@ Sandbox v1이 실제 Kubernetes Pod Kill 실험 결과를 보내기 시작하면
 | 1 | baseline이나 복구 관측값이 없음 | Error | `chaos_evidence_missing` |
 | 2 | 실험이 중단 조건으로 정지됨 | Error | `chaos_experiment_aborted` |
 | 3 | `chaos_observation.recovered = false` | Fail | `chaos_not_recovered` |
-| 4 | 복구 시간 > 기대 복구 상한 | Fail | `chaos_recovery_exceeds_expected_bound` |
+| 4 | 복구 시간 > 기대 복구 상한 | Pass + 경고 (판정은 5, 6이 한다) | `chaos_recovery_slower_than_expected` |
 | 5 | 불가용 시간이 월간 에러 버짓의 100% 이상 | Fail | `chaos_error_budget_exhausted` |
 | 6 | 불가용 시간이 월간 에러 버짓의 20% 이상 | Pass + 경고 | `chaos_error_budget_significant_burn` |
 | 7 | 대상 replica가 1개 | Pass + 경고 | `chaos_single_replica_topology` |
@@ -200,6 +200,7 @@ Sandbox v1이 실제 Kubernetes Pod Kill 실험 결과를 보내기 시작하면
 - **지연 배수 10배는 우리 관례다.** Google SRE 문헌은 p95 단일 임계값이 아니라 p50과 p99·p99.9를 함께 보라고 권고한다([Service Level Objectives](https://sre.google/sre-book/service-level-objectives/)). 현재 Sandbox가 p95만 보내므로 임시로 baseline 대비 배수를 쓰고, p99가 들어오면 임계값을 다시 정한다.
 - **묶음 실행은 지연을 시나리오별로 본다.** 여러 시나리오를 한 배포에서 이어 돌린 응답은 최상위 `metrics.p95_latency_ms`를 null로 보내고 `chaos_observation.scenarios[]`에 시나리오마다 baseline과 실험 구간 p95를 따로 싣는다. 규칙 8은 각 시나리오를 그 시나리오의 baseline과 비교해, 하나라도 넘으면 경고를 붙인다. 최상위만 보면 단독으로 돌릴 때 나오던 경고가 묶음에서 사라진다(2026-10-19 실측: 라우팅 차단 1018.93ms / 6.67ms).
 - **경고는 판정 사유 문장에도 쓴다 (2026-10-23).** `metrics.policy_warnings`에만 두면 `judge_report.reason`은 "기준 안에서 복구"라고만 말한다. 레플리카가 1개면 "레플리카가 1개라 장애 중 N초 동안 요청이 실패했다"를 사유와 evidence에 함께 적는다.
+- **복구 상한 초과는 경고다 (2026-10-23, 규칙 4).** 상한은 워크로드 설정에서 계산한 기대값이지 사용자가 겪은 장애가 아니다. 레플리카가 여럿이면 교체 Pod가 늦게 떠도 남은 Pod가 요청을 받고, 하나면 그 시간이 다운타임으로 잡혀 규칙 5, 6에서 버짓과 비교된다. 레플리카 1개도 운영자의 선택이라는 판단(위 항목)과 같은 기준이다. 예전에는 Fail이었고, 실서버에서 Refiner가 레플리카를 6까지 올려도 이 규칙에 계속 걸려 치유 루프가 효과 없는 패치만 반복했다(D02 재실행, 복구 38~42초 대 상한 22초). 평가셋에서 이 카테고리로 라벨된 6건(T1-chaos 1, T1-chaos-real 5)을 Pass로 다시 라벨했고, 이전 라벨은 각 건의 note에 남겼다. `chaos_recovery_exceeds_expected_bound` 코드는 옛 리포트 호환을 위해 목록에 남긴다.
 - **묶음의 에러 버짓은 복구 시간의 합으로 본다 (2026-10-23).** 복구 상한(규칙 4)은 장애 한 번의 길이라 가장 긴 복구와 비교한다. 에러 버짓(규칙 5, 6)은 장애마다 쓴 시간이 쌓이므로 `chaos_observation.total_downtime_seconds`(없으면 시나리오별 `recovery_seconds`의 합)를 쓴다.
 - **일부만 돈 묶음은 돈 것으로 판정한다 (2026-10-23, 규칙 9).** 샌드박스는 인프라 오류가 난 시나리오를 `stopped`에 적고 다음 시나리오로 넘어간다. 하나라도 관측했으면 그 결과로 판정하고, 빠진 시나리오와 이유를 판정 사유에 적어 그 검사까지 통과한 것으로 읽히지 않게 한다. 하나도 관측하지 못했으면 지금처럼 ERROR다. 예전에는 하나만 막혀도 전체가 ERROR였다(M10: ck·cpu 복구, 지연 시나리오는 netem 없음).
 - **ERROR에는 멈춘 곳을 남긴다.** 샌드박스가 `stoppedAt`(`deploy`, `smoke`, `scenario:<모드>`)을 보내면 `metrics.stopped_at`과 마지막 오류 줄(`metrics.stopped_reason`)로 옮긴다.
