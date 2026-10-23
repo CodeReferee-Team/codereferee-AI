@@ -68,13 +68,18 @@ CodeReferee는 안정성만 판정한다. 코드 결함은 판정 대상이 아�
 ```text
 timeout, sandbox_nonzero_exit, sandbox_not_executed, test_failure, compile_failed,
 no_tests_detected, dependency_install_failed, docker_build_failed, no_manifest_detected,
-unsupported_project_stack, repository_not_accessible, service_smoke_failed, browser_smoke_failed
+unsupported_project_stack, repository_not_accessible, service_smoke_failed, browser_smoke_failed,
+service_not_deployable
 ```
 
 - `verification_environment_unsupported`와 같은 갈래로 간다. Critic과 Refiner를 건너뛴다. 안정성
   문제가 아닌 것을 고치려 들지 않는다. 패치 루프는 안정성 판정(카오스, 지표)이 Fail일 때만 돈다.
 - 89(`no_tests_detected`)도 여기에 든다. 전에는 "레포의 상태"라며 FAILED로 두었다(sandbox.md). 이제는
   안정성을 재지 못한 경우라 판정 불가다.
+- 쿠버네티스 샌드박스도 89를 쓰지만 뜻이 다르다. 배포할 HTTP 서비스를 정하지 못했다는 뜻이고(라이브러리,
+  서비스가 여럿인 레포), `sandboxReport.configuration_required`가 함께 온다. 이 표시가 있으면 종료 코드보다
+  먼저 보고 `service_not_deployable`로 분류한다. 2026-10-23 실서버에서 jsoup(테스트 2,631건 통과)이
+  "테스트가 없다"로 나간 것을 보고 나눴다.
 - Preflight 실패(URL, 권한, ref, manifest 없음)는 그대로 Fail이다. 요청 자체가 검증할 수 없는
   대상을 가리킨 것이고, 이번 결정은 설치·테스트 단계에 대한 것이다.
 - 1층이 통과했지만 카오스가 없었던 경우(Pass)는 이번에 바꾸지 않았다. 안정성을 재지 않았다는 점에서는
