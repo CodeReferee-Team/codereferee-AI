@@ -941,5 +941,108 @@ class RefinementLoopTests(unittest.TestCase):
         self.assertTrue(any("hit infra error" in event for event in state.events))
 
 
+class CumulativePatchTests(unittest.TestCase):
+    """두 번째 라운드부터 Refiner는 앞 패치가 적용된 파일을 보고 그 위에 얹을 diff를 쓴다.
+
+    샌드박스는 제출된 커밋에 패치를 적용하므로 그 diff만 보내면 맞지 않는다. 실서버에서 겪었다
+    (2026-10-23, 레플리카 1개 레포). 2라운드 패치가 적용되지 않아 patch 단계에서 멈췄고,
+    리포트의 Critic과 Refiner는 레포의 안정성 대신 "CI 패치가 어긋났다"를 설명했다.
+    """
+
+    PREFLIGHT = RefinementLoopTests.PREFLIGHT
+    FIRST = "--- a/v.yaml\n+++ b/v.yaml\n@@ -1 +1 @@\n-replicas: 1\n+replicas: 2\n"
+    SECOND = "--- a/v.yaml\n+++ b/v.yaml\n@@ -1 +1 @@\n-replicas: 2\n+replicas: 3\n"
+
+    def _run(self, sandbox_results, diffs):
+        state = AgentState(job_id="cumulative", request_id="cumulative",
+                           repository_url="https://github.com/example/project")
+        pending = list(sandbox_results)
+        remaining_diffs = list(diffs)
+        calls: list[str | None] = []
+        collected: list[str | None] = []
+
+        def _sandbox(repository_url, branch=None, commit_sha=None, patch_diff=None, **kwargs):
+            calls.append(patch_diff)
+            return pending.pop(0)
+
+        def _refiner(state):
+            state.refiner_report = {
+                "summary": f"round {len(calls)}", "patch_guidance": ["apply"],
+                "verification_steps": ["rerun"], "risk": "low",
+                "patch_diff": remaining_diffs.pop(0) if remaining_diffs else None,
+            }
+            return state
+
+        def _collect(url, paths, **kwargs):
+            collected.append(kwargs.get("applied_patch"))
+            return {"v.yaml": "replicas: 1\n"}
+
+        with patch("app.workflow.repository_validation.repository_preflight_runner.run",
+                   return_value=self.PREFLIGHT), \
+                patch("app.workflow.repository_validation.sandbox_runner.run_repository", side_effect=_sandbox), \
+                patch("app.workflow.repository_validation.refiner_node", side_effect=_refiner), \
+                patch.object(source_context, "collect", side_effect=_collect):
+            state = execute_repository_validation(state, output_queue=RecordingQueue())
+        return state, calls, collected
+
+    def test_the_second_round_sends_both_patches(self) -> None:
+        _, calls, _ = self._run(
+            [_chaos_failure(), _chaos_failure(), SandboxResult(exit_code=0, stdout="ok")],
+            [self.FIRST, self.SECOND],
+        )
+        self.assertEqual(calls[1], self.FIRST)
+        self.assertEqual(calls[2], self.FIRST + self.SECOND)
+
+    def test_source_files_are_read_with_everything_applied_so_far(self) -> None:
+        _, _, collected = self._run(
+            [_chaos_failure(), _chaos_failure(), _chaos_failure(), _chaos_failure()],
+            [self.FIRST, self.SECOND, self.SECOND],
+        )
+        # 최초 실행 뒤에는 아무것도 적용되지 않았고, 그다음부터는 누적이다.
+        self.assertEqual(collected[:3], [None, self.FIRST, self.FIRST + self.SECOND])
+
+    def test_the_cumulative_patch_really_applies_with_git(self) -> None:
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as repo:
+            Path(repo, "v.yaml").write_text("replicas: 1\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            applied = subprocess.run(["git", "apply", "--check", "-"], cwd=repo,
+                                     input=self.FIRST + self.SECOND, text=True,
+                                     capture_output=True)
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            alone = subprocess.run(["git", "apply", "--check", "-"], cwd=repo, input=self.SECOND,
+                                   text=True, capture_output=True)
+            self.assertNotEqual(alone.returncode, 0)
+
+    def test_a_patch_that_does_not_apply_stops_the_loop_and_keeps_the_last_analysis(self) -> None:
+        not_applied = SandboxResult(
+            exit_code=1, stderr="error: patch failed: v.yaml:1",
+            sandbox_report={"schema_version": "sandbox-result.v1", "outcome": "failed", "failed_step": "patch"},
+        )
+        state, calls, _ = self._run(
+            [_chaos_failure(), _chaos_failure(), not_applied],
+            [self.FIRST, self.SECOND, self.SECOND],
+        )
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertEqual(state.judge_report["status"], "Fail")
+        # 리포트에 남는 분석은 레포를 실제로 돌려본 마지막 라운드의 것이다. 적용되지 않은 패치를
+        # 수정안으로 내보내지 않고, 샌드박스에서 실제로 적용된 마지막 패치를 남긴다.
+        self.assertEqual(state.refiner_report["summary"], "round 2")
+        self.assertEqual(state.refiner_report["patch_diff"], self.FIRST)
+        self.assertTrue(any("did not apply" in event for event in state.events))
+        self.assertEqual(state.refine_rounds[-1]["failed_step"], "patch")
+
+    def test_the_reported_patch_is_cumulative(self) -> None:
+        state, _, _ = self._run(
+            [_chaos_failure(), _chaos_failure(), SandboxResult(exit_code=0, stdout="ok")],
+            [self.FIRST, self.SECOND],
+        )
+        self.assertTrue(state.metrics["patch_verified"])
+        self.assertEqual(state.refiner_report["patch_diff"], self.FIRST + self.SECOND)
+
+
 if __name__ == "__main__":
     unittest.main()
