@@ -239,6 +239,7 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
         source=_json_object(data.get("source")),
         sandbox_report=_json_object(data.get("sandbox_report", data.get("sandboxReport"))),
         observation_status=str(observation_status) if observation_status else None,
+        stopped_at=str(data["stoppedAt"]) if data.get("stoppedAt") else None,
         infra_error=(
             str(reported_infra_error)
             if reported_infra_error

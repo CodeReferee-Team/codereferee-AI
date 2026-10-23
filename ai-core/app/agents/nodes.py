@@ -316,11 +316,13 @@ def _fallback_judge(state: AgentState) -> dict[str, object]:
             state.events.append(f"Judge: warning {warning}")
         if failure:
             category, _, detail = failure.partition(": ")
-            return {"status": "Fail", "reason_category": category, "reason": detail or failure,
-                    "evidence": _sandbox_evidence(result)}
+            return {"status": "Fail", "reason_category": category,
+                    "reason": _chaos_reason(detail or failure, result.chaos_observation, warnings),
+                    "evidence": _chaos_evidence(result, warnings)}
         return {"status": "Pass", "reason_category": "chaos_recovered_within_budget",
-                "reason": "Chaos experiment recovered within the configured budget.",
-                "evidence": _sandbox_evidence(result)}
+                "reason": _chaos_reason("Chaos experiment recovered within the configured budget.",
+                                        result.chaos_observation, warnings),
+                "evidence": _chaos_evidence(result, warnings)}
 
     if result.timed_out:
         return {"status": "Fail", "reason_category": "timeout", "reason": "Sandbox execution timed out.", "evidence": _sandbox_evidence(result)}
@@ -605,6 +607,10 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
         # 토폴로지는 복구 판정과 무관한 구성 속성이므로 항상 기록한다(판정은 warning일 뿐).
         if _as_float(chaos_target_configuration(observation).get("replicas")) == 1:
             warnings.append("chaos_single_replica_topology")
+        # 묶음 일부가 인프라 문제로 돌지 못했다. 판정은 돈 시나리오로만 했다는 표시라
+        # Fail로 일찍 끝나도 남아야 한다.
+        if observation.get("partial"):
+            warnings.append("chaos_partial_execution")
 
         # 복구 시간은 chaos_observation에도 metrics에도 올 수 있다. 실측은 전자에 담아 보낸다.
         recovery = _as_float(observation.get("recovery_seconds"))
@@ -619,15 +625,19 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
                 warnings,
             )
 
+        # 묶음은 장애마다 버짓을 쓴다. 복구 상한은 가장 긴 한 번, 버짓은 합으로 본다.
+        downtime = chaos_downtime_seconds(observation)
+        if downtime is None:
+            downtime = recovery
         allowance = _monthly_unavailability_budget_seconds(slo.availability_percent_min)
-        if recovery is not None and allowance:
-            if recovery >= allowance:
+        if downtime is not None and allowance:
+            if downtime >= allowance:
                 return (
-                    f"chaos_error_budget_exhausted: recovery {recovery}s consumed the monthly "
+                    f"chaos_error_budget_exhausted: downtime {downtime}s consumed the monthly "
                     f"error budget of {allowance}s.",
                     warnings,
                 )
-            if recovery >= allowance * 0.2:
+            if downtime >= allowance * 0.2:
                 warnings.append("chaos_error_budget_significant_burn")
 
         if _latency_degraded(result.baseline, measured) or any(
@@ -735,6 +745,75 @@ def _memory_usage_ratio(measured: dict[str, object]) -> float | None:
         return None
     return used / limit
 
+
+
+def chaos_downtime_seconds(observation: dict[str, object]) -> float | None:
+    """실험 전체에서 서비스가 끊긴 시간. 모르면 None.
+
+    묶음은 total_downtime_seconds를 보낸다. 없으면 시나리오별 복구 시간을 더한다.
+    단일 실험은 recovery_seconds가 곧 다운타임이다.
+    """
+    if (total := _as_float(observation.get("total_downtime_seconds"))) is not None:
+        return total
+    scenarios = [s for s in observation.get("scenarios") or [] if isinstance(s, dict)]
+    if scenarios:
+        values = [_as_float((s.get("chaos_observation") or {}).get("recovery_seconds")) for s in scenarios]
+        values = [v for v in values if v is not None]
+        if values:
+            return round(sum(values), 2)
+    return _as_float(observation.get("recovery_seconds"))
+
+
+def _chaos_reason(head: str, observation: dict[str, object], warnings: list[str]) -> str:
+    """판정 문장 뒤에 경고와 빠진 검사를 붙인다.
+
+    경고를 metrics에만 두면 사유는 "기준 안에서 복구"라고만 말한다. 레플리카가 1개라 요청이
+    끊긴 시간, 돌지 못한 시나리오는 사유를 읽는 사람이 알아야 하는 사실이다.
+    """
+    sentences = [head.rstrip(".") + "."]
+    downtime = chaos_downtime_seconds(observation)
+    if "chaos_single_replica_topology" in warnings and downtime:
+        sentences.append(f"The workload runs 1 replica, so requests failed for {downtime}s in total during the faults.")
+    elif "chaos_single_replica_topology" in warnings:
+        sentences.append("The workload runs 1 replica, so it has no spare Pod during a fault.")
+    if "chaos_error_budget_significant_burn" in warnings and downtime:
+        sentences.append(f"The {downtime}s of downtime used at least 20% of the monthly error budget.")
+    if "chaos_latency_degraded" in warnings:
+        sentences.append("Latency during a fault exceeded 10x the baseline p95.")
+    if observation.get("partial"):
+        sentences.append(_partial_sentence(observation))
+    return " ".join(sentences)
+
+
+def _partial_sentence(observation: dict[str, object]) -> str:
+    requested = list(observation.get("requested") or [])
+    executed = list(observation.get("executed") or [])
+    missing = [
+        f"{item.get('chaosMode')} ({item.get('reason') or item.get('infraError')})"
+        for item in observation.get("stopped") or [] if isinstance(item, dict)
+    ]
+    missing += [f"{mode} (not run)" for mode in observation.get("not_executed") or []]
+    return (f"Only {len(executed)} of {len(requested)} requested scenarios ran; this verdict does not cover "
+            f"{'; '.join(missing)}.")
+
+
+def _not_checked(observation: dict[str, object]) -> list[str]:
+    stopped = [str(item.get("chaosMode")) for item in observation.get("stopped") or [] if isinstance(item, dict)]
+    return stopped + [str(mode) for mode in observation.get("not_executed") or []]
+
+
+def _chaos_evidence(result: SandboxResult, warnings: list[str]) -> list[str]:
+    items = _sandbox_evidence(result)
+    observation = result.chaos_observation
+    items += [f"policy_warnings={warning}" for warning in warnings]
+    if "chaos_single_replica_topology" in warnings:
+        items.append("chaos.replicas=1")
+    if (downtime := chaos_downtime_seconds(observation)) is not None:
+        items.append(f"chaos.downtime_seconds={downtime}")
+    if observation.get("partial"):
+        items.append(f"executed={','.join(observation.get('executed') or [])}")
+        items.append(f"not_checked={','.join(_not_checked(observation))}")
+    return items
 
 
 def _expected_recovery_bound(observation: dict[str, object]) -> float | None:
