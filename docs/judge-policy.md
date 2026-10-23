@@ -182,7 +182,8 @@ Sandbox v1이 실제 Kubernetes Pod Kill 실험 결과를 보내기 시작하면
 | 6 | 불가용 시간이 월간 에러 버짓의 20% 이상 | Pass + 경고 | `chaos_error_budget_significant_burn` |
 | 7 | 대상 replica가 1개 | Pass + 경고 | `chaos_single_replica_topology` |
 | 8 | 실험 구간 p95가 baseline p95의 N배 초과 (기본 10배, 우리 관례) | Pass + 경고 | `chaos_latency_degraded` |
-| 9 | 위에 걸리지 않음 | Pass | `chaos_recovered_within_budget` |
+| 9 | 묶음 중 일부 시나리오가 인프라 문제로 돌지 못함 | 돈 시나리오로 판정 + 경고 | `chaos_partial_execution` |
+| 10 | 위에 걸리지 않음 | Pass | `chaos_recovered_within_budget` |
 
 ### 6.3 규칙의 근거와 주의점
 
@@ -193,6 +194,10 @@ Sandbox v1이 실제 Kubernetes Pod Kill 실험 결과를 보내기 시작하면
 - **중단된 실험과 실패한 실험을 구분한다.** AWS FIS는 중단된 실험을 재개할 수 없다고 명시한다. 중단은 안전장치가 작동한 것이지 대상 시스템의 결함 판정이 아니다.
 - **지연 배수 10배는 우리 관례다.** Google SRE 문헌은 p95 단일 임계값이 아니라 p50과 p99·p99.9를 함께 보라고 권고한다([Service Level Objectives](https://sre.google/sre-book/service-level-objectives/)). 현재 Sandbox가 p95만 보내므로 임시로 baseline 대비 배수를 쓰고, p99가 들어오면 임계값을 다시 정한다.
 - **묶음 실행은 지연을 시나리오별로 본다.** 여러 시나리오를 한 배포에서 이어 돌린 응답은 최상위 `metrics.p95_latency_ms`를 null로 보내고 `chaos_observation.scenarios[]`에 시나리오마다 baseline과 실험 구간 p95를 따로 싣는다. 규칙 8은 각 시나리오를 그 시나리오의 baseline과 비교해, 하나라도 넘으면 경고를 붙인다. 최상위만 보면 단독으로 돌릴 때 나오던 경고가 묶음에서 사라진다(2026-10-19 실측: 라우팅 차단 1018.93ms / 6.67ms).
+- **경고는 판정 사유 문장에도 쓴다 (2026-10-23).** `metrics.policy_warnings`에만 두면 `judge_report.reason`은 "기준 안에서 복구"라고만 말한다. 레플리카가 1개면 "레플리카가 1개라 장애 중 N초 동안 요청이 실패했다"를 사유와 evidence에 함께 적는다.
+- **묶음의 에러 버짓은 복구 시간의 합으로 본다 (2026-10-23).** 복구 상한(규칙 4)은 장애 한 번의 길이라 가장 긴 복구와 비교한다. 에러 버짓(규칙 5, 6)은 장애마다 쓴 시간이 쌓이므로 `chaos_observation.total_downtime_seconds`(없으면 시나리오별 `recovery_seconds`의 합)를 쓴다.
+- **일부만 돈 묶음은 돈 것으로 판정한다 (2026-10-23, 규칙 9).** 샌드박스는 인프라 오류가 난 시나리오를 `stopped`에 적고 다음 시나리오로 넘어간다. 하나라도 관측했으면 그 결과로 판정하고, 빠진 시나리오와 이유를 판정 사유에 적어 그 검사까지 통과한 것으로 읽히지 않게 한다. 하나도 관측하지 못했으면 지금처럼 ERROR다. 예전에는 하나만 막혀도 전체가 ERROR였다(M10: ck·cpu 복구, 지연 시나리오는 netem 없음).
+- **ERROR에는 멈춘 곳을 남긴다.** 샌드박스가 `stoppedAt`(`deploy`, `smoke`, `scenario:<모드>`)을 보내면 `metrics.stopped_at`과 마지막 오류 줄(`metrics.stopped_reason`)로 옮긴다.
 - **복구 시간을 DORA 등급으로 표기하지 않는다.** DORA 2025 보고서는 Elite/High/Medium/Low 등급 구분을 없애고 7개 팀 유형으로 대체했다([DORA FAQ](https://dora.dev/faq/)). 등급 대신 필요하면 분포상의 위치로 표현한다.
 - **Chaos v1 결과는 fixture 앱의 복원력이다.** 사용자 레포를 Kubernetes에 배포하지 않으므로, 이 판정은 사용자 레포의 SRE 검증 결과가 아니다. 리포트에 `source.fixture` 값을 그대로 노출해 구분한다.
 

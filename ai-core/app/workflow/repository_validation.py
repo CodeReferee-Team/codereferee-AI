@@ -551,6 +551,12 @@ def _metrics_from_execution(state: AgentState) -> dict[str, object]:
         metrics["observation_status"] = result.observation_status
     if result.infra_error:
         metrics["infra_error"] = result.infra_error
+        # 판정 불가 화면이 "어디서, 왜"를 말할 수 있게 멈춘 단계와 마지막 오류 줄을 남긴다.
+        if result.stopped_at:
+            metrics["stopped_at"] = result.stopped_at
+        lines = result.stderr.strip().splitlines()
+        if lines:
+            metrics["stopped_reason"] = lines[-1][:300]
     if result.probe_transport:
         metrics["probe_transport"] = result.probe_transport
     if result.baseline:

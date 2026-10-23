@@ -55,6 +55,8 @@ class SandboxResult(BaseModel):
     # Sandbox가 관측에 성공했는지 스스로 밝히는 값 (observed | infrastructure_error).
     # exitCode만으로는 "복구 실패"와 "관측 불가"를 구분할 수 없어 2026-09 합의로 추가됐다.
     observation_status: str | None = None
+    # 인프라 오류로 끝났을 때 샌드박스가 밝힌 멈춘 곳 (deploy | smoke | scenario:<chaosMode>).
+    stopped_at: str | None = None
 
     @property
     def sandbox_summary(self) -> str:
