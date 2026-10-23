@@ -151,3 +151,11 @@ class AuthHeaderTests(unittest.TestCase):
     def test_no_auth_header_for_keyless_local_server(self) -> None:
         agent = self._build(llm_api_key=None)
         self.assertIsNone(self._request(agent).get_header("Authorization"))
+
+    def test_user_agent_is_not_the_urllib_default(self) -> None:
+        # Groq 앞단 Cloudflare가 "Python-urllib/3.x"를 403(error code: 1010)으로 막는다.
+        # 2026-10-23 실서버에서 키가 맞는데도 Critic/Refiner가 전부 fallback으로 떨어졌다.
+        agent = self._build(llm_api_key="sk-test-123")
+        user_agent = self._request(agent).get_header("User-agent")
+        self.assertTrue(user_agent)
+        self.assertNotIn("Python-urllib", user_agent)
