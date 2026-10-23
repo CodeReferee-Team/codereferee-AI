@@ -79,7 +79,8 @@ class AgentLLM:
             "response_format": {"type": "json_object"},
             "stream": False,
         }).encode("utf-8")
-        headers = {"Content-Type": "application/json"}
+        # 기본 User-Agent("Python-urllib/x")는 Groq 앞단 Cloudflare가 403(error code: 1010)으로 막는다.
+        headers = {"Content-Type": "application/json", "User-Agent": "codereferee-ai/1.0"}
         # 호스티드 API(OpenRouter/Groq/DashScope 등)는 bearer 토큰이 필요하다.
         # 키 없는 로컬 서버(Ollama/vLLM)면 헤더를 넣지 않아 그대로 동작한다.
         if self.api_key:
