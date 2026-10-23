@@ -366,6 +366,24 @@ def _patch_diff_from(refiner_report: dict[str, Any]) -> str | None:
     return diff
 
 
+def _join_patches(applied: str | None, diff: str) -> str:
+    """앞서 적용한 패치 뒤에 새 diff를 잇는다.
+
+    두 번째 라운드부터 Refiner는 앞 패치가 적용된 파일을 보고 diff를 쓰므로 그 diff는 제출된
+    커밋에 단독으로 적용되지 않는다. git apply는 한 입력 안의 diff를 순서대로 적용하므로
+    이어 붙이면 base commit 대비 누적 패치가 된다.
+    """
+    if not applied:
+        return diff
+    separator = "" if applied.endswith("\n") else "\n"
+    return applied + separator + diff
+
+
+def _patch_not_applied(result: SandboxResult) -> bool:
+    """샌드박스가 패치 단계에서 멈췄는가. 레포를 실행해보지 못했으므로 판정할 결과가 없다."""
+    return (result.sandbox_report or {}).get("failed_step") == "patch"
+
+
 def _judge_status(state: AgentState) -> str | None:
     value = (state.judge_report or {}).get("status")
     return str(value) if value else None
@@ -412,14 +430,18 @@ def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
         "sre_metrics": state.sre_metrics,
     }
 
+    # 샌드박스에서 적용된 누적 패치. Refiner가 다음 diff를 쓸 때 보는 파일도 이것이 적용된 상태다.
+    applied: str | None = None
     for round_number in range(1, max_rounds + 1):
         if state.status != JobStatus.failed:
             break
 
-        patch_diff = _patch_diff_from(state.refiner_report)
-        if not patch_diff:
+        new_diff = _patch_diff_from(state.refiner_report)
+        if not new_diff:
             state.events.append("Refine: no patch diff produced, refinement loop stopped")
             break
+        patch_diff = _join_patches(applied, new_diff)
+        state.refiner_report["patch_diff"] = patch_diff
         patch_bytes = len(patch_diff.encode("utf-8"))
         if patch_bytes > settings.max_patch_diff_bytes:
             # 수정 범위가 이 정도면 판정을 신뢰하기 어렵다.
@@ -439,6 +461,17 @@ def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
             patch_diff=patch_diff,
             **_sandbox_contract_options(state),
         )
+        if _patch_not_applied(result):
+            # 실행해보지 못한 라운드의 결과로 Critic과 Refiner를 다시 돌리면 리포트가 레포의 안정성
+            # 대신 "패치가 어긋났다"를 설명한다. 실서버에서 겪었다(2026-10-23).
+            state.events.append(
+                f"Refine: round {round_number} patch did not apply in the sandbox, refinement loop stopped"
+            )
+            state.refine_rounds.append(_round_record(round_number, patch_diff, before_status, None, result))
+            state.refiner_report["patch_diff"] = applied
+            break
+
+        applied = patch_diff
         state.execution_result = result
         state.metrics = _metrics_from_execution(state)
         state.sre_metrics = _sre_metrics_from_execution(state)
@@ -462,7 +495,9 @@ def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
             break
 
 
-        attach_source_files(state, applied_patch=patch_diff)
+        # 이전 라운드의 파일을 남겨두면 Refiner가 어느 상태를 기준으로 diff를 썼는지 알 수 없다.
+        state.source_files = {}
+        attach_source_files(state, applied_patch=applied)
         state = critic_node(state)
         state = refiner_node(state)
 

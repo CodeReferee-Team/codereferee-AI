@@ -404,6 +404,9 @@ _PYTEST_USAGE_ERROR = 4
 # 137은 SIGKILL이다. 우리가 건 sandbox_memory_limit에 걸린 것이라 스택과 무관하다.
 _OOM_KILLED = 137
 ENVIRONMENT_LIMIT_CATEGORY = "verification_environment_unsupported"
+# 쿠버네티스 샌드박스는 배포할 서비스를 정하지 못하면 89로 끝내고 configuration_required를 붙인다.
+# 로컬 Docker 경로의 89(테스트 없음)와 숫자가 같으므로 종료 코드보다 먼저 본다.
+SERVICE_NOT_DEPLOYABLE = "service_not_deployable"
 
 
 # 준비 단계(설치·테스트·기동)에서 나는 카테고리. CodeReferee는 안정성만 판정하므로 여기서
@@ -412,6 +415,7 @@ BASELINE_FAILURE_CATEGORIES = frozenset({
     "timeout", "sandbox_nonzero_exit", "sandbox_not_executed", "test_failure", "compile_failed",
     "no_tests_detected", "dependency_install_failed", "docker_build_failed", "no_manifest_detected",
     "unsupported_project_stack", "repository_not_accessible", "service_smoke_failed", "browser_smoke_failed",
+    SERVICE_NOT_DEPLOYABLE,
 })
 BASELINE_NOT_ESTABLISHED = "baseline_not_established"
 
@@ -501,6 +505,8 @@ def _nonzero_exit_category(result: SandboxResult) -> str:
     sandbox가 보낸 구조화 결과(exit code, failed_step)를 먼저 본다. 그것이 없을 때만
     로그 문구로 내려간다. 로그 전체를 substring으로 뒤지면 준비 과정 출력에 걸린다.
     """
+    if (result.sandbox_report or {}).get("configuration_required"):
+        return SERVICE_NOT_DEPLOYABLE
     if category := _EXIT_CODE_CATEGORIES.get(result.exit_code):
         return category
     # 우리가 검증할 수 없었던 것을 레포 결함으로 보고하지 않는다.
@@ -936,15 +942,24 @@ _EXIT_CODE_REASONS = {
     ),
 }
 
+# 샌드박스의 설정 오류 문구는 여러 가지라 그대로 옮기지 않는다. 원문은 evidence에 남는다.
+_SERVICE_NOT_DEPLOYABLE_REASON = (
+    "The sandbox could not decide which HTTP service to deploy, so there was nothing to put under chaos. "
+    "Libraries and multi-service projects are not deployed automatically; declare the service in "
+    ".codereferee/validation.yaml."
+)
+
 
 def _sandbox_failure_reason(result: SandboxResult) -> str:
     """실패 이유를 한 문장으로. 로그 원문은 evidence 쪽에 따로 들어간다.
 
     스택을 모를 때 "unknown"을 문장에 넣으면 진단이 모호해지므로 생략한다.
     """
+    report = result.sandbox_report or {}
+    if report.get("configuration_required"):
+        return _SERVICE_NOT_DEPLOYABLE_REASON
     if known := _EXIT_CODE_REASONS.get(result.exit_code):
         return known
-    report = result.sandbox_report or {}
     stack = report.get("detected_stack")
     suffix = f" in the {stack} build" if stack and stack != "unknown" else ""
     failed_step = report.get("failed_step")
