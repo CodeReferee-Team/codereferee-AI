@@ -500,6 +500,11 @@ def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
         attach_source_files(state, applied_patch=applied)
         state = critic_node(state)
         state = refiner_node(state)
+    else:
+        # 라운드를 다 썼다. 마지막 Refiner의 diff는 실행되지 않고 수정안으로 남으므로
+        # 그것도 제출된 커밋에 적용할 수 있는 누적 패치여야 한다.
+        if state.status == JobStatus.failed and (last := _patch_diff_from(state.refiner_report)):
+            state.refiner_report["patch_diff"] = _join_patches(applied, last)
 
     return _restore_submitted_verdict(state, submitted)
 
