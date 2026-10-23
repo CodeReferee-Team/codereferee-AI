@@ -1035,6 +1035,18 @@ class CumulativePatchTests(unittest.TestCase):
         self.assertTrue(any("did not apply" in event for event in state.events))
         self.assertEqual(state.refine_rounds[-1]["failed_step"], "patch")
 
+    def test_the_suggestion_left_after_the_last_round_is_cumulative(self) -> None:
+        # 라운드를 다 쓰면 마지막 Refiner의 diff는 실행되지 않은 채 리포트에 남는다. 그것도
+        # 제출된 커밋에 적용할 수 있어야 한다. 실서버에서 "replicas: 4 → 6"만 남았다(2026-10-23).
+        THIRD = "--- a/v.yaml\n+++ b/v.yaml\n@@ -1 +1 @@\n-replicas: 3\n+replicas: 4\n"
+        FOURTH = "--- a/v.yaml\n+++ b/v.yaml\n@@ -1 +1 @@\n-replicas: 4\n+replicas: 5\n"
+        state, calls, _ = self._run(
+            [_chaos_failure() for _ in range(4)],
+            [self.FIRST, self.SECOND, THIRD, FOURTH],
+        )
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(state.refiner_report["patch_diff"], self.FIRST + self.SECOND + THIRD + FOURTH)
+
     def test_the_reported_patch_is_cumulative(self) -> None:
         state, _, _ = self._run(
             [_chaos_failure(), _chaos_failure(), SandboxResult(exit_code=0, stdout="ok")],
