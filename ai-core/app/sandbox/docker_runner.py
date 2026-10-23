@@ -13,6 +13,12 @@ from docker.errors import DockerException
 from app.config import get_settings
 from app.models import SandboxResult
 
+# The sandbox must answer before urlopen gives up. Keep this much of the HTTP
+# timeout for serialising and sending the response.
+SANDBOX_RESPONSE_MARGIN_SECONDS = 30
+# The sandbox rejects shorter deadlines (deadlineSeconds ge=60).
+SANDBOX_MIN_DEADLINE_SECONDS = 60
+
 
 class SandboxRunner:
     def __init__(self) -> None:
@@ -80,6 +86,12 @@ class SandboxRunner:
             payload["deploymentProfile"] = deployment_profile
         if request_id:
             payload["requestId"] = request_id
+        # Tell the sandbox how long we will wait, so it skips what cannot finish
+        # instead of running on after we have given up (and holding its lock).
+        payload["deadlineSeconds"] = max(
+            SANDBOX_MIN_DEADLINE_SECONDS,
+            int(self.settings.sandbox_http_timeout_seconds) - SANDBOX_RESPONSE_MARGIN_SECONDS,
+        )
         request = Request(
             endpoint,
             data=json.dumps(payload).encode("utf-8"),
