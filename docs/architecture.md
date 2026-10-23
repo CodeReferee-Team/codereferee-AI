@@ -180,6 +180,8 @@ preflight 통과 여부와 무관하게 돌린다. 실패한 경우에도 "무�
 
 실험은 한 번에 하나만 돈다. 이미 돌고 있으면 409를 돌려준다. 끝나면 namespace를 지운다.
 
+409는 작업을 시작하기 전에 나오므로 같은 요청을 다시 보내도 중복 실행이 없다. AI Core는 409를 받으면 `sandbox_busy_retry_interval_seconds`(기본 15초)마다 다시 보내고, `sandbox_busy_max_wait_seconds`(기본 600초)를 넘기면 `sandbox_busy` 인프라 오류로 끝낸다. 기다리는 동안에도 progress heartbeat가 나가서 BE 스위퍼가 정리하지 않는다. 대기 상한과 HTTP 상한(600초)의 합이 BE `running-timeout`(30분)보다 짧아야 한다.
+
 ### 3-7. 인프라 오류 게이트
 
 `_infra_error_reason` · `ai-core/app/workflow/repository_validation.py`
@@ -189,7 +191,7 @@ preflight 통과 여부와 무관하게 돌린다. 실패한 경우에도 "무�
 | 상황 | 사유 |
 | --- | --- |
 | preflight 단계에서 우리 쪽 오류 | preflight가 기록한 사유 |
-| 샌드박스 요청 자체가 실패 | `sandbox_request_timeout` 등 |
+| 샌드박스 요청 자체가 실패 | `sandbox_request_timeout`, `sandbox_busy` 등 |
 | 카오스를 요청했는데 관측이 없음 | `chaos_evidence_missing` |
 | 실험이 중단됨 | `chaos_experiment_aborted` |
 | baseline이나 복구 관측이 없음 | `chaos_evidence_missing` |

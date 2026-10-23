@@ -86,11 +86,33 @@ class SandboxRunner:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        waited = 0
+        while True:
+            try:
+                return self._post_to_sandbox(request, endpoint, started_at)
+            except HTTPError as exc:
+                if exc.code != 409:
+                    raise
+                if waited >= self.settings.sandbox_busy_max_wait_seconds:
+                    return SandboxResult(
+                        exit_code=None,
+                        stderr=f"Sandbox stayed busy with another request for {waited}s: {endpoint}",
+                        infra_error="sandbox_busy",
+                        duration_ms=_duration_ms(started_at),
+                    )
+                interval = self.settings.sandbox_busy_retry_interval_seconds
+                time.sleep(interval)
+                waited += interval
+
+    def _post_to_sandbox(self, request: Request, endpoint: str, started_at: float) -> SandboxResult:
+        """Send one request. A 409 is raised to the caller, which waits and retries."""
         try:
             with urlopen(request, timeout=self.settings.sandbox_http_timeout_seconds) as response:
                 body = response.read().decode("utf-8", errors="replace")
                 return _sandbox_result_from_response(body, started_at)
         except HTTPError as exc:
+            if exc.code == 409:
+                raise
             body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
             return SandboxResult(
                 exit_code=None,
