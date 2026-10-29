@@ -1,9 +1,12 @@
 from pathlib import Path
 import threading
 from contextlib import contextmanager
-from typing import Any
+from functools import lru_cache
+from typing import Any, TypedDict
 from uuid import uuid4
 
+from langchain_core.runnables import RunnableConfig
+from langgraph.graph import END, START, StateGraph
 from prometheus_client import Counter, Histogram
 
 from app.agents import source_context
@@ -108,88 +111,18 @@ def run_repository_validation(request: RepositoryValidationRequest, job_id: str 
 
 
 def execute_repository_validation(state: AgentState, output_queue=redis_task_queue) -> AgentState:
+    """검증 한 건을 LangGraph StateGraph로 실행한다. 노드와 간선은 아래 '그래프' 절에 있다."""
+
     def emit_progress(step: str, **kwargs) -> None:
         # request_id가 없으면 서버발 요청이 아니다(로컬 동기 호출). 보낼 곳이 없다.
         if state.request_id:
             output_queue.publish(event_builder.progress_event(state, step, **kwargs))
 
-    state.status = JobStatus.running
-    state.events.append("Workflow: repository validation started")
-    job_store.save(state)
-
-    state.preflight_report = repository_preflight_runner.run(
-        state.repository_url,
-        branch=state.branch,
-        commit_sha=state.requested_commit_sha,
+    final = validation_graph().invoke(
+        {"agent": state},
+        config=_graph_config(emit_progress, output_queue=output_queue),
     )
-    state.resolved_commit_sha = state.preflight_report.resolved_commit_sha
-    state.events.append("Preflight: repository accessibility checked")
-    emit_progress(event_builder.PREFLIGHT)
-    preflight_passed = _preflight_passed(state.preflight_report)
-    state.events.append(f"Preflight: {'passed' if preflight_passed else 'failed'}")
-    state = planner_node(state)
-
-    if preflight_passed:
-        state.events.append("Sandbox: repository clone and smoke validation started")
-        emit_progress(event_builder.BASELINE)
-        # layer-2는 샌드박스 안에서 수 분 걸린다. 그 동안 heartbeat로 progress를 살려
-        # 두지 않으면 서버 stale 스위퍼가 진행 중 작업을 ERROR로 확정한다.
-        with _sandbox_heartbeat(emit_progress, event_builder.BASELINE):
-            state.execution_result = sandbox_runner.run_repository(
-                state.preflight_report.repository_url,
-                branch=state.branch,
-                commit_sha=state.requested_commit_sha,
-                **_sandbox_contract_options(state),
-            )
-        # cpu/memory는 샌드박스가 null로 보낸다(Agent는 remote_write만, 질의 API 없음).
-        # 바깥 Prometheus에서 request_id로 장애 구간 값을 뽑아 채운다. 연동 전(설정 없음)이면 no-op.
-        prometheus.enrich_resource_metrics(
-            state.execution_result.metrics,
-            state.request_id,
-            state.execution_result.chaos_observation,
-            get_settings(),
-        )
-        state.metrics = _metrics_from_execution(state)
-        state.sre_metrics = _sre_metrics_from_execution(state)
-        SANDBOX_DURATION.observe(state.execution_result.duration_ms)
-        state.events.append("Sandbox: repository clone and smoke validation finished")
-        if state.execution_result.chaos_observation:
-            # 카오스는 sandbox 안에서 일어나므로 실시간 보고가 불가능하다.
-            # 실제로 실험이 있었을 때만 사후에 알린다. 없었다면 보내지 않는다.
-            emit_progress(event_builder.CHAOS, detail=str(state.execution_result.chaos_observation.get("type")))
-    else:
-        state.events.append("Sandbox: skipped because preflight failed")
-        state.metrics = _metrics_from_execution(state)
-        state.sre_metrics = _sre_metrics_from_execution(state)
-
-    infra_error = _infra_error_reason(state)
-    if infra_error:
-        # 인프라 문제로 판정 자체가 불가능하다. Judge/Critic/Refiner를 건너뛴다.
-        # 멀쩡한 사용자 코드를 두고 Critic이 고칠 곳을 찾게 두면 안 되기 때문이다.
-        state.status = JobStatus.error
-        state.events.append(f"Workflow: infra error, judgement skipped: {infra_error}")
-    else:
-        emit_progress(event_builder.JUDGING)
-        state = judge_node(state)
-        if unavailable := judgement_unavailable(state):
-            # 환경 한계와 준비 단계 실패는 "안정성을 재지 못한 것"이다(판정 불가 = ERROR).
-            # FAILED로 두면 화면이 불합격이라 말하고, Critic이 안정성과 무관한 곳을 고치려 든다.
-            # infra_error와 같은 이유로 Critic/Refiner를 건너뛴다(judge-policy 3.0절).
-            state.status = JobStatus.error
-            state.events.append(f"Workflow: judgement unavailable ({unavailable}), stability not measured")
-        else:
-            attach_source_files(state)
-            state = critic_node(state)
-            state = refiner_node(state)
-            state = _run_refinement_rounds(state, emit_progress)
-    VALIDATION_COUNTER.labels(status=state.status).inc()
-    _generate_report_pdf(state)
-    _record_sqlite_artifacts(state)
-    job_store.save(state)
-    if state.request_id:
-        # 종료 이벤트는 정확히 한 번. 이 뒤로는 어떤 progress도 보내지 않는다.
-        output_queue.publish(event_builder.result_event(state))
-    return state
+    return final["agent"]
 
 
 def _generate_report_pdf(state: AgentState) -> None:
@@ -407,106 +340,12 @@ def _round_record(
 
 
 def _run_refinement_rounds(state: AgentState, emit_progress) -> AgentState:
-    """Judge가 실패로 본 경우 Refiner의 diff를 적용해 재검증을 반복한다.
+    """재검증 루프만 따로 돌린다. 본 그래프에서는 같은 서브그래프가 'refine' 노드로 붙는다.
 
-    유저 레포에는 절대 push하지 않는다. diff는 샌드박스 안에서만 적용되고
-    최종 산출물은 "검증된 diff"로 리포트에 담긴다.
-
-    diff가 없으면 즉시 멈춘다. 고칠 수단이 없는데 반복해봐야 같은 결과이기 때문이며,
-    LLM이 설정되지 않은 환경에서는 이 경로로 빠져 기존 동작이 그대로 유지된다.
+    evals/repair.py가 운영과 같은 루프를 태우려고 이 진입점을 쓴다.
     """
-    settings = get_settings()
-    max_rounds = settings.max_self_healing_retries
-    if max_rounds <= 0 or state.preflight_report is None:
-        return state
-
-    # 제출된 레포에 대한 판정이 최종 산출물이다. 라운드에서 패치를 적용해 통과했다고
-    # 제출된 코드가 통과한 것은 아니므로, 판정과 실행 결과를 되돌릴 수 있게 보관한다.
-    submitted = {
-        "judge_report": dict(state.judge_report),
-        "status": state.status,
-        "execution_result": state.execution_result,
-        "metrics": dict(state.metrics),
-        "sre_metrics": state.sre_metrics,
-    }
-
-    # 샌드박스에서 적용된 누적 패치. Refiner가 다음 diff를 쓸 때 보는 파일도 이것이 적용된 상태다.
-    applied: str | None = None
-    for round_number in range(1, max_rounds + 1):
-        if state.status != JobStatus.failed:
-            break
-
-        new_diff = _patch_diff_from(state.refiner_report)
-        if not new_diff:
-            state.events.append("Refine: no patch diff produced, refinement loop stopped")
-            break
-        patch_diff = _join_patches(applied, new_diff)
-        state.refiner_report["patch_diff"] = patch_diff
-        patch_bytes = len(patch_diff.encode("utf-8"))
-        if patch_bytes > settings.max_patch_diff_bytes:
-            # 수정 범위가 이 정도면 판정을 신뢰하기 어렵다.
-            state.events.append(
-                f"Refine: patch diff too large ({patch_bytes} bytes), refinement loop stopped"
-            )
-            break
-
-        before_status = _judge_status(state)
-        emit_progress(event_builder.REFINING, round_=round_number, max_rounds=max_rounds)
-        state.events.append(f"Refine: round {round_number}/{max_rounds} re-validating with patch")
-
-        result = sandbox_runner.run_repository(
-            state.preflight_report.repository_url,
-            branch=state.branch,
-            commit_sha=state.requested_commit_sha,
-            patch_diff=patch_diff,
-            **_sandbox_contract_options(state),
-        )
-        if _patch_not_applied(result):
-            # 실행해보지 못한 라운드의 결과로 Critic과 Refiner를 다시 돌리면 리포트가 레포의 안정성
-            # 대신 "패치가 어긋났다"를 설명한다. 실서버에서 겪었다(2026-10-23).
-            state.events.append(
-                f"Refine: round {round_number} patch did not apply in the sandbox, refinement loop stopped"
-            )
-            state.refine_rounds.append(_round_record(round_number, patch_diff, before_status, None, result))
-            state.refiner_report["patch_diff"] = applied
-            break
-
-        applied = patch_diff
-        state.execution_result = result
-        state.metrics = _metrics_from_execution(state)
-        state.sre_metrics = _sre_metrics_from_execution(state)
-        SANDBOX_DURATION.observe(result.duration_ms)
-
-        infra_error = _infra_error_reason(state)
-        if infra_error:
-            state.status = JobStatus.error
-            state.events.append(f"Refine: round {round_number} hit infra error, judgement skipped: {infra_error}")
-            state.refine_rounds.append(_round_record(round_number, patch_diff, before_status, None, result))
-            break
-
-        emit_progress(event_builder.JUDGING)
-        state = judge_node(state)
-        state.refine_rounds.append(
-            _round_record(round_number, patch_diff, before_status, _judge_status(state), result)
-        )
-
-        if state.status == JobStatus.success:
-            state.events.append(f"Refine: round {round_number} passed after applying the patch")
-            break
-
-
-        # 이전 라운드의 파일을 남겨두면 Refiner가 어느 상태를 기준으로 diff를 썼는지 알 수 없다.
-        state.source_files = {}
-        attach_source_files(state, applied_patch=applied)
-        state = critic_node(state)
-        state = refiner_node(state)
-    else:
-        # 라운드를 다 썼다. 마지막 Refiner의 diff는 실행되지 않고 수정안으로 남으므로
-        # 그것도 제출된 커밋에 적용할 수 있는 누적 패치여야 한다.
-        if state.status == JobStatus.failed and (last := _patch_diff_from(state.refiner_report)):
-            state.refiner_report["patch_diff"] = _join_patches(applied, last)
-
-    return _restore_submitted_verdict(state, submitted)
+    final = refinement_graph().invoke({"agent": state}, config=_graph_config(emit_progress))
+    return final["agent"]
 
 
 def _restore_submitted_verdict(state: AgentState, submitted: dict[str, object]) -> AgentState:
@@ -691,3 +530,368 @@ def _record_sqlite_artifacts(state: AgentState) -> None:
         state.events.append("SQLite: validation and patch suggestion artifacts recorded")
     except Exception as exc:  # pragma: no cover - storage failure should not mask validation result
         state.events.append(f"SQLite: artifact recording skipped: {exc.__class__.__name__}")
+
+
+# ---------------------------------------------------------------------------
+# 그래프
+#
+# 파이프라인을 LangGraph StateGraph로 엮는다. 노드는 파이프라인의 한 단계이고, 분기는 전부
+# 결정적 규칙이다(어느 간선을 탈지 LLM이 정하지 않는다). LLM은 planner·critic·refiner 노드
+# 안에서 서술과 편집만 만든다.
+#
+#   preflight → planner ─┬─ sandbox ──────┬→ infra_gate ─┬→ judge ─┬→ critic → refiner → refine → finalize
+#                        └─ skip_sandbox ─┘              └────────┴→ finalize (판정 불가)
+#
+# refine은 재검증 루프 서브그래프다.
+#
+#   refine_start → refine_prepare → refine_rerun → refine_judge → refine_regenerate ─┐
+#                       ↑                                                            │
+#                       └──────────────────── 라운드가 남았으면 ──────────────────────┘
+#   멈출 사유가 생기면 refine_restore로, 라운드를 다 쓰면 refine_exhausted → refine_restore로 간다.
+#
+# 노드 안에서는 judge_node·sandbox_runner 같은 이름을 이 모듈 전역에서 찾는다. 테스트가
+# 모듈 속성을 바꿔 끼우면 그래프도 바뀐 것을 부른다.
+# ---------------------------------------------------------------------------
+
+
+class ValidationGraphState(TypedDict, total=False):
+    agent: AgentState
+    # 판정을 건너뛸 사유. 있으면 Critic/Refiner 없이 finalize로 간다.
+    halt: str | None
+    # 재검증 루프 상태. _run_refinement_rounds의 지역 변수였던 것들이다.
+    refine_skipped: bool
+    refine_stop: bool
+    submitted: dict[str, Any]
+    applied: str | None
+    pending_patch: str | None
+    before_status: str | None
+    round: int
+    max_rounds: int
+
+
+def _graph_config(emit_progress, *, output_queue=None) -> dict[str, Any]:
+    # 라운드 하나가 노드 다섯 개를 지난다. 기본 recursion_limit(25)로는 라운드를 늘린 설정에서
+    # 예외로 끝나 결과 이벤트가 나가지 않는다.
+    rounds = max(0, get_settings().max_self_healing_retries)
+    return {
+        "configurable": {"emit_progress": emit_progress, "output_queue": output_queue},
+        "recursion_limit": 30 + 6 * rounds,
+    }
+
+
+def _emitter(config: RunnableConfig):
+    return config["configurable"]["emit_progress"]
+
+
+def _preflight_step(graph_state: ValidationGraphState, config: RunnableConfig) -> ValidationGraphState:
+    state = graph_state["agent"]
+    state.status = JobStatus.running
+    state.events.append("Workflow: repository validation started")
+    job_store.save(state)
+
+    state.preflight_report = repository_preflight_runner.run(
+        state.repository_url,
+        branch=state.branch,
+        commit_sha=state.requested_commit_sha,
+    )
+    state.resolved_commit_sha = state.preflight_report.resolved_commit_sha
+    state.events.append("Preflight: repository accessibility checked")
+    _emitter(config)(event_builder.PREFLIGHT)
+    state.events.append(f"Preflight: {'passed' if _preflight_passed(state.preflight_report) else 'failed'}")
+    return {"agent": state}
+
+
+def _planner_step(graph_state: ValidationGraphState) -> ValidationGraphState:
+    return {"agent": planner_node(graph_state["agent"])}
+
+
+def _route_after_planner(graph_state: ValidationGraphState) -> str:
+    return "sandbox" if _preflight_passed(graph_state["agent"].preflight_report) else "skip_sandbox"
+
+
+def _sandbox_step(graph_state: ValidationGraphState, config: RunnableConfig) -> ValidationGraphState:
+    state = graph_state["agent"]
+    emit_progress = _emitter(config)
+    state.events.append("Sandbox: repository clone and smoke validation started")
+    emit_progress(event_builder.BASELINE)
+    # layer-2는 샌드박스 안에서 수 분 걸린다. 그 동안 heartbeat로 progress를 살려
+    # 두지 않으면 서버 stale 스위퍼가 진행 중 작업을 ERROR로 확정한다.
+    with _sandbox_heartbeat(emit_progress, event_builder.BASELINE):
+        state.execution_result = sandbox_runner.run_repository(
+            state.preflight_report.repository_url,
+            branch=state.branch,
+            commit_sha=state.requested_commit_sha,
+            **_sandbox_contract_options(state),
+        )
+    # cpu/memory는 샌드박스가 null로 보낸다(Agent는 remote_write만, 질의 API 없음).
+    # 바깥 Prometheus에서 request_id로 장애 구간 값을 뽑아 채운다. 연동 전(설정 없음)이면 no-op.
+    prometheus.enrich_resource_metrics(
+        state.execution_result.metrics,
+        state.request_id,
+        state.execution_result.chaos_observation,
+        get_settings(),
+    )
+    state.metrics = _metrics_from_execution(state)
+    state.sre_metrics = _sre_metrics_from_execution(state)
+    SANDBOX_DURATION.observe(state.execution_result.duration_ms)
+    state.events.append("Sandbox: repository clone and smoke validation finished")
+    if state.execution_result.chaos_observation:
+        # 카오스는 sandbox 안에서 일어나므로 실시간 보고가 불가능하다.
+        # 실제로 실험이 있었을 때만 사후에 알린다. 없었다면 보내지 않는다.
+        emit_progress(event_builder.CHAOS, detail=str(state.execution_result.chaos_observation.get("type")))
+    return {"agent": state}
+
+
+def _skip_sandbox_step(graph_state: ValidationGraphState) -> ValidationGraphState:
+    state = graph_state["agent"]
+    state.events.append("Sandbox: skipped because preflight failed")
+    state.metrics = _metrics_from_execution(state)
+    state.sre_metrics = _sre_metrics_from_execution(state)
+    return {"agent": state}
+
+
+def _infra_gate_step(graph_state: ValidationGraphState) -> ValidationGraphState:
+    state = graph_state["agent"]
+    infra_error = _infra_error_reason(state)
+    if infra_error:
+        # 인프라 문제로 판정 자체가 불가능하다. Judge/Critic/Refiner를 건너뛴다.
+        # 멀쩡한 사용자 코드를 두고 Critic이 고칠 곳을 찾게 두면 안 되기 때문이다.
+        state.status = JobStatus.error
+        state.events.append(f"Workflow: infra error, judgement skipped: {infra_error}")
+    return {"agent": state, "halt": infra_error}
+
+
+def _judge_step(graph_state: ValidationGraphState, config: RunnableConfig) -> ValidationGraphState:
+    _emitter(config)(event_builder.JUDGING)
+    state = judge_node(graph_state["agent"])
+    unavailable = judgement_unavailable(state)
+    if unavailable:
+        # 환경 한계와 준비 단계 실패는 "안정성을 재지 못한 것"이다(판정 불가 = ERROR).
+        # FAILED로 두면 화면이 불합격이라 말하고, Critic이 안정성과 무관한 곳을 고치려 든다.
+        # infra_error와 같은 이유로 Critic/Refiner를 건너뛴다(judge-policy 3.0절).
+        state.status = JobStatus.error
+        state.events.append(f"Workflow: judgement unavailable ({unavailable}), stability not measured")
+    return {"agent": state, "halt": unavailable}
+
+
+def _route_unless_halted(next_node: str):
+    def route(graph_state: ValidationGraphState) -> str:
+        return "finalize" if graph_state.get("halt") else next_node
+
+    return route
+
+
+def _critic_step(graph_state: ValidationGraphState) -> ValidationGraphState:
+    state = graph_state["agent"]
+    attach_source_files(state)
+    return {"agent": critic_node(state)}
+
+
+def _refiner_step(graph_state: ValidationGraphState) -> ValidationGraphState:
+    return {"agent": refiner_node(graph_state["agent"])}
+
+
+def _finalize_step(graph_state: ValidationGraphState, config: RunnableConfig) -> ValidationGraphState:
+    state = graph_state["agent"]
+    VALIDATION_COUNTER.labels(status=state.status).inc()
+    _generate_report_pdf(state)
+    _record_sqlite_artifacts(state)
+    job_store.save(state)
+    output_queue = config["configurable"].get("output_queue")
+    if state.request_id and output_queue is not None:
+        # 종료 이벤트는 정확히 한 번. 이 뒤로는 어떤 progress도 보내지 않는다.
+        output_queue.publish(event_builder.result_event(state))
+    return {"agent": state}
+
+
+# --- 재검증 루프 ------------------------------------------------------------
+#
+# Judge가 실패로 본 경우 Refiner의 diff를 적용해 재검증을 반복한다.
+# 유저 레포에는 절대 push하지 않는다. diff는 샌드박스 안에서만 적용되고
+# 최종 산출물은 "검증된 diff"로 리포트에 담긴다.
+#
+# diff가 없으면 즉시 멈춘다. 고칠 수단이 없는데 반복해봐야 같은 결과이기 때문이며,
+# LLM이 설정되지 않은 환경에서는 이 경로로 빠져 기존 동작이 그대로 유지된다.
+
+
+def _refine_start_step(graph_state: ValidationGraphState) -> ValidationGraphState:
+    state = graph_state["agent"]
+    max_rounds = get_settings().max_self_healing_retries
+    if max_rounds <= 0 or state.preflight_report is None:
+        return {"refine_skipped": True}
+    # 제출된 레포에 대한 판정이 최종 산출물이다. 라운드에서 패치를 적용해 통과했다고
+    # 제출된 코드가 통과한 것은 아니므로, 판정과 실행 결과를 되돌릴 수 있게 보관한다.
+    submitted = {
+        "judge_report": dict(state.judge_report),
+        "status": state.status,
+        "execution_result": state.execution_result,
+        "metrics": dict(state.metrics),
+        "sre_metrics": state.sre_metrics,
+    }
+    # applied: 샌드박스에서 적용된 누적 패치. Refiner가 다음 diff를 쓸 때 보는 파일도 이것이 적용된 상태다.
+    return {"refine_skipped": False, "submitted": submitted, "applied": None, "round": 1, "max_rounds": max_rounds}
+
+
+def _route_refine_start(graph_state: ValidationGraphState) -> str:
+    return END if graph_state.get("refine_skipped") else "refine_prepare"
+
+
+def _refine_prepare_step(graph_state: ValidationGraphState) -> ValidationGraphState:
+    """라운드 시작. 실패 판정이고, diff가 있고, 상한 안이면 재실행할 누적 패치를 만든다."""
+    state = graph_state["agent"]
+    if state.status != JobStatus.failed:
+        return {"refine_stop": True}
+
+    new_diff = _patch_diff_from(state.refiner_report)
+    if not new_diff:
+        state.events.append("Refine: no patch diff produced, refinement loop stopped")
+        return {"refine_stop": True}
+    patch_diff = _join_patches(graph_state.get("applied"), new_diff)
+    state.refiner_report["patch_diff"] = patch_diff
+    patch_bytes = len(patch_diff.encode("utf-8"))
+    if patch_bytes > get_settings().max_patch_diff_bytes:
+        # 수정 범위가 이 정도면 판정을 신뢰하기 어렵다.
+        state.events.append(f"Refine: patch diff too large ({patch_bytes} bytes), refinement loop stopped")
+        return {"refine_stop": True}
+    return {"refine_stop": False, "pending_patch": patch_diff, "before_status": _judge_status(state)}
+
+
+def _refine_rerun_step(graph_state: ValidationGraphState, config: RunnableConfig) -> ValidationGraphState:
+    """누적 패치를 얹어 샌드박스를 다시 돌린다."""
+    state = graph_state["agent"]
+    round_number, max_rounds = graph_state["round"], graph_state["max_rounds"]
+    patch_diff, before_status = graph_state["pending_patch"], graph_state.get("before_status")
+    _emitter(config)(event_builder.REFINING, round_=round_number, max_rounds=max_rounds)
+    state.events.append(f"Refine: round {round_number}/{max_rounds} re-validating with patch")
+
+    result = sandbox_runner.run_repository(
+        state.preflight_report.repository_url,
+        branch=state.branch,
+        commit_sha=state.requested_commit_sha,
+        patch_diff=patch_diff,
+        **_sandbox_contract_options(state),
+    )
+    if _patch_not_applied(result):
+        # 실행해보지 못한 라운드의 결과로 Critic과 Refiner를 다시 돌리면 리포트가 레포의 안정성
+        # 대신 "패치가 어긋났다"를 설명한다. 실서버에서 겪었다(2026-10-23).
+        state.events.append(
+            f"Refine: round {round_number} patch did not apply in the sandbox, refinement loop stopped"
+        )
+        state.refine_rounds.append(_round_record(round_number, patch_diff, before_status, None, result))
+        state.refiner_report["patch_diff"] = graph_state.get("applied")
+        return {"refine_stop": True}
+
+    state.execution_result = result
+    state.metrics = _metrics_from_execution(state)
+    state.sre_metrics = _sre_metrics_from_execution(state)
+    SANDBOX_DURATION.observe(result.duration_ms)
+
+    infra_error = _infra_error_reason(state)
+    if infra_error:
+        state.status = JobStatus.error
+        state.events.append(f"Refine: round {round_number} hit infra error, judgement skipped: {infra_error}")
+        state.refine_rounds.append(_round_record(round_number, patch_diff, before_status, None, result))
+        return {"refine_stop": True, "applied": patch_diff}
+    return {"refine_stop": False, "applied": patch_diff}
+
+
+def _refine_judge_step(graph_state: ValidationGraphState, config: RunnableConfig) -> ValidationGraphState:
+    _emitter(config)(event_builder.JUDGING)
+    state = judge_node(graph_state["agent"])
+    round_number = graph_state["round"]
+    state.refine_rounds.append(
+        _round_record(round_number, graph_state["pending_patch"], graph_state.get("before_status"),
+                      _judge_status(state), state.execution_result)
+    )
+    if state.status == JobStatus.success:
+        state.events.append(f"Refine: round {round_number} passed after applying the patch")
+        return {"agent": state, "refine_stop": True}
+    return {"agent": state, "refine_stop": False}
+
+
+def _refine_regenerate_step(graph_state: ValidationGraphState) -> ValidationGraphState:
+    """다음 라운드를 위해 패치가 적용된 파일로 Critic과 Refiner를 다시 돌린다."""
+    state = graph_state["agent"]
+    # 이전 라운드의 파일을 남겨두면 Refiner가 어느 상태를 기준으로 diff를 썼는지 알 수 없다.
+    state.source_files = {}
+    attach_source_files(state, applied_patch=graph_state.get("applied"))
+    state = critic_node(state)
+    state = refiner_node(state)
+    return {"agent": state, "round": graph_state["round"] + 1}
+
+
+def _refine_exhausted_step(graph_state: ValidationGraphState) -> ValidationGraphState:
+    # 라운드를 다 썼다. 마지막 Refiner의 diff는 실행되지 않고 수정안으로 남으므로
+    # 그것도 제출된 커밋에 적용할 수 있는 누적 패치여야 한다.
+    state = graph_state["agent"]
+    if state.status == JobStatus.failed and (last := _patch_diff_from(state.refiner_report)):
+        state.refiner_report["patch_diff"] = _join_patches(graph_state.get("applied"), last)
+    return {"agent": state}
+
+
+def _refine_restore_step(graph_state: ValidationGraphState) -> ValidationGraphState:
+    return {"agent": _restore_submitted_verdict(graph_state["agent"], graph_state["submitted"])}
+
+
+def _continue_or_restore(next_node: str):
+    def route(graph_state: ValidationGraphState) -> str:
+        return "refine_restore" if graph_state.get("refine_stop") else next_node
+
+    return route
+
+
+def _route_next_round(graph_state: ValidationGraphState) -> str:
+    return "refine_exhausted" if graph_state["round"] > graph_state["max_rounds"] else "refine_prepare"
+
+
+@lru_cache(maxsize=1)
+def refinement_graph():
+    builder = StateGraph(ValidationGraphState)
+    builder.add_node("refine_start", _refine_start_step)
+    builder.add_node("refine_prepare", _refine_prepare_step)
+    builder.add_node("refine_rerun", _refine_rerun_step)
+    builder.add_node("refine_judge", _refine_judge_step)
+    builder.add_node("refine_regenerate", _refine_regenerate_step)
+    builder.add_node("refine_exhausted", _refine_exhausted_step)
+    builder.add_node("refine_restore", _refine_restore_step)
+
+    builder.add_edge(START, "refine_start")
+    builder.add_conditional_edges("refine_start", _route_refine_start, ["refine_prepare", END])
+    builder.add_conditional_edges("refine_prepare", _continue_or_restore("refine_rerun"),
+                                  ["refine_rerun", "refine_restore"])
+    builder.add_conditional_edges("refine_rerun", _continue_or_restore("refine_judge"),
+                                  ["refine_judge", "refine_restore"])
+    builder.add_conditional_edges("refine_judge", _continue_or_restore("refine_regenerate"),
+                                  ["refine_regenerate", "refine_restore"])
+    builder.add_conditional_edges("refine_regenerate", _route_next_round, ["refine_prepare", "refine_exhausted"])
+    builder.add_edge("refine_exhausted", "refine_restore")
+    builder.add_edge("refine_restore", END)
+    return builder.compile()
+
+
+@lru_cache(maxsize=1)
+def validation_graph():
+    builder = StateGraph(ValidationGraphState)
+    builder.add_node("preflight", _preflight_step)
+    builder.add_node("planner", _planner_step)
+    builder.add_node("sandbox", _sandbox_step)
+    builder.add_node("skip_sandbox", _skip_sandbox_step)
+    builder.add_node("infra_gate", _infra_gate_step)
+    builder.add_node("judge", _judge_step)
+    builder.add_node("critic", _critic_step)
+    builder.add_node("refiner", _refiner_step)
+    builder.add_node("refine", refinement_graph())
+    builder.add_node("finalize", _finalize_step)
+
+    builder.add_edge(START, "preflight")
+    builder.add_edge("preflight", "planner")
+    builder.add_conditional_edges("planner", _route_after_planner, ["sandbox", "skip_sandbox"])
+    builder.add_edge("sandbox", "infra_gate")
+    builder.add_edge("skip_sandbox", "infra_gate")
+    builder.add_conditional_edges("infra_gate", _route_unless_halted("judge"), ["judge", "finalize"])
+    builder.add_conditional_edges("judge", _route_unless_halted("critic"), ["critic", "finalize"])
+    builder.add_edge("critic", "refiner")
+    builder.add_edge("refiner", "refine")
+    builder.add_edge("refine", "finalize")
+    builder.add_edge("finalize", END)
+    return builder.compile()
