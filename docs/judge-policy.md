@@ -404,8 +404,8 @@ Maven과 Gradle은 실패해도 종료 코드가 1 하나뿐이다. 그래서 `t
 
 | 규칙이 보는 것 | 실제로 오는 것 |
 | --- | --- |
-| `cpu_usage_percent > 80` | null. Prometheus 연동 전이다 |
-| 메모리 사용률 `> 0.8` | null. 같음 |
+| `cpu_usage_percent > 80` | 응답의 1초 시계열에서 채운다(10.4). 2026-10-29 이전에는 null이었다 |
+| 메모리 사용률 `> 0.8` | 같음. 한도는 `pod_bindings`의 limits에서 온다 |
 | `restart_count > 0` | null. 같음 |
 | `p95_latency_ms` | probe 타임아웃 값이 섞인다. 응답 시간이 아니라 "기다리다 포기한 시간"이 들어간다 |
 | `availability` | port-forward가 끊긴 것도 실패로 센다. 앱 가용성이 아니라 관측 경로의 가용성이다 |
@@ -436,6 +436,18 @@ max_over_time(kube_pod_container_status_restarts_total{namespace="$ns", pod=~"$p
 **지연과 가용성은 Prometheus로 옮기지 않는다.** 애플리케이션에 메트릭 엔드포인트가 있다고 가정할 수 없기 때문이다. 사용자 레포는 무엇이든 올 수 있다. 외부에서 보낸 probe 결과가 유일하게 모든 레포에 통하는 측정이다.
 
 다만 probe를 측정 수단으로 쓰는 이상 10.3의 두 가지는 남는다. 타임아웃을 응답 시간으로 세지 않도록 분리해 보내고 관측 경로가 끊긴 것을 앱 실패와 구분해 보내야 한다. Sandbox 쪽 요청이다.
+
+#### 응답에 실린 시계열로 먼저 채운다 (2026-10-29)
+
+Sandbox는 `source.metrics_observation`에 컨테이너별 `cpu_cores`와 `memory_working_set_bytes`를 1초 간격 range 결과 그대로 싣고, 요약값 `cpu_usage_percent`·`memory_usage_mb`는 null로 보낸다. 실서버에서 시계열이 174개 점까지 들어와 있는데도 리포트의 CPU·메모리가 비어 있었다. 10.4의 질의는 바깥 Prometheus 주소가 설정돼야 돌고, `recovered_at`이 없으면(복구 실패) 구간을 잡지 못했다.
+
+`app/metrics/observation.py`가 이 시계열로 먼저 채운다. 위의 바깥 Prometheus 질의는 그래도 비어 있을 때만 돈다.
+
+- 구간: 시나리오마다 `started_at`부터 `recovered_at`까지. 복구하지 못했으면 관측 끝(`metrics_observation.ended_at`)까지다. 구간을 모르면 채우지 않는다. 기동 직후 스파이크가 섞인 전체 최대로 메우면 근거 없는 Fail이 날 수 있다.
+- 단위: 같은 시각의 파드 값을 더한다. CPU는 코어 × 100(1코어 = 100%), 메모리는 바이트 / 1e6(MB). 10.4 질의와 같다.
+- `memory_limit_mb`: 모든 파드의 `limits.memory`가 같을 때만 채운다.
+
+판정은 바뀌지 않는다. 자원 지표는 운영자가 임계값을 정했을 때만 본다(10.2).
 
 ### 10.5 경계
 

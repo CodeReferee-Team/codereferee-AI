@@ -21,7 +21,7 @@ from app.models import (
     SandboxResult,
     SREMetrics,
 )
-from app.metrics import prometheus
+from app.metrics import observation, prometheus
 from app.config import get_settings
 from app import events as event_builder
 from app.queue.redis_queue import redis_task_queue
@@ -623,14 +623,7 @@ def _sandbox_step(graph_state: ValidationGraphState, config: RunnableConfig) -> 
             commit_sha=state.requested_commit_sha,
             **_sandbox_contract_options(state),
         )
-    # cpu/memory는 샌드박스가 null로 보낸다(Agent는 remote_write만, 질의 API 없음).
-    # 바깥 Prometheus에서 request_id로 장애 구간 값을 뽑아 채운다. 연동 전(설정 없음)이면 no-op.
-    prometheus.enrich_resource_metrics(
-        state.execution_result.metrics,
-        state.request_id,
-        state.execution_result.chaos_observation,
-        get_settings(),
-    )
+    _fill_resource_metrics(state.execution_result, state.request_id)
     state.metrics = _metrics_from_execution(state)
     state.sre_metrics = _sre_metrics_from_execution(state)
     SANDBOX_DURATION.observe(state.execution_result.duration_ms)
@@ -640,6 +633,18 @@ def _sandbox_step(graph_state: ValidationGraphState, config: RunnableConfig) -> 
         # 실제로 실험이 있었을 때만 사후에 알린다. 없었다면 보내지 않는다.
         emit_progress(event_builder.CHAOS, detail=str(state.execution_result.chaos_observation.get("type")))
     return {"agent": state}
+
+
+def _fill_resource_metrics(result: SandboxResult, request_id: str | None) -> None:
+    """cpu/memory는 샌드박스가 요약값 없이 null로 보낸다.
+
+    먼저 응답에 실린 1초 시계열(source.metrics_observation)에서 장애 구간 최대치를 낸다.
+    그래도 비어 있으면 바깥 Prometheus에 request_id로 묻는다. 연동 전(설정 없음)이면 no-op.
+    """
+    observation.fill_resource_metrics(
+        result.metrics, (result.source or {}).get("metrics_observation"), result.chaos_observation
+    )
+    prometheus.enrich_resource_metrics(result.metrics, request_id, result.chaos_observation, get_settings())
 
 
 def _skip_sandbox_step(graph_state: ValidationGraphState) -> ValidationGraphState:
@@ -782,6 +787,7 @@ def _refine_rerun_step(graph_state: ValidationGraphState, config: RunnableConfig
         return {"refine_stop": True}
 
     state.execution_result = result
+    _fill_resource_metrics(result, state.request_id)
     state.metrics = _metrics_from_execution(state)
     state.sre_metrics = _sre_metrics_from_execution(state)
     SANDBOX_DURATION.observe(result.duration_ms)
