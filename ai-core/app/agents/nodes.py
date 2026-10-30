@@ -651,6 +651,10 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
             warnings.append(LOAD_ERRORS)
         if (_as_float(load.get("restart_count_delta")) or 0) > 0:
             warnings.append(LOAD_RESTARTED)
+        # 요청자가 예상 사용자 수를 정했을 때만 Fail이다. 기준을 우리가 정하지 않는다(6.3).
+        if load.get("target_met") is False:
+            return (f"{LOAD_TARGET_NOT_MET}: requests failed at or below the expected "
+                    f"{load.get('target_users')} concurrent users set by the requester.", warnings)
 
         if _latency_degraded(result.baseline, measured) or any(
             _latency_degraded(scenario.get("baseline") or {}, scenario.get("metrics") or {})
@@ -761,6 +765,7 @@ def _memory_usage_ratio(measured: dict[str, object]) -> float | None:
 
 LOAD_ERRORS = "load_errors_under_concurrency"
 LOAD_RESTARTED = "load_restarted_under_concurrency"
+LOAD_TARGET_NOT_MET = "load_target_not_met"
 
 
 def chaos_load(observation: dict[str, object]) -> dict[str, object]:
@@ -808,6 +813,11 @@ def _load_sentence(load: dict[str, object]) -> str | None:
     if isinstance(growth, dict) and growth.get("ratio") is not None:
         sentence += (f" p95 went from {growth.get('from_p95_ms')}ms at {growth.get('from_users')} users "
                      f"to {growth.get('to_p95_ms')}ms at {growth.get('to_users')} users ({growth.get('ratio')}x).")
+    target = load.get("target_users")
+    if target and load.get("target_met") is not None:
+        sentence += (f" The requester expects {target} concurrent users; "
+                     + ("every request up to that many was answered." if load["target_met"]
+                        else "requests failed at or below that many."))
     overload = load.get("overload_behavior")
     if isinstance(overload, dict) and overload.get("kind") in _OVERLOAD_SENTENCE:
         sentence += " " + _OVERLOAD_SENTENCE[overload["kind"]]
@@ -893,6 +903,9 @@ def _chaos_evidence(result: SandboxResult, warnings: list[str]) -> list[str]:
     if load:
         items.append(f"load.max_users_without_errors={load.get('max_users_without_errors')}")
         items.append(f"load.first_users_with_errors={load.get('first_users_with_errors')}")
+        if load.get("target_users"):
+            items.append(f"load.target_users={load.get('target_users')}")
+            items.append(f"load.target_met={load.get('target_met')}")
         if isinstance(load.get("latency_growth"), dict):
             items.append(f"load.latency_growth.ratio={load['latency_growth'].get('ratio')}")
         if isinstance(load.get("overload_behavior"), dict):
@@ -1158,6 +1171,9 @@ def _category_surface(category: str) -> str:
         return "Fix the service health endpoint/start command and verify HTTP plus browser smoke checks pass."
     if tokens & {"clone", "reachable", "repository", "intake", "private", "auth"}:
         return "Verify the repository URL, branch/ref, visibility, and network access before re-running validation."
+    if tokens & {"load"}:
+        return ("Raise capacity for the expected concurrent users (more replicas or worker processes, "
+                "larger connection pools, request timeouts) and re-run the same load.")
     if tokens & {"timeout", "recovery"}:
         return "Make startup/tests timeout-safe and re-run validation to confirm the sandbox no longer times out."
     return ""

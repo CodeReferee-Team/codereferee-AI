@@ -120,6 +120,25 @@ class LoadCapacityTests(unittest.TestCase):
         self.assertIn("turned requests away quickly", report["reason"])
         self.assertIn("load.overload_behavior.kind=rejected", report["evidence"])
 
+    def test_missing_the_requesters_expected_users_is_a_fail(self) -> None:
+        # 기준을 요청자가 정했을 때만 Fail이다. 200명을 기대했는데 200명에서 19.4%가 실패했다.
+        state = _state("suite-load-capacity-local")
+        load = state.execution_result.chaos_observation["scenarios"][0]["chaos_observation"]["load"]
+        load.update(target_users=200, target_met=False)
+        report = nodes.judge_node(state).judge_report
+        self.assertEqual(report["status"], "Fail")
+        self.assertEqual(report["reason_category"], nodes.LOAD_TARGET_NOT_MET)
+        self.assertIn("expects 200 concurrent users; requests failed", report["reason"])
+        self.assertIn("load.target_met=False", report["evidence"])
+
+    def test_meeting_the_expected_users_keeps_the_pass(self) -> None:
+        state = _state("suite-load-capacity-local")
+        load = state.execution_result.chaos_observation["scenarios"][0]["chaos_observation"]["load"]
+        load.update(target_users=100, target_met=True)
+        report = nodes.judge_node(state).judge_report
+        self.assertEqual(report["status"], "Pass")
+        self.assertIn("expects 100 concurrent users; every request up to that many was answered", report["reason"])
+
     def test_overload_that_makes_users_wait_is_named(self) -> None:
         load = {"stages": [{"users": 10}, {"users": 50, "error_rate": 0.3}],
                 "max_users_without_errors": 10, "first_users_with_errors": 50,

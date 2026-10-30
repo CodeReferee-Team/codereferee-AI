@@ -30,6 +30,7 @@ _CATEGORY_KO = {
     "chaos_recovery_exceeds_expected_bound": "카오스 복구가 기대 상한을 초과",
     "chaos_error_budget_exhausted": "카오스 복구가 월간 에러버짓을 소진",
     "chaos_not_recovered": "카오스 후 서비스가 복구되지 않음",
+    "load_target_not_met": "예상 동시 사용자 수에서 요청 실패",
     "availability_slo_violation": "가용성 SLO 미달",
     "error_rate_slo_violation": "오류율 SLO 초과",
     "chaos_recovered_within_budget": "카오스에서 예산 내 복구",

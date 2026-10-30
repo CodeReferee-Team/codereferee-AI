@@ -165,7 +165,7 @@ def classify_failure_category(state: AgentState) -> str:
     # chaos 사유로 떨어뜨렸으면 그 사유를 그대로 failure_category로 쓴다.
     judge = state.judge_report or {}
     reason_category = judge.get("reason_category")
-    if judge.get("status") == "Fail" and isinstance(reason_category, str) and reason_category.startswith("chaos_"):
+    if judge.get("status") == "Fail" and isinstance(reason_category, str) and reason_category.startswith(("chaos_", "load_")):
         return reason_category
     result = state.execution_result
     if result is None:

@@ -45,6 +45,7 @@ def create_validation_state(request: RepositoryValidationRequest, job_id: str | 
         requested_commit_sha=request.commit_sha,
         chaos_mode=request.chaos_mode,
         deployment_profile=request.deployment_profile,
+        target_users=request.target_users,
         status=JobStatus.queued,
     )
 
@@ -161,7 +162,7 @@ def to_response(state: AgentState, request_id: str | None = None) -> RepositoryV
     )
 
 
-def _queue_payload(state: AgentState) -> dict[str, str | None]:
+def _queue_payload(state: AgentState) -> dict[str, str | int | None]:
     # Match the server Redis schema so POST /jobs and server-originated tasks are interchangeable.
     return {
         "taskId": state.job_id,
@@ -170,6 +171,7 @@ def _queue_payload(state: AgentState) -> dict[str, str | None]:
         "commitSha": state.requested_commit_sha,
         "chaosMode": state.chaos_mode,
         "deploymentProfile": state.deployment_profile,
+        "targetUsers": state.target_users,
         "submittedAt": None,
     }
 
@@ -182,6 +184,7 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
         commit_sha = payload.get("commitSha")
         chaos_mode = payload.get("chaosMode")
         deployment_profile = payload.get("deploymentProfile")
+        target_users = payload.get("targetUsers")
         request_id = payload.get("taskId")
         source = "server"
     elif payload.get("type") == REPOSITORY_VALIDATION_TASK:
@@ -191,6 +194,7 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
         commit_sha = payload.get("commit_sha")
         chaos_mode = payload.get("chaos_mode")
         deployment_profile = payload.get("deployment_profile")
+        target_users = payload.get("target_users")
         request_id = payload.get("request_id") or payload.get("job_id")
         source = "ai"
     else:
@@ -206,6 +210,7 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
         request_id=request_id,
         chaos_mode=chaos_mode,
         deployment_profile=deployment_profile,
+        target_users=target_users,
     )
     state = create_validation_state(request, job_id=job_id)
     if submitted_at := payload.get("submittedAt"):
@@ -277,13 +282,15 @@ def attach_source_files(state: AgentState, applied_patch: str | None = None) -> 
     else:
         # 파일을 못 읽으면 Refiner는 diff를 쓰지 못한다. 지어내는 것보다 남기는 것이 낫다.
         state.events.append(f"Refiner: source files unavailable for {', '.join(paths)}")
-def _sandbox_contract_options(state: AgentState) -> dict[str, str]:
+def _sandbox_contract_options(state: AgentState) -> dict[str, str | int]:
     """Pass optional external-Sandbox deployment context without changing legacy calls."""
-    options: dict[str, str] = {}
+    options: dict[str, str | int] = {}
     if state.chaos_mode:
         options["chaos_mode"] = state.chaos_mode
     if state.deployment_profile:
         options["deployment_profile"] = state.deployment_profile
+    if state.target_users:
+        options["target_users"] = state.target_users
     # requestId is the cross-service correlation key.  It must accompany
     # ordinary validations as well as profile-driven Chaos runs.
     if state.request_id:
