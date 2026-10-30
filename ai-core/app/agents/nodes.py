@@ -206,7 +206,7 @@ def _diff_from_edits(state: AgentState) -> None:
             "attempted_anchors": [str(edit.get("find")) [:200] for edit in edits if isinstance(edit, dict)],
         }
         return
-    diff = build_diff(state.source_files, outcome.patched)
+    diff = build_diff(state.source_files, outcome.patched, state.metrics.get("new_source_files") or ())
     state.refiner_report["patched_paths"] = sorted(outcome.patched)
     if diff:
         rewrite = inspect_rewrite(diff, state.source_files)

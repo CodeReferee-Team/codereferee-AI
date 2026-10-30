@@ -107,13 +107,14 @@ def inspect_diff(diff: str) -> PatchVerdict:
 
 
 
-def build_diff(original: dict[str, str], patched: dict[str, str]) -> str:
+def build_diff(original: dict[str, str], patched: dict[str, str], new_paths: list[str] | tuple[str, ...] = ()) -> str:
     """고친 파일 전문에서 unified diff를 만든다.
 
     모델에게 diff를 쓰게 하면 context 줄과 hunk 헤더를 틀린다(docs/evaluation-design.md 14.5).
     전문을 받아 우리가 만들면 그 둘이 틀릴 수 없다.
 
     original에 없는 경로는 무시한다. 우리가 보여준 파일만 고칠 수 있다.
+    new_paths는 레포에 없어서 우리가 빈 틀을 보여준 파일이다. 생성 diff(/dev/null에서)로 만든다.
     """
     chunks: list[str] = []
     for path in sorted(patched):
@@ -126,10 +127,11 @@ def build_diff(original: dict[str, str], patched: dict[str, str]) -> str:
             before += "\n"
         if not after.endswith("\n"):
             after += "\n"
+        created = path in new_paths
         diff = difflib.unified_diff(
-            before.splitlines(keepends=True),
+            [] if created else before.splitlines(keepends=True),
             after.splitlines(keepends=True),
-            fromfile=f"a/{path}",
+            fromfile="/dev/null" if created else f"a/{path}",
             tofile=f"b/{path}",
         )
         chunks.append("".join(diff))

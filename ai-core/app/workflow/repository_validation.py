@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from prometheus_client import Counter, Histogram
 
 from app.agents import source_context
-from app.agents.nodes import chaos_aborted, chaos_recovered, critic_node, judge_node, planner_node, refiner_node, judgement_unavailable
+from app.agents.nodes import chaos_aborted, chaos_recovered, chaos_target_configuration, critic_node, judge_node, planner_node, refiner_node, judgement_unavailable
 from app.report import build_pdf_report, report_from_state
 from app.models import (
     DEFAULT_SLO,
@@ -252,6 +252,12 @@ def _dependency_clients(observation: dict[str, Any]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(clients))
 
 
+# 레포에 검증 설정이 없을 때 Refiner에 보여주는 빈 틀. 샌드박스는 replicas만 적은 파일을 자동 감지 위에
+# 덮어쓰므로(codereferee-sandbox docs/repository-execution-plans.md) 이 한 줄만 바꾸면 복제본이 는다.
+# spring-petclinic 부하 200명 Fail에서 Critic이 "복제본 1개"를 짚고도 고칠 파일이 없어 패치가 null이었다.
+NEW_REPLICA_OVERRIDE = "version: 1\nservice:\n  replicas: 1\n"
+
+
 def attach_source_files(state: AgentState, applied_patch: str | None = None) -> None:
     """Refiner가 고칠 파일의 현재 내용을 state에 담는다.
 
@@ -277,11 +283,29 @@ def attach_source_files(state: AgentState, applied_patch: str | None = None) -> 
         clone_timeout_seconds=get_settings().repository_clone_timeout_seconds,
         dependency_clients=clients,
     )
+    _offer_replica_override(state)
     if state.source_files:
         state.events.append(f"Refiner: source files attached ({', '.join(state.source_files)})")
     else:
         # 파일을 못 읽으면 Refiner는 diff를 쓰지 못한다. 지어내는 것보다 남기는 것이 낫다.
         state.events.append(f"Refiner: source files unavailable for {', '.join(paths)}")
+def _offer_replica_override(state: AgentState) -> None:
+    """복제본 1개로 카오스·부하에서 떨어졌는데 검증 설정이 없으면 새 파일 틀을 보여준다.
+
+    이미 있으면 그 파일을 고치게 둔다. clone이 실패해 있는 파일을 못 읽었을 수도 있는데,
+    그때 만든 생성 diff는 git apply --check에서 걸러진다.
+    """
+    state.metrics.pop("new_source_files", None)
+    observation = state.execution_result.chaos_observation if state.execution_result else None
+    if not observation or any(path in state.source_files for path in source_context.CHAOS_CONFIG_CANDIDATES):
+        return
+    if chaos_target_configuration(observation).get("replicas") != 1:
+        return
+    path = source_context.CHAOS_CONFIG_CANDIDATES[0]
+    state.source_files = {**state.source_files, path: NEW_REPLICA_OVERRIDE}
+    state.metrics["new_source_files"] = [path]
+
+
 def _sandbox_contract_options(state: AgentState) -> dict[str, str | int]:
     """Pass optional external-Sandbox deployment context without changing legacy calls."""
     options: dict[str, str | int] = {}
