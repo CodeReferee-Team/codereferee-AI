@@ -33,6 +33,7 @@ class SandboxRunner:
         chaos_mode: str | None = None,
         deployment_profile: str | None = None,
         request_id: str | None = None,
+        target_users: int | None = None,
     ) -> SandboxResult:
         """Clone and smoke-test an existing repository.
 
@@ -44,7 +45,8 @@ class SandboxRunner:
         """
         if self.settings.sandbox_base_url:
             return self._run_repository_via_http(
-                repository_url, branch, commit_sha, patch_diff, chaos_mode, deployment_profile, request_id
+                repository_url, branch, commit_sha, patch_diff, chaos_mode, deployment_profile, request_id,
+                target_users,
             )
         if not self.settings.local_sandbox_enabled:
             # layer-1 기능이 layer-2 샌박으로 이관됐다. 로컬 Docker 경로는 기본 비활성화이며
@@ -65,6 +67,7 @@ class SandboxRunner:
         chaos_mode: str | None = None,
         deployment_profile: str | None = None,
         request_id: str | None = None,
+        target_users: int | None = None,
     ) -> SandboxResult:
         started_at = time.monotonic()
         endpoint = _join_url(self.settings.sandbox_base_url or "", self.settings.sandbox_repository_path)
@@ -86,6 +89,8 @@ class SandboxRunner:
             payload["deploymentProfile"] = deployment_profile
         if request_id:
             payload["requestId"] = request_id
+        if target_users:
+            payload["targetUsers"] = target_users
         # Tell the sandbox how long we will wait, so it skips what cannot finish
         # instead of running on after we have given up (and holding its lock).
         payload["deadlineSeconds"] = max(

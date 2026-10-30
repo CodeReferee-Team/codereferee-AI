@@ -75,6 +75,8 @@ REASON_CATEGORIES = (
     "chaos_error_budget_exhausted",
     "chaos_recovery_exceeds_expected_bound",
     "chaos_recovered_within_budget",
+    # load (요청자가 예상 동시 사용자 수를 정했을 때만)
+    "load_target_not_met",
     # pass
     "all_checks_passed",
 )

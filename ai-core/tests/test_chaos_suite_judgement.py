@@ -104,3 +104,60 @@ class StoppedAtTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LoadCapacityTests(unittest.TestCase):
+    """동시 사용자 부하(2026-10-30). 판정은 바꾸지 않고 몇 명까지 버텼는지를 사유와 경고로 남긴다."""
+
+    def test_capacity_is_reported_without_turning_a_pass_into_a_fail(self) -> None:
+        state = _state("suite-load-capacity-local")
+        report = nodes.judge_node(state).judge_report
+        self.assertIn(nodes.LOAD_ERRORS, state.metrics["policy_warnings"])
+        self.assertIn("up to 100 concurrent users; at 200 users 19.4% of requests failed", report["reason"])
+        self.assertIn("load.max_users_without_errors=100", report["evidence"])
+        # 사용자가 늘 때 느려진 정도와 넘쳤을 때 무너진 방식(2026-10-30 윤: "지연율 증가, 과부하를 견디는가")
+        self.assertIn("p95 went from 53.0ms at 10 users to 351.0ms at 200 users (6.6x)", report["reason"])
+        self.assertIn("turned requests away quickly", report["reason"])
+        self.assertIn("load.overload_behavior.kind=rejected", report["evidence"])
+
+    def test_missing_the_requesters_expected_users_is_a_fail(self) -> None:
+        # 기준을 요청자가 정했을 때만 Fail이다. 200명을 기대했는데 200명에서 19.4%가 실패했다.
+        state = _state("suite-load-capacity-local")
+        load = state.execution_result.chaos_observation["scenarios"][0]["chaos_observation"]["load"]
+        load.update(target_users=200, target_met=False)
+        report = nodes.judge_node(state).judge_report
+        self.assertEqual(report["status"], "Fail")
+        self.assertEqual(report["reason_category"], nodes.LOAD_TARGET_NOT_MET)
+        self.assertIn("expects 200 concurrent users; requests failed", report["reason"])
+        self.assertIn("load.target_met=False", report["evidence"])
+
+    def test_meeting_the_expected_users_keeps_the_pass(self) -> None:
+        state = _state("suite-load-capacity-local")
+        load = state.execution_result.chaos_observation["scenarios"][0]["chaos_observation"]["load"]
+        load.update(target_users=100, target_met=True)
+        report = nodes.judge_node(state).judge_report
+        self.assertEqual(report["status"], "Pass")
+        self.assertIn("expects 100 concurrent users; every request up to that many was answered", report["reason"])
+
+    def test_overload_that_makes_users_wait_is_named(self) -> None:
+        load = {"stages": [{"users": 10}, {"users": 50, "error_rate": 0.3}],
+                "max_users_without_errors": 10, "first_users_with_errors": 50,
+                "overload_behavior": {"users": 50, "kind": "timed_out"}}
+        self.assertIn("held requests until they timed out", nodes._load_sentence(load))
+
+    def test_clean_load_names_the_highest_stage_and_its_latency(self) -> None:
+        load = {"stages": [{"users": 10, "p95_latency_ms": 5.0}, {"users": 200, "p95_latency_ms": 41.2}],
+                "max_users_without_errors": 200, "first_users_with_errors": None}
+        self.assertEqual(nodes._load_sentence(load),
+                         "Under load it answered every request up to 200 concurrent users (p95 41.2ms at 200 users).")
+
+    def test_restart_under_load_is_a_warning(self) -> None:
+        state = _state("suite-load-capacity-local")
+        observation = state.execution_result.chaos_observation
+        observation["scenarios"][0]["chaos_observation"]["restart_count_delta"] = 2
+        report = nodes.judge_node(state).judge_report
+        self.assertIn(nodes.LOAD_RESTARTED, state.metrics["policy_warnings"])
+        self.assertIn("restarted 2 time(s)", report["reason"])
+
+    def test_no_load_scenario_means_no_load_sentence(self) -> None:
+        self.assertEqual(nodes.chaos_load(_state("suite-m09-single-replica-twice").execution_result.chaos_observation), {})
