@@ -816,3 +816,12 @@ oracle의 수리율이 처음에 62.5%(5/8)였다. 실패한 3건은 모두 asse
 - 의존성 장애(`dependency_redis_outage`, `dependency_database_outage`)로 실패하면 그 클라이언트(`redis`, `psycopg` 등)를 import하는 레포 모듈을 함께 붙인다. 테스트와 가상환경 디렉터리는 뺀다. 상한 3개는 그대로다
 - Critic과 Refiner 패킷의 `chaos`에 `fault`(장애 종류)를 싣는다. Refiner 프롬프트에는 "의존성 장애 미복구는 replicas가 아니라 그 의존성을 부르는 코드를 고친다"를 적었다
 - 검증용 fixture는 chaos-demo 브랜치 `claude/project-thread-ta9s8y`(Redis 실패 후 차단기를 닫지 않는 앱)다. 정답 패치는 레포 밖에 둔다. Refiner가 레포 파일을 읽기 때문이다
+
+### 15.6 검증 설정이 없는 레포의 복제본 수정 (2026-10-30)
+
+실서버에서 spring-petclinic에 예상 동시 사용자 200명을 걸자 `load_target_not_met`로 Fail이 났다. 100명까지는 실패가 없었고, 200명에서 p95가 78배 늘고 시간 초과가 6건 났다. Critic은 "복제본 1개라 여유가 없다"를 정확히 짚었다. 그런데 레포에 `.codereferee/validation.yaml`도 배포 파일도 없어서 Refiner가 고칠 파일이 없었고, `patch_diff`는 null이었다.
+
+- 샌드박스는 `service`에 `replicas`·`resources`만 적은 validation.yaml을 받는다. 배포 방식, 포트, 로컬 DB 재현은 그대로 자동 감지하고 두 값만 덮어쓴다(codereferee-sandbox `docs/repository-execution-plans.md`)
+- 카오스·부하 실패이고, `target_configuration.replicas`가 1이고, 레포에 검증 설정이 없으면 Refiner의 `source_files`에 `version: 1 / service: / replicas: 1` 틀을 새 파일로 보여준다(`NEW_REPLICA_OVERRIDE`). 프롬프트는 그대로 쓴다. 기존 규칙인 "validation.yaml이 source_files에 있으면 replicas를 올린다"가 그대로 적용된다
+- 이 파일을 고친 편집은 `/dev/null`에서 시작하는 생성 diff로 만든다(`build_diff(new_paths=...)`). 레포에 실제로 파일이 있는데 clone이 실패해 못 읽은 경우에는 생성 diff가 `git apply --check`에서 걸러진다
+- 두 번째 라운드부터는 누적 패치가 적용된 clone에서 파일을 실제로 읽으므로 새 파일 표시를 지운다

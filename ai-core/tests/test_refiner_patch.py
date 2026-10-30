@@ -114,3 +114,54 @@ class ChaosSourceContextTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NewValidationConfigTests(unittest.TestCase):
+    """레포에 배포 파일이 없으면 복제본 수를 올릴 곳이 없어 수정안이 글로만 나왔다.
+
+    spring-petclinic 부하 200명 Fail(2026-10-30 실서버): Critic이 "복제본 1개"를 정확히 짚었는데
+    patch_diff가 null이었다. 샌드박스는 replicas만 적은 validation.yaml을 자동 감지 위에 덮어쓴다.
+    """
+
+    def _apply_to_empty_repo(self, diff: str) -> str:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            _git(["init", "-q"], repo)
+            _git(["config", "user.email", "t@t"], repo)
+            _git(["config", "user.name", "t"], repo)
+            (repo / "README.md").write_text("x\n", encoding="utf-8")
+            _git(["add", "-A"], repo)
+            _git(["commit", "-qm", "init"], repo)
+            patch_file = repo / "fix.patch"
+            patch_file.write_text(diff, encoding="utf-8")
+            _git(["apply", "--check", str(patch_file)], repo)
+            _git(["apply", str(patch_file)], repo)
+            return (repo / PATH).read_text(encoding="utf-8")
+
+    def test_single_replica_without_config_offers_a_new_override_file(self) -> None:
+        state = _chaos_failed_state()
+        with mock.patch.object(source_context, "collect", return_value={}):
+            workflow.attach_source_files(state)
+        self.assertEqual(state.source_files, {PATH: workflow.NEW_REPLICA_OVERRIDE})
+        self.assertEqual(state.metrics["new_source_files"], [PATH])
+
+    def test_existing_config_is_not_replaced(self) -> None:
+        state = _chaos_failed_state()
+        with mock.patch.object(source_context, "collect", return_value={PATH: VALIDATION_YAML}):
+            workflow.attach_source_files(state)
+        self.assertEqual(state.source_files, {PATH: VALIDATION_YAML})
+        self.assertNotIn("new_source_files", state.metrics)
+
+    def test_more_than_one_replica_does_not_get_the_file(self) -> None:
+        state = _chaos_failed_state()
+        state.execution_result.chaos_observation["target_configuration"]["replicas"] = 2
+        with mock.patch.object(source_context, "collect", return_value={}):
+            workflow.attach_source_files(state)
+        self.assertEqual(state.source_files, {})
+
+    def test_edit_on_the_new_file_becomes_a_creation_diff_that_git_applies(self) -> None:
+        original = {PATH: workflow.NEW_REPLICA_OVERRIDE}
+        outcome = apply_edits(original, [{"path": PATH, "find": ["  replicas: 1"], "replace": ["  replicas: 2"]}])
+        diff = build_diff(original, outcome.patched, new_paths=[PATH])
+        self.assertIn("--- /dev/null", diff)
+        self.assertEqual(self._apply_to_empty_repo(diff), "version: 1\nservice:\n  replicas: 2\n")
