@@ -115,6 +115,16 @@ class LoadCapacityTests(unittest.TestCase):
         self.assertIn(nodes.LOAD_ERRORS, state.metrics["policy_warnings"])
         self.assertIn("up to 100 concurrent users; at 200 users 19.4% of requests failed", report["reason"])
         self.assertIn("load.max_users_without_errors=100", report["evidence"])
+        # 사용자가 늘 때 느려진 정도와 넘쳤을 때 무너진 방식(2026-10-30 윤: "지연율 증가, 과부하를 견디는가")
+        self.assertIn("p95 went from 53.0ms at 10 users to 351.0ms at 200 users (6.6x)", report["reason"])
+        self.assertIn("turned requests away quickly", report["reason"])
+        self.assertIn("load.overload_behavior.kind=rejected", report["evidence"])
+
+    def test_overload_that_makes_users_wait_is_named(self) -> None:
+        load = {"stages": [{"users": 10}, {"users": 50, "error_rate": 0.3}],
+                "max_users_without_errors": 10, "first_users_with_errors": 50,
+                "overload_behavior": {"users": 50, "kind": "timed_out"}}
+        self.assertIn("held requests until they timed out", nodes._load_sentence(load))
 
     def test_clean_load_names_the_highest_stage_and_its_latency(self) -> None:
         load = {"stages": [{"users": 10, "p95_latency_ms": 5.0}, {"users": 200, "p95_latency_ms": 41.2}],

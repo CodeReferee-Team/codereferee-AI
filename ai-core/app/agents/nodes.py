@@ -778,6 +778,14 @@ def chaos_load(observation: dict[str, object]) -> dict[str, object]:
     return {}
 
 
+# 첫 실패 단계가 어떻게 무너졌는지. 고칠 곳이 다르다.
+_OVERLOAD_SENTENCE = {
+    "rejected": "When overloaded it turned requests away quickly (5xx/429) instead of making users wait.",
+    "timed_out": "When overloaded it held requests until they timed out, so users waited instead of being turned away.",
+    "connection_failed": "When overloaded it stopped accepting connections.",
+}
+
+
 def _load_sentence(load: dict[str, object]) -> str | None:
     """몇 명까지 버텼는지. 응답 시간에는 임계값을 두지 않고 값만 적는다."""
     stages = [s for s in load.get("stages") or [] if isinstance(s, dict)]
@@ -796,6 +804,13 @@ def _load_sentence(load: dict[str, object]) -> str | None:
         share = f"{round(rate * 100, 1)}% of requests failed" if rate is not None else "requests failed"
         sentence = (f"Under load it answered everyone up to {ok} concurrent users; at {first} users {share}."
                     if ok is not None else f"Under load requests already failed at {first} concurrent users ({share}).")
+    growth = load.get("latency_growth")
+    if isinstance(growth, dict) and growth.get("ratio") is not None:
+        sentence += (f" p95 went from {growth.get('from_p95_ms')}ms at {growth.get('from_users')} users "
+                     f"to {growth.get('to_p95_ms')}ms at {growth.get('to_users')} users ({growth.get('ratio')}x).")
+    overload = load.get("overload_behavior")
+    if isinstance(overload, dict) and overload.get("kind") in _OVERLOAD_SENTENCE:
+        sentence += " " + _OVERLOAD_SENTENCE[overload["kind"]]
     if (_as_float(load.get("restart_count_delta")) or 0) > 0:
         sentence += f" The app container restarted {int(load['restart_count_delta'])} time(s) during the load."
     return sentence
@@ -878,6 +893,10 @@ def _chaos_evidence(result: SandboxResult, warnings: list[str]) -> list[str]:
     if load:
         items.append(f"load.max_users_without_errors={load.get('max_users_without_errors')}")
         items.append(f"load.first_users_with_errors={load.get('first_users_with_errors')}")
+        if isinstance(load.get("latency_growth"), dict):
+            items.append(f"load.latency_growth.ratio={load['latency_growth'].get('ratio')}")
+        if isinstance(load.get("overload_behavior"), dict):
+            items.append(f"load.overload_behavior.kind={load['overload_behavior'].get('kind')}")
     if observation.get("partial"):
         items.append(f"executed={','.join(observation.get('executed') or [])}")
         items.append(f"not_checked={','.join(_not_checked(observation))}")

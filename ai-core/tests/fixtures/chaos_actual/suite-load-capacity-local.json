@@ -286,6 +286,20 @@
                 "cpu": "1000m",
                 "memory": "256Mi"
               }
+            },
+            "latency_growth": {
+              "from_users": 10,
+              "from_p95_ms": 53.0,
+              "to_users": 200,
+              "to_p95_ms": 351.0,
+              "ratio": 6.6
+            },
+            "overload_behavior": {
+              "users": 200,
+              "kind": "rejected",
+              "rejected": 388,
+              "timed_out": 0,
+              "connection_failed": 0
             }
           },
           "observation_window": {
