@@ -1,0 +1,483 @@
+{
+  "schemaVersion": "chaos-v1",
+  "scenario": "suite_custom__load__ck",
+  "observationStatus": "observed",
+  "exitCode": 0,
+  "infraError": null,
+  "stderr": "",
+  "stoppedAt": null,
+  "timedOut": false,
+  "baseline": {
+    "metrics": {
+      "availability": 1.0,
+      "p95_latency_ms": 3.1,
+      "error_rate": 0.0,
+      "probe_count": 5,
+      "success_count": 5,
+      "failure_count": 0,
+      "error_rate_denominator": "HTTP probes collected before the load",
+      "cpu_usage_percent": null,
+      "memory_usage_mb": null,
+      "restart_count": 0
+    }
+  },
+  "metrics": {
+    "availability": 0.775,
+    "error_rate": 0.22499999999999998,
+    "probe_count": 80,
+    "success_count": 62,
+    "failure_count": 18,
+    "p95_latency_ms": null,
+    "error_rate_denominator": "sum of per-scenario HTTP probe counts of observed scenarios; inspect individual scenarios for latency"
+  },
+  "chaos_observation": {
+    "type": "scenario_suite",
+    "recovered": true,
+    "recovery_seconds": 37.72,
+    "total_downtime_seconds": 37.72,
+    "target_configuration": {
+      "replicas": 1,
+      "readiness_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 2,
+        "timeout_seconds": 2,
+        "failure_threshold": 3,
+        "success_threshold": 1
+      },
+      "liveness_probe": null,
+      "startup_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 2,
+        "timeout_seconds": 2,
+        "failure_threshold": 90,
+        "success_threshold": 1
+      },
+      "termination_grace_period_seconds": 10
+    },
+    "abort_condition": {
+      "triggered": false,
+      "reason": null
+    },
+    "scenarios": [
+      {
+        "schemaVersion": "chaos-v1",
+        "scenario": "load_concurrent_users",
+        "observationStatus": "observed",
+        "exitCode": 0,
+        "timedOut": false,
+        "probeTransport": "in_cluster_http",
+        "probes": {
+          "baseline": [
+            {
+              "at": "2026-10-30T09:00:00Z",
+              "success": true,
+              "status_code": 200,
+              "latency_ms": 3.1
+            },
+            {
+              "at": "2026-10-30T09:00:01Z",
+              "success": true,
+              "status_code": 200,
+              "latency_ms": 3.1
+            },
+            {
+              "at": "2026-10-30T09:00:02Z",
+              "success": true,
+              "status_code": 200,
+              "latency_ms": 3.1
+            },
+            {
+              "at": "2026-10-30T09:00:03Z",
+              "success": true,
+              "status_code": 200,
+              "latency_ms": 3.1
+            },
+            {
+              "at": "2026-10-30T09:00:04Z",
+              "success": true,
+              "status_code": 200,
+              "latency_ms": 3.1
+            }
+          ],
+          "experiment": [
+            {
+              "at": "2026-10-30T09:00:00Z",
+              "success": true,
+              "status_code": 200,
+              "latency_ms": 3.1
+            },
+            {
+              "at": "2026-10-30T09:00:01Z",
+              "success": true,
+              "status_code": 200,
+              "latency_ms": 3.1
+            },
+            {
+              "at": "2026-10-30T09:00:02Z",
+              "success": true,
+              "status_code": 200,
+              "latency_ms": 3.1
+            },
+            {
+              "at": "2026-10-30T09:00:03Z",
+              "success": true,
+              "status_code": 200,
+              "latency_ms": 3.1
+            },
+            {
+              "at": "2026-10-30T09:00:04Z",
+              "success": true,
+              "status_code": 200,
+              "latency_ms": 3.1
+            }
+          ]
+        },
+        "target": {
+          "namespace": "codereferee-load",
+          "deployment": "repository-api",
+          "service": "repository-api",
+          "servicePort": 8080,
+          "labelSelector": "app.kubernetes.io/name=repository-api"
+        },
+        "baseline": {
+          "metrics": {
+            "availability": 1.0,
+            "p95_latency_ms": 3.1,
+            "error_rate": 0.0,
+            "probe_count": 5,
+            "success_count": 5,
+            "failure_count": 0,
+            "error_rate_denominator": "HTTP probes collected before the load",
+            "cpu_usage_percent": null,
+            "memory_usage_mb": null,
+            "restart_count": 0
+          }
+        },
+        "metrics": {
+          "availability": 1.0,
+          "p95_latency_ms": 3.1,
+          "error_rate": 0.0,
+          "probe_count": 10,
+          "success_count": 10,
+          "failure_count": 0,
+          "error_rate_denominator": "in-cluster HTTP probes before and after the load; load requests are reported per stage",
+          "cpu_usage_percent": null,
+          "memory_usage_mb": null,
+          "restart_count": 0
+        },
+        "chaos_observation": {
+          "type": "load_concurrent_users",
+          "kill_method": "in_cluster_load_generator",
+          "started_at": "2026-10-30T09:05:17.065340Z",
+          "recovered": true,
+          "recovered_at": "2026-10-30T09:06:01.138028Z",
+          "recovery_seconds": 0.0,
+          "experiment_duration_seconds": 44.07,
+          "target_configuration": {
+            "replicas": 1,
+            "readiness_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 3,
+              "success_threshold": 1
+            },
+            "liveness_probe": null,
+            "startup_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 90,
+              "success_threshold": 1
+            },
+            "termination_grace_period_seconds": 10
+          },
+          "restart_count_delta": 0,
+          "load": {
+            "stages": [
+              {
+                "users": 10,
+                "duration_seconds": 10.95,
+                "requests": 100,
+                "failed_requests": 0,
+                "error_rate": 0.0,
+                "throughput_rps": 9.13,
+                "offered_rps": 10.0,
+                "p50_latency_ms": 52.25,
+                "p95_latency_ms": 53.0,
+                "p99_latency_ms": 55.1,
+                "status_counts": {
+                  "200": 100
+                },
+                "error_counts": {},
+                "unfinished_users": 0
+              },
+              {
+                "users": 50,
+                "duration_seconds": 10.99,
+                "requests": 500,
+                "failed_requests": 0,
+                "error_rate": 0.0,
+                "throughput_rps": 45.49,
+                "offered_rps": 50.0,
+                "p50_latency_ms": 52.13,
+                "p95_latency_ms": 55.01,
+                "p99_latency_ms": 65.68,
+                "status_counts": {
+                  "200": 500
+                },
+                "error_counts": {},
+                "unfinished_users": 0
+              },
+              {
+                "users": 100,
+                "duration_seconds": 11.0,
+                "requests": 999,
+                "failed_requests": 0,
+                "error_rate": 0.0,
+                "throughput_rps": 90.84,
+                "offered_rps": 100.0,
+                "p50_latency_ms": 51.93,
+                "p95_latency_ms": 64.97,
+                "p99_latency_ms": 75.58,
+                "status_counts": {
+                  "200": 999
+                },
+                "error_counts": {},
+                "unfinished_users": 0
+              },
+              {
+                "users": 200,
+                "duration_seconds": 10.99,
+                "requests": 2000,
+                "failed_requests": 388,
+                "error_rate": 0.194,
+                "throughput_rps": 181.97,
+                "offered_rps": 200.0,
+                "p50_latency_ms": 328.48,
+                "p95_latency_ms": 351.0,
+                "p99_latency_ms": 354.38,
+                "status_counts": {
+                  "200": 1612,
+                  "503": 388
+                },
+                "error_counts": {},
+                "unfinished_users": 0
+              }
+            ],
+            "max_users_without_errors": 100,
+            "first_users_with_errors": 200,
+            "all_stages_clean": false,
+            "request_path": "/",
+            "think_seconds": 1.0,
+            "stage_seconds": 10,
+            "request_timeout_seconds": 5.0,
+            "failure_definition": "no HTTP answer within the timeout, or status 5xx or 429",
+            "generator_resources": {
+              "requests": {
+                "cpu": "250m",
+                "memory": "64Mi"
+              },
+              "limits": {
+                "cpu": "1000m",
+                "memory": "256Mi"
+              }
+            }
+          },
+          "observation_window": {
+            "baseline_probe_count": 5,
+            "recovery_timeout_seconds": 120,
+            "error_rate_denominator": "in-cluster HTTP probes before and after the load; load requests are reported per stage"
+          },
+          "abort_condition": {
+            "triggered": false,
+            "reason": null
+          }
+        },
+        "source": {
+          "real_execution_observed": true,
+          "target": "repository-api"
+        },
+        "chaosMode": "load_concurrent_users"
+      },
+      {
+        "schemaVersion": "chaos-v1",
+        "scenario": "container_kill",
+        "observationStatus": "observed",
+        "exitCode": 0,
+        "infraError": null,
+        "probeTransport": "in_cluster_http",
+        "target": {
+          "namespace": "codereferee-t5641-m09-weak",
+          "deployment": "repository-api",
+          "labelSelector": "app.kubernetes.io/name=repository-api",
+          "service": "repository-api",
+          "servicePort": 8000
+        },
+        "replicas": 1,
+        "chaosEngine": "codereferee-container-kill-repository-api-1792405691",
+        "chaos_observation": {
+          "type": "container_kill",
+          "kill_method": "litmus_container_kill",
+          "started_at": "2026-10-19T10:28:16.440917Z",
+          "recovered": true,
+          "recovered_at": "2026-10-19T10:29:49.304840Z",
+          "recovery_seconds": 37.72,
+          "recovery_measurement": "first_failed_http_request_to_first_success_after_last_failure; 0 when no HTTP outage was sampled",
+          "experiment_duration_seconds": 93.05,
+          "fault_parameters": {
+            "TOTAL_CHAOS_DURATION": "15",
+            "CHAOS_INTERVAL": "60",
+            "FORCE": "true",
+            "TARGET_CONTAINER": "api",
+            "PODS_AFFECTED_PERC": "100",
+            "CONTAINER_RUNTIME": "containerd",
+            "SOCKET_PATH": "/run/containerd/containerd.sock",
+            "LIB_IMAGE_PULL_POLICY": "IfNotPresent"
+          },
+          "fault_scope": {
+            "mode": "all",
+            "requested_count": null,
+            "selection_method": "PODS_AFFECTED_PERC=100",
+            "selected_pods": [],
+            "pods_before": [
+              {
+                "name": "repository-api-94f8fd97b-k44qw",
+                "uid": "2fcb13a0-7e6f-4d90-8e37-5a4d1e201f49",
+                "node": "codereferee-control-plane",
+                "restart_count": 0,
+                "container_id": "containerd://e2360d0c798c0f15b8a5cc03c00bdf8b6c3f501fa021509807c4d2b7d0892d81",
+                "ready": true,
+                "deletion_timestamp": null
+              }
+            ],
+            "pods_after": [
+              {
+                "name": "repository-api-94f8fd97b-k44qw",
+                "uid": "2fcb13a0-7e6f-4d90-8e37-5a4d1e201f49",
+                "node": "codereferee-control-plane",
+                "restart_count": 1,
+                "container_id": "containerd://978fd7b8e015af876528073467a679331297d6db82ca778064b0cfaf4d1e8f20",
+                "ready": true,
+                "deletion_timestamp": null
+              }
+            ],
+            "litmus_reported_targets": [
+              {
+                "chaosStatus": "targeted",
+                "kind": "pod",
+                "name": "repository-api-94f8fd97b-k44qw"
+              }
+            ],
+            "unexpected_reported_pods": [],
+            "missing_reported_pods": [],
+            "reported_pod_scope_matches": null
+          },
+          "last_terminations": [
+            {
+              "reason": "Error",
+              "exitCode": 137,
+              "startedAt": "2026-10-19T10:27:35Z",
+              "finishedAt": "2026-10-19T10:28:33Z"
+            }
+          ],
+          "oom_observed": null,
+          "target_container": "api",
+          "target_restart_count": 0,
+          "replacement_restart_count": 1,
+          "target_pod_uid": "2fcb13a0-7e6f-4d90-8e37-5a4d1e201f49",
+          "replacement_pod_uid": "2fcb13a0-7e6f-4d90-8e37-5a4d1e201f49",
+          "target_configuration": {
+            "replicas": 1,
+            "readiness_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 3,
+              "success_threshold": 1
+            },
+            "liveness_probe": null,
+            "startup_probe": {
+              "type": "http_get",
+              "initial_delay_seconds": null,
+              "period_seconds": 2,
+              "timeout_seconds": 2,
+              "failure_threshold": 90,
+              "success_threshold": 1
+            },
+            "termination_grace_period_seconds": 10
+          },
+          "observation_window": {
+            "baseline_probe_count": 20,
+            "recovery_timeout_seconds": 240,
+            "error_rate_denominator": "all in-cluster HTTP requests during baseline, experiment, and recovery verification"
+          },
+          "abort_condition": {
+            "triggered": false,
+            "reason": null
+          }
+        },
+        "source": {
+          "real_execution_observed": true,
+          "http_observation_available": true,
+          "target": "repository-api"
+        },
+        "baseline": {
+          "metrics": {
+            "availability": 1.0,
+            "p95_latency_ms": 3.83,
+            "error_rate": 0.0,
+            "probe_count": 20,
+            "success_count": 20,
+            "failure_count": 0,
+            "error_rate_denominator": "baseline in-cluster HTTP requests only",
+            "cpu_usage_percent": null,
+            "memory_usage_mb": null,
+            "restart_count": 0
+          }
+        },
+        "metrics": {
+          "availability": 0.7428571428571429,
+          "p95_latency_ms": 4.78,
+          "error_rate": 0.2571428571428571,
+          "probe_count": 70,
+          "success_count": 52,
+          "failure_count": 18,
+          "error_rate_denominator": "all in-cluster HTTP requests during baseline, experiment, and recovery verification",
+          "cpu_usage_percent": null,
+          "memory_usage_mb": null,
+          "restart_count": 1
+        },
+        "timedOut": false,
+        "chaosMode": "litmus_container_kill"
+      }
+    ],
+    "requested": [
+      "load_concurrent_users",
+      "litmus_container_kill"
+    ],
+    "executed": [
+      "load_concurrent_users",
+      "litmus_container_kill"
+    ],
+    "stopped": [],
+    "not_executed": [],
+    "partial": false
+  },
+  "source": {
+    "real_execution_observed": true
+  },
+  "requestId": "t5641-m09-weak",
+  "repositoryUrl": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+  "branch": "master",
+  "commitSha": "44679438bf1e835bc6ffa8eeb2ff39303f712ef4",
+  "durationMillis": 284951,
+  "serviceCheckAttempted": true,
+  "browserCheckAttempted": false,
+  "_fixture_note": "Load scenario output produced by codereferee-sandbox scripts/run_load_experiment.py main() with the real generator code against a local server limited to 8 concurrent requests (503 beyond that); kubectl calls mocked. Folded with the real M09 container-kill scenario by app.main.aggregate_scenarios. Replace with a cluster run once available."
+}

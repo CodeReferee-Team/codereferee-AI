@@ -646,6 +646,12 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
             if downtime >= allowance * 0.2:
                 warnings.append("chaos_error_budget_significant_burn")
 
+        load = chaos_load(observation)
+        if load.get("first_users_with_errors") is not None:
+            warnings.append(LOAD_ERRORS)
+        if (_as_float(load.get("restart_count_delta")) or 0) > 0:
+            warnings.append(LOAD_RESTARTED)
+
         if _latency_degraded(result.baseline, measured) or any(
             _latency_degraded(scenario.get("baseline") or {}, scenario.get("metrics") or {})
             for scenario in observation.get("scenarios") or []
@@ -753,6 +759,48 @@ def _memory_usage_ratio(measured: dict[str, object]) -> float | None:
 
 
 
+LOAD_ERRORS = "load_errors_under_concurrency"
+LOAD_RESTARTED = "load_restarted_under_concurrency"
+
+
+def chaos_load(observation: dict[str, object]) -> dict[str, object]:
+    """동시 사용자 부하 결과. 없으면 빈 dict.
+
+    단독 실행이면 observation 자체가, 묶음이면 시나리오 중 하나가 load_concurrent_users다.
+    재시작 수는 load 밖(chaos_observation)에 있어 함께 담아 돌려준다.
+    """
+    candidates = [observation] + [
+        s.get("chaos_observation") or {} for s in observation.get("scenarios") or [] if isinstance(s, dict)
+    ]
+    for item in candidates:
+        if isinstance(item, dict) and item.get("type") == "load_concurrent_users" and isinstance(item.get("load"), dict):
+            return {**item["load"], "restart_count_delta": item.get("restart_count_delta")}
+    return {}
+
+
+def _load_sentence(load: dict[str, object]) -> str | None:
+    """몇 명까지 버텼는지. 응답 시간에는 임계값을 두지 않고 값만 적는다."""
+    stages = [s for s in load.get("stages") or [] if isinstance(s, dict)]
+    if not stages:
+        return None
+    by_users = {s.get("users"): s for s in stages}
+    ok = load.get("max_users_without_errors")
+    first = load.get("first_users_with_errors")
+    if first is None:
+        top = stages[-1]
+        sentence = (f"Under load it answered every request up to {top.get('users')} concurrent users "
+                    f"(p95 {top.get('p95_latency_ms')}ms at {top.get('users')} users).")
+    else:
+        failing = by_users.get(first) or {}
+        rate = _as_float(failing.get("error_rate"))
+        share = f"{round(rate * 100, 1)}% of requests failed" if rate is not None else "requests failed"
+        sentence = (f"Under load it answered everyone up to {ok} concurrent users; at {first} users {share}."
+                    if ok is not None else f"Under load requests already failed at {first} concurrent users ({share}).")
+    if (_as_float(load.get("restart_count_delta")) or 0) > 0:
+        sentence += f" The app container restarted {int(load['restart_count_delta'])} time(s) during the load."
+    return sentence
+
+
 def chaos_downtime_seconds(observation: dict[str, object]) -> float | None:
     """실험 전체에서 서비스가 끊긴 시간. 모르면 None.
 
@@ -794,6 +842,8 @@ def _chaos_reason(head: str, observation: dict[str, object], warnings: list[str]
         sentences.append(f"The {downtime}s of downtime used at least 20% of the monthly error budget.")
     if "chaos_latency_degraded" in warnings:
         sentences.append("Latency during a fault exceeded 10x the baseline p95.")
+    if (load_sentence := _load_sentence(chaos_load(observation))) is not None:
+        sentences.append(load_sentence)
     if observation.get("partial"):
         sentences.append(_partial_sentence(observation))
     return " ".join(sentences)
@@ -824,6 +874,10 @@ def _chaos_evidence(result: SandboxResult, warnings: list[str]) -> list[str]:
         items.append("chaos.replicas=1")
     if (downtime := chaos_downtime_seconds(observation)) is not None:
         items.append(f"chaos.downtime_seconds={downtime}")
+    load = chaos_load(observation)
+    if load:
+        items.append(f"load.max_users_without_errors={load.get('max_users_without_errors')}")
+        items.append(f"load.first_users_with_errors={load.get('first_users_with_errors')}")
     if observation.get("partial"):
         items.append(f"executed={','.join(observation.get('executed') or [])}")
         items.append(f"not_checked={','.join(_not_checked(observation))}")
