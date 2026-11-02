@@ -151,6 +151,23 @@ class LoadCapacityTests(unittest.TestCase):
         self.assertEqual(nodes._load_sentence(load),
                          "Under load it answered every request up to 200 concurrent users (p95 41.2ms at 200 users).")
 
+    def test_slow_answers_under_load_are_a_warning_not_a_fail(self) -> None:
+        # spring-petclinic 2026-11-01: 오류 0인데 200명에서 p95 1383ms. 1초는 닐슨의 "흐름이 끊기는" 한계다.
+        state = _state("suite-load-capacity-local")
+        load = state.execution_result.chaos_observation["scenarios"][0]["chaos_observation"]["load"]
+        for item in load["stages"]:
+            item["p95_latency_ms"] = {10: 23.8, 50: 120.0, 100: 640.0, 200: 1383.6}.get(item["users"], 1500.0)
+        report = nodes.judge_node(state).judge_report
+        self.assertIn(nodes.LOAD_SLOW, state.metrics["policy_warnings"])
+        self.assertIn("From 200 concurrent users, 1 in 20 requests took 1383.6ms or longer", report["reason"])
+        self.assertIn("load.slow_from_users=200", report["evidence"])
+
+    def test_answers_under_one_second_are_not_slow(self) -> None:
+        load = {"stages": [{"users": 10, "p95_latency_ms": 20.0}, {"users": 200, "p95_latency_ms": 999.0}]}
+        self.assertIsNone(nodes.load_slow_from(load))
+        load["stages"].append({"users": 300, "p95_latency_ms": None})
+        self.assertIsNone(nodes.load_slow_from(load))
+
     def test_restart_under_load_is_a_warning(self) -> None:
         state = _state("suite-load-capacity-local")
         observation = state.execution_result.chaos_observation
