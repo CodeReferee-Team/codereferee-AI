@@ -651,6 +651,8 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
             warnings.append(LOAD_ERRORS)
         if (_as_float(load.get("restart_count_delta")) or 0) > 0:
             warnings.append(LOAD_RESTARTED)
+        if load_slow_from(load) is not None:
+            warnings.append(LOAD_SLOW)
         # 요청자가 예상 사용자 수를 정했을 때만 Fail이다. 기준을 우리가 정하지 않는다(6.3).
         if load.get("target_met") is False:
             return (f"{LOAD_TARGET_NOT_MET}: requests failed at or below the expected "
@@ -766,6 +768,21 @@ def _memory_usage_ratio(measured: dict[str, object]) -> float | None:
 LOAD_ERRORS = "load_errors_under_concurrency"
 LOAD_RESTARTED = "load_restarted_under_concurrency"
 LOAD_TARGET_NOT_MET = "load_target_not_met"
+LOAD_SLOW = "load_slow_under_concurrency"
+# 사람이 기다림을 느끼고 흐름이 끊기는 한계(Nielsen 1993, Miller 1968). 경고에만 쓰고 판정은 바꾸지 않는다.
+# 우리 측정은 클러스터 안에서 잰 서버 응답 p95라 브라우저에서 잰 화면 표시 시간보다 짧다.
+SLOW_RESPONSE_MS = 1000.0
+
+
+def load_slow_from(load: dict[str, object]) -> dict[str, object] | None:
+    """p95가 처음으로 1초를 넘은 부하 단계. 없으면 None."""
+    for item in load.get("stages") or []:
+        if not isinstance(item, dict):
+            continue
+        p95 = _as_float(item.get("p95_latency_ms"))
+        if p95 is not None and p95 > SLOW_RESPONSE_MS:
+            return {"users": item.get("users"), "p95_latency_ms": item.get("p95_latency_ms")}
+    return None
 
 
 def chaos_load(observation: dict[str, object]) -> dict[str, object]:
@@ -818,6 +835,9 @@ def _load_sentence(load: dict[str, object]) -> str | None:
         sentence += (f" The requester expects {target} concurrent users; "
                      + ("every request up to that many was answered." if load["target_met"]
                         else "requests failed at or below that many."))
+    if (slow := load_slow_from(load)) is not None:
+        sentence += (f" From {slow['users']} concurrent users, 1 in 20 requests took {slow['p95_latency_ms']}ms or "
+                     f"longer; people notice waits over one second.")
     overload = load.get("overload_behavior")
     if isinstance(overload, dict) and overload.get("kind") in _OVERLOAD_SENTENCE:
         sentence += " " + _OVERLOAD_SENTENCE[overload["kind"]]
@@ -910,6 +930,8 @@ def _chaos_evidence(result: SandboxResult, warnings: list[str]) -> list[str]:
             items.append(f"load.latency_growth.ratio={load['latency_growth'].get('ratio')}")
         if isinstance(load.get("overload_behavior"), dict):
             items.append(f"load.overload_behavior.kind={load['overload_behavior'].get('kind')}")
+        if (slow := load_slow_from(load)) is not None:
+            items.append(f"load.slow_from_users={slow['users']}")
     if observation.get("partial"):
         items.append(f"executed={','.join(observation.get('executed') or [])}")
         items.append(f"not_checked={','.join(_not_checked(observation))}")
