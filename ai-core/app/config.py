@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
 
 
 class Settings(BaseSettings):
@@ -33,6 +34,20 @@ class Settings(BaseSettings):
     # Repository build, Kubernetes rollout, and Litmus recovery can each take
     # several minutes when the external Sandbox is enabled.
     sandbox_http_timeout_seconds: int = 600
+    sandbox_preparation_timeout_seconds: int | None = Field(default=None, ge=1, le=7200)
+    sandbox_preparation_max_retries: int = Field(default=0, ge=0, le=1)
+    sandbox_retry_downloads: bool = False
+    sandbox_phase_timeouts: dict[str, int] = Field(default_factory=dict)
+
+    @field_validator('sandbox_phase_timeouts', mode='before')
+    @classmethod
+    def validate_sandbox_phase_timeouts(cls, value):
+        phases = {'clone', 'install', 'build', 'test', 'image_build', 'image_load', 'rollout'}
+        if not isinstance(value, dict) or set(value) - phases or any(
+                type(seconds) is not int or not 1 <= seconds <= 7200 for seconds in value.values()):
+            raise ValueError('Sandbox phase timeouts require supported phases and integer seconds from 1 to 7200.')
+        return value
+
     sandbox_timeout_seconds: int = 600
     # 외부(장수) Prometheus 질의 엔드포인트. 샌드박스는 Agent로 remote_write만 하고 질의 API가
     # 없어, cpu/memory는 이 바깥 Prometheus에서 request_id로 뽑는다(docs: 샌드박스 metrics-collection).
