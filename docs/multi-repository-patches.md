@@ -56,3 +56,28 @@ Judge Pass와 patch_verified true를 기록하면서 제출 원본은 Fail로 �
 같은 4개는 분리된 변경 전 HEAD 5d28d40에서도 재현했다. 저장소 코드는 이 PR에서 변경하지 않는다.
 Sandbox의 `docs/multi-repository-patch-validation.md`에 실제 거절 3건·자원 8건 독립 감사와 최초 실패를 기록했다.
 Linux/Mac/AWS 및 공개 멀티레포의 추가 실측, 레포별 패치 UI는 후속이다.
+
+### 실제 로컬 LLM과 Backend E2E 추가 검증
+
+기존 설치된 Ollama `exaone3.5:2.4b`로 실제 Critic·Refiner를 호출했다.
+로컬 Git fixture 두 레포를 사용하며, 모델 응답이나 편집을 대체하지 않았다.
+공개 GitHub 프로젝트를 대상으로 한 실측은 추가로 필요하다.
+
+첫 실행에서 모델이 없는 코드 줄을 수정하려 해 기존 anchor 검사로 거절됐다.
+검사 묶음의 모델 입력이 하위 Redis 장애 종류를 누락하는 점을 보완하고 다시 실행했다.
+두 번째 요청 `e75064d5-999b-4c0f-ab43-d7755fbe3da5`에서는 실제 Redis 장애·미복구 관측,
+메트릭 수신(`received`), 로컬 모델 응답 3회, Backend FAILED 저장까지 확인했다.
+PostgreSQL과 SQLite의 최종 보고서 및 빈 `refine_rounds` 일치도 확인했다.
+
+모델이 `patch_guidance`에 문자열 대신 편집 객체를 넣었고, 기존 스키마 보정 재요청도 실패했다.
+따라서 `patch_verified=false`, 재배포 회차 0회다. 실제 LLM의 수리 성공은 미검증이다.
+실측에 사용한 모델은 이번 검증에서 선택한 기존 로컬 모델이며 운영 모델 확정 사항은 아니다.
+Judge 정책·모델 가중치·학습 설정은 변경하지 않았다.
+
+별도 Backend 수정은 선택 필드 `refine_rounds`를 aiReports에 보존한다.
+원본 Fail과 수정안 검증 결과를 구분하는 기존 계약을 유지한다.
+앞서 실측한 backend→main 2회차 결과를 새 요청의 Redis 결과 큐에 재생하고,
+Backend 조회·PostgreSQL 및 Backend 재기동 뒤 두 회차와 전체 패치 보고서 보존을 확인했다.
+이 재생은 저장 계약 검증이며, LLM이나 Chaos를 새로 실행한 사례에 합산하지 않는다.
+추가 회귀는 라우팅·Refiner 관련 56개 통과이며, 신규 라우팅 테스트는 총 21개다.
+원본 요청·응답과 실패 로그는 로컬 `tmp/multirepo-patch-20261113/llm-e2e*`에 보존한다.
