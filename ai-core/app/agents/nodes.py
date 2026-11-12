@@ -113,7 +113,7 @@ def refiner_node(state: AgentState) -> AgentState:
             system_prompt=REFINER_PROMPT,
             user_prompt="Repository: {repository_url}\nEvidence packet:\n{evidence}",
             values={
-                "repository_url": state.repository_url,
+                "repository_url": packet["repository_url"],
                 "evidence": render_evidence_packet(packet),
             },
             fallback=fallback,
