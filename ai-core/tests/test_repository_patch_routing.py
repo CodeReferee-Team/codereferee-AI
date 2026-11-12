@@ -41,6 +41,31 @@ def state():
 
 
 class RepositorySourceTests(unittest.TestCase):
+    def test_multiple_unrecovered_scenarios_keep_suite_identity(self):
+        value = state()
+        value.execution_result.chaos_observation = {
+            'type': 'scenario_suite', 'recovered': False,
+            'scenarios': [{'chaos_observation': {'type': fault, 'recovered': False}}
+                          for fault in ('dependency_database_outage', 'container_kill')],
+        }
+        packet = build_refiner_evidence(value)
+        self.assertEqual(packet['chaos']['fault'], 'scenario_suite')
+        self.assertEqual(len(packet['chaos']['scenarios']), 2)
+
+    def test_suite_evidence_preserves_actual_dependency_failure(self):
+        value = state()
+        child = value.execution_result.chaos_observation.copy()
+        value.execution_result.chaos_observation = {
+            'type': 'scenario_suite', 'recovered': False,
+            'scenarios': [{'scenario': 'dependency_database_outage', 'chaos_observation': child}],
+        }
+        for packet in (build_refiner_evidence(value), build_llm_evidence_packet(value)):
+            self.assertEqual(packet['chaos']['fault'], 'dependency_database_outage')
+            self.assertEqual(packet['chaos']['scenarios'], [{
+                'fault': 'dependency_database_outage', 'recovered': False,
+                'recovery_seconds': 2,
+            }])
+
     def test_dependency_recovery_code_belongs_to_backend(self):
         value = state()
         with patch.object(source_context, 'collect', return_value={'app.py': 'old\n'}) as collect:

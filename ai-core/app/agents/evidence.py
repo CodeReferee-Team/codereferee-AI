@@ -9,6 +9,26 @@ from app.models import AgentState
 MAX_LOG_CHARS = 1200
 
 
+def _chaos_evidence(observation: dict[str, Any]) -> dict[str, Any]:
+    scenarios = [item['chaos_observation'] for item in observation.get('scenarios', [])
+                 if isinstance(item, dict) and isinstance(item.get('chaos_observation'), dict)]
+    failed = [item for item in scenarios if item.get('recovered') is False]
+    # Preserve the observed fault type for the existing dependency-remediation prompt.
+    selected = failed[0] if len(failed) == 1 else observation
+    summary = {
+        'fault': selected.get('type'),
+        'replicas': (selected.get('target_configuration') or {}).get('replicas'),
+        'recovered': selected.get('recovered'),
+        'recovery_seconds': selected.get('recovery_seconds'),
+    }
+    if scenarios:
+        summary['scenarios'] = [{
+            'fault': item.get('type'), 'recovered': item.get('recovered'),
+            'recovery_seconds': item.get('recovery_seconds'),
+        } for item in scenarios]
+    return summary
+
+
 def build_evidence_packet(state: AgentState) -> dict[str, Any]:
     preflight = state.preflight_report
     result = state.execution_result
@@ -75,7 +95,6 @@ def build_llm_evidence_packet(state: AgentState) -> dict[str, Any]:
     judge = dict(state.judge_report or {})
     category = classify_failure_category(state)
     observation = (state.execution_result.chaos_observation if state.execution_result else None) or {}
-    config = observation.get("target_configuration") or {}
     packet: dict[str, Any] = {
         "repository_url": state.repository_url,
         "failure_category": category,
@@ -87,12 +106,7 @@ def build_llm_evidence_packet(state: AgentState) -> dict[str, Any]:
         packet['source_repository'] = dict(state.metrics['source_repository'])
     result = state.execution_result
     if observation:
-        packet["chaos"] = {
-            "fault": observation.get("type"),
-            "replicas": config.get("replicas"),
-            "recovered": observation.get("recovered"),
-            "recovery_seconds": observation.get("recovery_seconds"),
-        }
+        packet["chaos"] = _chaos_evidence(observation)
     elif result is not None:
         # 카오스가 아닌 실패(테스트·빌드·런타임)는 '로그'가 핵심 신호다. chaos만 보던 패킷에
         # 로그가 없으면 모델은 "테스트가 실패했다"만 복창한다(실측). 과하지 않게 잘라 싣는다.
@@ -279,12 +293,6 @@ def build_refiner_evidence(state: AgentState) -> dict[str, Any]:
         packet['source_repository'] = dict(source)
     observation = (result.chaos_observation if result else None) or {}
     if observation:
-        # 카오스 실패는 로그가 아니라 구성이 원인이다. 고칠 값(replicas)과 복구 관측을 같이 준다.
-        packet["chaos"] = {
-            "fault": observation.get("type"),
-            "replicas": (observation.get("target_configuration") or {}).get("replicas"),
-            "recovered": observation.get("recovered"),
-            "recovery_seconds": observation.get("recovery_seconds"),
-        }
+        packet["chaos"] = _chaos_evidence(observation)
         packet["policy_warnings"] = list((state.metrics or {}).get("policy_warnings") or [])
     return packet
