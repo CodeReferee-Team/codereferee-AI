@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import threading
 from contextlib import contextmanager
 from functools import lru_cache
@@ -10,6 +11,7 @@ from langgraph.graph import END, START, StateGraph
 from prometheus_client import Counter, Histogram
 
 from app.agents import source_context
+from app.agents.repository_sources import snapshots, target_repository
 from app.agents.nodes import chaos_aborted, chaos_recovered, chaos_target_configuration, critic_node, judge_node, planner_node, refiner_node, judgement_unavailable
 from app.report import build_pdf_report, report_from_state
 from app.models import (
@@ -258,7 +260,8 @@ def _dependency_clients(observation: dict[str, Any]) -> tuple[str, ...]:
 NEW_REPLICA_OVERRIDE = "version: 1\nservice:\n  replicas: 1\n"
 
 
-def attach_source_files(state: AgentState, applied_patch: str | None = None) -> None:
+def attach_source_files(state: AgentState, applied_patch: str | None = None,
+                        repository_patches: dict[str, dict] | None = None) -> None:
     """Refiner가 고칠 파일의 현재 내용을 state에 담는다.
 
     통과한 검증에는 고칠 것이 없으므로 clone하지 않는다.
@@ -266,6 +269,24 @@ def attach_source_files(state: AgentState, applied_patch: str | None = None) -> 
     result = state.execution_result
     if result is None or state.status != JobStatus.failed:
         return
+    state.metrics.pop('source_repository', None)
+    state.metrics.pop('new_source_files', None)
+    group = snapshots(result)
+    repository_name = target_repository(result)
+    if result.source.get('repositories') and repository_name is None:
+        state.source_files = {}
+        state.events.append('Refiner: repository ownership unavailable; source context withheld')
+        return
+    source = group.get(repository_name)
+    options = {}
+    if source:
+        options['commit_sha'] = source['commitSha']
+        state.metrics['source_repository'] = dict(source, name=repository_name)
+    elif _primary_commit(state):
+        options['commit_sha'] = _primary_commit(state)
+    selected_patch = applied_patch or state.metrics.get('applied_patch')
+    if repository_name and repository_name != 'main':
+        selected_patch = (repository_patches or {}).get(repository_name, {}).get('patchDiff')
     paths = source_context.extract_paths(result.log)
     clients = _dependency_clients(result.chaos_observation)
     if result.chaos_observation:
@@ -276,14 +297,16 @@ def attach_source_files(state: AgentState, applied_patch: str | None = None) -> 
     if not paths:
         return
     state.source_files = source_context.collect(
-        state.repository_url,
+        source['url'] if source else state.repository_url,
         paths,
-        branch=state.branch,
-        applied_patch=applied_patch or state.metrics.get("applied_patch"),
+        branch=source.get('branch') if source else state.branch,
+        applied_patch=selected_patch,
         clone_timeout_seconds=get_settings().repository_clone_timeout_seconds,
         dependency_clients=clients,
+        **options,
     )
-    _offer_replica_override(state)
+    if repository_name in (None, 'main'):
+        _offer_replica_override(state)
     if state.source_files:
         state.events.append(f"Refiner: source files attached ({', '.join(state.source_files)})")
     else:
@@ -320,6 +343,14 @@ def _sandbox_contract_options(state: AgentState) -> dict[str, str | int]:
     if state.request_id:
         options["request_id"] = state.request_id
     return options
+
+
+def _primary_commit(state: AgentState) -> str | None:
+    if state.requested_commit_sha:
+        return state.requested_commit_sha
+    resolved = state.resolved_commit_sha or (
+        state.preflight_report.resolved_commit_sha if state.preflight_report else None)
+    return resolved if isinstance(resolved, str) and re.fullmatch(r'[a-f0-9]{40}', resolved) else None
 
 
 def _patch_diff_from(refiner_report: dict[str, Any]) -> str | None:
@@ -594,7 +625,13 @@ class ValidationGraphState(TypedDict, total=False):
     refine_stop: bool
     submitted: dict[str, Any]
     applied: str | None
+    applied_repository_patches: dict[str, dict]
+    repository_commits: dict[str, str]
+    primary_commit_sha: str | None
     pending_patch: str | None
+    pending_main_patch: str | None
+    pending_repository_patches: dict[str, dict]
+    pending_repository: str
     before_status: str | None
     round: int
     max_rounds: int
@@ -651,7 +688,7 @@ def _sandbox_step(graph_state: ValidationGraphState, config: RunnableConfig) -> 
         state.execution_result = sandbox_runner.run_repository(
             state.preflight_report.repository_url,
             branch=state.branch,
-            commit_sha=state.requested_commit_sha,
+            commit_sha=_primary_commit(state),
             **_sandbox_contract_options(state),
         )
     _fill_resource_metrics(state.execution_result, state.request_id)
@@ -765,7 +802,12 @@ def _refine_start_step(graph_state: ValidationGraphState) -> ValidationGraphStat
         "sre_metrics": state.sre_metrics,
     }
     # applied: 샌드박스에서 적용된 누적 패치. Refiner가 다음 diff를 쓸 때 보는 파일도 이것이 적용된 상태다.
-    return {"refine_skipped": False, "submitted": submitted, "applied": None, "round": 1, "max_rounds": max_rounds}
+    repositories = snapshots(state.execution_result)
+    return {"refine_skipped": False, "submitted": submitted, "applied": None,
+            "applied_repository_patches": {},
+            "repository_commits": {name: source['commitSha'] for name, source in repositories.items() if name != 'main'},
+            "primary_commit_sha": repositories.get('main', {}).get('commitSha', _primary_commit(state)),
+            "round": 1, "max_rounds": max_rounds}
 
 
 def _route_refine_start(graph_state: ValidationGraphState) -> str:
@@ -782,14 +824,36 @@ def _refine_prepare_step(graph_state: ValidationGraphState) -> ValidationGraphSt
     if not new_diff:
         state.events.append("Refine: no patch diff produced, refinement loop stopped")
         return {"refine_stop": True}
-    patch_diff = _join_patches(graph_state.get("applied"), new_diff)
+    repository = state.refiner_report.get('patch_repository', 'main')
+    repository_patches = {name: dict(patch) for name, patch in graph_state.get('applied_repository_patches', {}).items()}
+    main_patch = graph_state.get('applied')
+    if repository != 'main':
+        commit = graph_state.get('repository_commits', {}).get(repository)
+        if not commit or state.refiner_report.get('patch_base_commit_sha') != commit:
+            state.events.append('Refine: repository patch has no matching baseline commit, refinement stopped')
+            return {'refine_stop': True}
+        patch_diff = _join_patches(repository_patches.get(repository, {}).get('patchDiff'), new_diff)
+        repository_patches[repository] = {'commitSha': commit, 'patchDiff': patch_diff}
+    else:
+        declared_base = state.refiner_report.get('patch_base_commit_sha')
+        if declared_base and declared_base != graph_state.get('primary_commit_sha'):
+            state.events.append('Refine: primary patch has no matching baseline commit, refinement stopped')
+            return {'refine_stop': True}
+        patch_diff = _join_patches(main_patch, new_diff)
+        main_patch = patch_diff
     state.refiner_report["patch_diff"] = patch_diff
-    patch_bytes = len(patch_diff.encode("utf-8"))
+    if repository_patches:
+        state.refiner_report['repository_patches'] = repository_patches
+        state.refiner_report['primary_patch_diff'] = main_patch
+    patch_bytes = len((main_patch or '').encode('utf-8')) + sum(
+        len(patch['patchDiff'].encode('utf-8')) for patch in repository_patches.values())
     if patch_bytes > get_settings().max_patch_diff_bytes:
         # 수정 범위가 이 정도면 판정을 신뢰하기 어렵다.
         state.events.append(f"Refine: patch diff too large ({patch_bytes} bytes), refinement loop stopped")
         return {"refine_stop": True}
-    return {"refine_stop": False, "pending_patch": patch_diff, "before_status": _judge_status(state)}
+    return {"refine_stop": False, "pending_patch": patch_diff, "pending_main_patch": main_patch,
+            "pending_repository_patches": repository_patches, "pending_repository": repository,
+            "before_status": _judge_status(state)}
 
 
 def _refine_rerun_step(graph_state: ValidationGraphState, config: RunnableConfig) -> ValidationGraphState:
@@ -800,13 +864,23 @@ def _refine_rerun_step(graph_state: ValidationGraphState, config: RunnableConfig
     _emitter(config)(event_builder.REFINING, round_=round_number, max_rounds=max_rounds)
     state.events.append(f"Refine: round {round_number}/{max_rounds} re-validating with patch")
 
-    result = sandbox_runner.run_repository(
-        state.preflight_report.repository_url,
-        branch=state.branch,
-        commit_sha=state.requested_commit_sha,
-        patch_diff=patch_diff,
-        **_sandbox_contract_options(state),
-    )
+    options = _sandbox_contract_options(state)
+    repository_patches = graph_state.get('pending_repository_patches', {})
+    if repository_patches:
+        options['repository_patches'] = repository_patches
+    if graph_state.get('repository_commits'):
+        options['repository_commits'] = graph_state['repository_commits']
+    def heartbeat(step, **kwargs):
+        _emitter(config)(step, round_=round_number, max_rounds=max_rounds, **kwargs)
+
+    with _sandbox_heartbeat(heartbeat, event_builder.REFINING):
+        result = sandbox_runner.run_repository(
+            state.preflight_report.repository_url,
+            branch=state.branch,
+            commit_sha=graph_state.get('primary_commit_sha', state.requested_commit_sha),
+            patch_diff=graph_state.get('pending_main_patch', patch_diff),
+            **options,
+        )
     if _patch_not_applied(result):
         # 실행해보지 못한 라운드의 결과로 Critic과 Refiner를 다시 돌리면 리포트가 레포의 안정성
         # 대신 "패치가 어긋났다"를 설명한다. 실서버에서 겪었다(2026-10-23).
@@ -814,12 +888,21 @@ def _refine_rerun_step(graph_state: ValidationGraphState, config: RunnableConfig
             f"Refine: round {round_number} patch did not apply in the sandbox, refinement loop stopped"
         )
         state.refine_rounds.append(_round_record(round_number, patch_diff, before_status, None, result))
-        state.refiner_report["patch_diff"] = graph_state.get("applied")
+        if graph_state.get('pending_repository') != 'main':
+            state.refine_rounds[-1]['patch_repository'] = graph_state.get('pending_repository')
+        repository = graph_state.get('pending_repository', 'main')
+        previous = graph_state.get('applied_repository_patches', {})
+        state.refiner_report["patch_diff"] = (graph_state.get('applied') if repository == 'main'
+            else previous.get(repository, {}).get('patchDiff'))
+        if repository_patches:
+            state.refiner_report['repository_patches'] = previous
+            state.refiner_report['primary_patch_diff'] = graph_state.get('applied')
         return {"refine_stop": True}
 
     state.execution_result = result
     _fill_resource_metrics(result, state.request_id)
     state.metrics = _metrics_from_execution(state)
+    state.metrics['applied_repository_patches'] = repository_patches
     state.sre_metrics = _sre_metrics_from_execution(state)
     SANDBOX_DURATION.observe(result.duration_ms)
 
@@ -828,8 +911,12 @@ def _refine_rerun_step(graph_state: ValidationGraphState, config: RunnableConfig
         state.status = JobStatus.error
         state.events.append(f"Refine: round {round_number} hit infra error, judgement skipped: {infra_error}")
         state.refine_rounds.append(_round_record(round_number, patch_diff, before_status, None, result))
-        return {"refine_stop": True, "applied": patch_diff}
-    return {"refine_stop": False, "applied": patch_diff}
+        if graph_state.get('pending_repository') != 'main':
+            state.refine_rounds[-1]['patch_repository'] = graph_state.get('pending_repository')
+        return {"refine_stop": True, "applied": graph_state.get('pending_main_patch'),
+                'applied_repository_patches': repository_patches}
+    return {"refine_stop": False, "applied": graph_state.get('pending_main_patch'),
+            'applied_repository_patches': repository_patches}
 
 
 def _refine_judge_step(graph_state: ValidationGraphState, config: RunnableConfig) -> ValidationGraphState:
@@ -840,6 +927,8 @@ def _refine_judge_step(graph_state: ValidationGraphState, config: RunnableConfig
         _round_record(round_number, graph_state["pending_patch"], graph_state.get("before_status"),
                       _judge_status(state), state.execution_result)
     )
+    if graph_state.get('pending_repository') != 'main':
+        state.refine_rounds[-1]['patch_repository'] = graph_state['pending_repository']
     if state.status == JobStatus.success:
         state.events.append(f"Refine: round {round_number} passed after applying the patch")
         return {"agent": state, "refine_stop": True}
@@ -851,7 +940,8 @@ def _refine_regenerate_step(graph_state: ValidationGraphState) -> ValidationGrap
     state = graph_state["agent"]
     # 이전 라운드의 파일을 남겨두면 Refiner가 어느 상태를 기준으로 diff를 썼는지 알 수 없다.
     state.source_files = {}
-    attach_source_files(state, applied_patch=graph_state.get("applied"))
+    attach_source_files(state, applied_patch=graph_state.get("applied"),
+                        repository_patches=graph_state.get('applied_repository_patches'))
     state = critic_node(state)
     state = refiner_node(state)
     return {"agent": state, "round": graph_state["round"] + 1}
@@ -861,8 +951,8 @@ def _refine_exhausted_step(graph_state: ValidationGraphState) -> ValidationGraph
     # 라운드를 다 썼다. 마지막 Refiner의 diff는 실행되지 않고 수정안으로 남으므로
     # 그것도 제출된 커밋에 적용할 수 있는 누적 패치여야 한다.
     state = graph_state["agent"]
-    if state.status == JobStatus.failed and (last := _patch_diff_from(state.refiner_report)):
-        state.refiner_report["patch_diff"] = _join_patches(graph_state.get("applied"), last)
+    if state.status == JobStatus.failed and _patch_diff_from(state.refiner_report):
+        _refine_prepare_step(graph_state)
     return {"agent": state}
 
 

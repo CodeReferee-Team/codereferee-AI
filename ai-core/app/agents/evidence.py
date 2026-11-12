@@ -29,6 +29,8 @@ def build_evidence_packet(state: AgentState) -> dict[str, Any]:
         "critic": dict(state.critic_feedback),
         "source_files": dict(state.source_files),
     }
+    if state.metrics.get('source_repository'):
+        packet['source_repository'] = dict(state.metrics['source_repository'])
     if preflight is not None:
         packet["preflight"] = {
             "cloneable": preflight.cloneable,
@@ -81,6 +83,8 @@ def build_llm_evidence_packet(state: AgentState) -> dict[str, Any]:
         "judge": {k: judge.get(k) for k in ("status", "reason_category", "reason")},
         "policy_warnings": list((state.metrics or {}).get("policy_warnings") or []),
     }
+    if state.metrics.get('source_repository'):
+        packet['source_repository'] = dict(state.metrics['source_repository'])
     result = state.execution_result
     if observation:
         packet["chaos"] = {
@@ -269,6 +273,10 @@ def build_refiner_evidence(state: AgentState) -> dict[str, Any]:
         },
         "source_files": dict(state.source_files),
     }
+    source = state.metrics.get('source_repository')
+    if source:
+        packet['repository_url'] = source['url']
+        packet['source_repository'] = dict(source)
     observation = (result.chaos_observation if result else None) or {}
     if observation:
         # 카오스 실패는 로그가 아니라 구성이 원인이다. 고칠 값(replicas)과 복구 관측을 같이 준다.

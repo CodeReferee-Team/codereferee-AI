@@ -34,6 +34,8 @@ class SandboxRunner:
         deployment_profile: str | None = None,
         request_id: str | None = None,
         target_users: int | None = None,
+        repository_patches: dict[str, dict[str, str]] | None = None,
+        repository_commits: dict[str, str] | None = None,
     ) -> SandboxResult:
         """Clone and smoke-test an existing repository.
 
@@ -46,8 +48,10 @@ class SandboxRunner:
         if self.settings.sandbox_base_url:
             return self._run_repository_via_http(
                 repository_url, branch, commit_sha, patch_diff, chaos_mode, deployment_profile, request_id,
-                target_users,
+                target_users, repository_patches, repository_commits,
             )
+        if repository_patches or repository_commits:
+            raise RuntimeError('Multi-repository patches require the external Sandbox HTTP service.')
         if not self.settings.local_sandbox_enabled:
             # layer-1 기능이 layer-2 샌박으로 이관됐다. 로컬 Docker 경로는 기본 비활성화이며
             # SANDBOX_BASE_URL 없이 조용히 로컬로 떨어지지 않게 명시적으로 막는다.
@@ -68,6 +72,8 @@ class SandboxRunner:
         deployment_profile: str | None = None,
         request_id: str | None = None,
         target_users: int | None = None,
+        repository_patches: dict[str, dict[str, str]] | None = None,
+        repository_commits: dict[str, str] | None = None,
     ) -> SandboxResult:
         started_at = time.monotonic()
         endpoint = _join_url(self.settings.sandbox_base_url or "", self.settings.sandbox_repository_path)
@@ -83,6 +89,10 @@ class SandboxRunner:
         if patch_diff:
             payload["patchDiff"] = patch_diff
             payload["patch_diff"] = patch_diff
+        if repository_patches:
+            payload['repositoryPatches'] = repository_patches
+        if repository_commits:
+            payload['repositoryCommits'] = repository_commits
         if chaos_mode:
             payload["chaosMode"] = chaos_mode
         if deployment_profile:

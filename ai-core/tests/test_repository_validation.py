@@ -231,7 +231,7 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertIsNotNone(state)
         assert state is not None
         sandbox_run.assert_called_once_with(
-            "https://github.com/example/project.git", branch="main", commit_sha=None, request_id="job-pass"
+            "https://github.com/example/project.git", branch="main", commit_sha="a" * 40, request_id="job-pass"
         )
         self.assertIn("Preflight: passed", state.events)
         self.assertTrue(state.metrics["preflight_passed"])

@@ -62,6 +62,8 @@ Return strict JSON:
 {"summary": "...", "edits": [{"path": "...", "find": ["..."], "replace": ["..."]}] or null, "patch_guidance": ["..."], "verification_steps": ["..."], "risk": "low|medium|high"}.
 Do NOT write a diff and do NOT return whole files. Return only the lines you change, as edits.
 evidence.source_files maps repository paths to their CURRENT content.
+When evidence.source_repository is present, it identifies the repository and pinned commit owning
+those files. All edit paths are relative to that repository. Do not edit a different repository.
 For each edit: "find" is the exact lines to replace, copied character for character from
 evidence.source_files, and it must appear EXACTLY ONCE in that file — add an adjacent line to make it
 unique if needed. "replace" is what goes there instead; an empty list deletes those lines.

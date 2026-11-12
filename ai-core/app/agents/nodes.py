@@ -130,6 +130,11 @@ def refiner_node(state: AgentState) -> AgentState:
     # retry가 refiner_report를 교체할 수 있으므로 그 뒤에서 마지막으로 보강한다.
     _ensure_remediation_surface(state)
     _record_patch_inspection(state)
+    source = state.metrics.get('source_repository')
+    if source:
+        state.refiner_report['patch_repository'] = source['name']
+        state.refiner_report['patch_base_commit_sha'] = source['commitSha']
+        state.refiner_report['patch_repository_url'] = source['url']
     return state
 
 
