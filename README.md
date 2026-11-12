@@ -75,4 +75,5 @@ bash scripts/eval_gate.sh
 | Agent 입출력 스키마 | [docs/agents.md](docs/agents.md), [docs/agent-output-schema.md](docs/agent-output-schema.md) |
 | 샌드박스 계약과 종료 코드 | [docs/sandbox.md](docs/sandbox.md) |
 | Sandbox 준비 시간 제한·재시도 연결 | [docs/sandbox-preparation-retries.md](docs/sandbox-preparation-retries.md) |
+| 멀티레포 소스·누적 패치·순차 재검증 | [docs/multi-repository-patches.md](docs/multi-repository-patches.md) |
 | Redis 큐와 BE 연동 | [docs/redis.md](docs/redis.md), [docs/backend-ai.md](docs/backend-ai.md) |
