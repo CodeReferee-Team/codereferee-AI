@@ -1,0 +1,14 @@
+{
+  "id": "healthy-fastapi",
+  "stack": "python-fastapi",
+  "deploy_shape": "stack_detection",
+  "expected_plan_source": "stack_detection",
+  "needs_yaml": false,
+  "modality": "chaos",
+  "defect": "none",
+  "expected": {"verdict": "Pass", "stage": "runtime", "reason_category": "chaos_recovered_within_budget"},
+  "expected_heal": null,
+  "verified_by": ["resolve_plan"],
+  "unverified_runtime": ["chaos verdict (needs full k8s stack run)"],
+  "note": "config-free 배포 baseline. yaml 0줄로 stack_detection 경로 배포됨을 증명."
+}
