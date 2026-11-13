@@ -81,3 +81,19 @@ Backend 조회·PostgreSQL 및 Backend 재기동 뒤 두 회차와 전체 패치
 이 재생은 저장 계약 검증이며, LLM이나 Chaos를 새로 실행한 사례에 합산하지 않는다.
 추가 회귀는 라우팅·Refiner 관련 56개 통과이며, 신규 라우팅 테스트는 총 21개다.
 원본 요청·응답과 실패 로그는 로컬 `tmp/multirepo-patch-20261113/llm-e2e*`에 보존한다.
+
+### 기존 AI 검증 기록과 이번 실패의 범위
+
+원격 PR #83과 `docs/evaluation-design.md` 6절에는 Ollama `llama3.1:8b`의
+실제 편집 생성 8/8, 패치 재실행 성공 6/8 기록이 있다.
+PR #108은 `qwen2.5-coder` 7B로 동일 Chaos 실패 입력에서 복제본 수정 편집을
+3회 생성한 기록을 남겼다. 해당 PR은 당시 전체 Chaos Pass의 제약도 함께 명시했다.
+현재 README는 운영 LLM 호출을 Groq로 안내한다.
+
+이번 `exaone3.5:2.4b`는 검증 과정에서 설치된 모델을 선택한 것이다.
+팀의 기존 모델과 같은 설정으로 재현한 시험이 아니며, 복합 시나리오·멀티레포 fixture도 다르다.
+따라서 이번 실패를 기존 MVP 전체의 고장이나 기존 LLM 실측 부재로 일반화하지 않는다.
+원본 요청을 고정 SHA의 Git 파일과 대조해 backend의 app.py와 Redis 장애 정보가
+실제 Refiner에 일치하게 전달됐음을 확인했다. 응답에는 edits가 비어 있고,
+patch_guidance에 편집 객체가 들어 있었다.
+구조화 출력은 검토한 보완 후보이며 현재 구현된 옵션은 아니다.
