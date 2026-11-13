@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # Repository build, Kubernetes rollout, and Litmus recovery can each take
     # several minutes when the external Sandbox is enabled.
     sandbox_http_timeout_seconds: int = 600
+    # 샌드박스는 실험 락을 못 잡으면 작업을 시작하지 않고 409를 준다. 다시 보내도 중복 실행이
+    # 없으므로 앞 요청이 끝나길 기다렸다 재시도한다. 기다리는 동안에도 progress heartbeat가 나가고,
+    # 대기 상한 + HTTP 상한(600초)이 BE running-timeout(30분) 안에 들어가야 한다.
+    sandbox_busy_max_wait_seconds: int = 600
+    sandbox_busy_retry_interval_seconds: int = 15
     sandbox_preparation_timeout_seconds: int | None = Field(default=None, ge=1, le=7200)
     sandbox_preparation_max_retries: int = Field(default=0, ge=0, le=1)
     sandbox_retry_downloads: bool = False
