@@ -113,7 +113,7 @@ def refiner_node(state: AgentState) -> AgentState:
             system_prompt=REFINER_PROMPT,
             user_prompt="Repository: {repository_url}\nEvidence packet:\n{evidence}",
             values={
-                "repository_url": state.repository_url,
+                "repository_url": packet["repository_url"],
                 "evidence": render_evidence_packet(packet),
             },
             fallback=fallback,
@@ -130,6 +130,11 @@ def refiner_node(state: AgentState) -> AgentState:
     # retry가 refiner_report를 교체할 수 있으므로 그 뒤에서 마지막으로 보강한다.
     _ensure_remediation_surface(state)
     _record_patch_inspection(state)
+    source = state.metrics.get('source_repository')
+    if source:
+        state.refiner_report['patch_repository'] = source['name']
+        state.refiner_report['patch_base_commit_sha'] = source['commitSha']
+        state.refiner_report['patch_repository_url'] = source['url']
     return state
 
 
@@ -167,7 +172,7 @@ def _retry_rejected_edits(state: AgentState, packet: dict[str, object]) -> None:
         values={
             "reason": reason,
             "anchors": json.dumps(check.get("attempted_anchors") or [], ensure_ascii=False)[:600],
-            "repository_url": state.repository_url,
+            "repository_url": packet["repository_url"],
             "evidence": render_evidence_packet(packet),
         },
         fallback=state.refiner_report or _fallback_refiner(state),

@@ -218,6 +218,7 @@ def collect(
     paths: list[str],
     *,
     branch: str | None = None,
+    commit_sha: str | None = None,
     applied_patch: str | None = None,
     clone_timeout_seconds: int = 60,
     dependency_clients: tuple[str, ...] = (),
@@ -227,12 +228,12 @@ def collect(
     applied_patch가 있으면 먼저 적용한다. Refiner가 만들 다음 패치는 그 위에 올라가므로
     적용 후의 내용을 봐야 context가 맞는다.
     """
-    if not paths:
+    if not paths or (commit_sha is not None and not re.fullmatch(r'[a-f0-9]{40}', commit_sha)):
         return {}
     workdir = tempfile.mkdtemp(prefix="codereferee-source-")
     try:
         clone = subprocess.run(
-            ["git", "clone", "--quiet", "--depth", "1", *(["--branch", branch] if branch else []),
+            ["git", "-c", "core.autocrlf=false", "clone", "--quiet", "--depth", "1", *(["--branch", branch] if branch and not commit_sha else []),
              repository_url, workdir],
             capture_output=True,
             text=True,
@@ -241,12 +242,18 @@ def collect(
         if clone.returncode != 0:
             return {}
         repo = Path(workdir)
+        if commit_sha:
+            for command in (["git", "fetch", "--quiet", "--depth", "1", "origin", commit_sha],
+                            ["git", "checkout", "--quiet", "--detach", commit_sha]):
+                checked = subprocess.run(command, cwd=repo, capture_output=True, text=True,
+                                         timeout=clone_timeout_seconds)
+                if checked.returncode != 0:
+                    return {}
         if applied_patch:
             applied = subprocess.run(
                 ["git", "apply", "--whitespace=nowarn", "-"],
                 cwd=repo,
-                input=applied_patch,
-                text=True,
+                input=applied_patch.encode('utf-8'),
                 capture_output=True,
                 timeout=60,
             )
