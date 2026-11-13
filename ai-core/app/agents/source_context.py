@@ -253,8 +253,7 @@ def collect(
             applied = subprocess.run(
                 ["git", "apply", "--whitespace=nowarn", "-"],
                 cwd=repo,
-                input=applied_patch,
-                text=True,
+                input=applied_patch.encode('utf-8'),
                 capture_output=True,
                 timeout=60,
             )

@@ -311,6 +311,24 @@ class RepositoryPatchGraphTests(unittest.TestCase):
 
 
 class PinnedSourceCollectTests(unittest.TestCase):
+    def test_collect_applies_utf8_patch_to_lf_checkout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / 'repo'
+            repo.mkdir()
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(repo), *args], text=True).strip()
+            git('init', '--quiet')
+            git('config', 'user.name', 'Fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            git('config', 'core.autocrlf', 'false')
+            (repo / 'app.py').write_bytes('value = "원본"\n'.encode('utf-8'))
+            git('add', 'app.py')
+            git('commit', '--quiet', '-m', 'initial')
+            diff = '--- a/app.py\n+++ b/app.py\n@@ -1 +1 @@\n-value = "원본"\n+value = "수정"\n'
+            files = source_context.collect(str(repo), ['app.py'], commit_sha=git('rev-parse', 'HEAD'),
+                                           applied_patch=diff)
+            self.assertEqual(files, {'app.py': 'value = "수정"\n'})
+
     def test_collect_reads_original_commit_after_branch_moves(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp) / 'repo'; repo.mkdir()
