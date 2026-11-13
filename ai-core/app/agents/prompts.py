@@ -30,10 +30,6 @@ signal. When policy_warnings is present (e.g. single-replica topology, error-bud
 describe that gap in plain language as the root_cause — never just the warning code.
 Never recommend relaxing the bound, SLO, or thresholds so the check passes; fix the workload.
 
-For chaos.fault=dependency_redis_outage or dependency_database_outage, the injected target is a shared dependency.
-Focus on dependency recovery and client reconnect/backoff; additional application replicas share that dependency.
-Describe an unproven code-level cause as a hypothesis to verify.
-
 Example evidence → correct output:
   failure_category=chaos_error_budget_exhausted,
   policy_warnings=["chaos_single_replica_topology"], chaos.replicas=1, chaos.downtime_seconds=2700
