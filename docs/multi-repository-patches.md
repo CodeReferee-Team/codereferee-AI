@@ -175,3 +175,16 @@ Sandbox 멀티레포 패치 계약을 중심으로 검증을 마무리했다. �
 운영 Groq 키 사용 중단 요청 이후 외부 LLM 호출을 중단했다. 중단 전 모델 목록 조회 GET 1회가
 있었고 생성 호출은 0회였다. 해당 로컬 테스트 요청은 Backend `ERROR`로 종료 처리했다.
 키는 소스·문서·환경 파일에 저장하지 않았다.
+
+### 최종 Llama 전체 큐 재검증
+
+`llama3.1:8b`로 최종 코드의 Backend·Redis·Worker·Sandbox·kind·PostgreSQL을 연결했다.
+요청 `b0d32d78-f48e-45a1-a177-23b3e6105fe7`은 모델 호출 9회와 backend 패치 재배포
+2회를 수행했다. 모델이 클래스 선언을 삭제하거나 잘못된 들여쓰기를 생성해 두 수정본은 build에서
+실패했다. 실제 컴파일 로그와 누적 수정 소스는 다음 회차에 전달됐다. 마지막 편집은 backend에
+없는 `.codereferee/validation.yaml`을 수정하려 해 가드·재요청 후 거절됐다.
+
+최종 Backend `FAILED`, `patch_verified=false`이며 두 회차와 최종 보고서가 PostgreSQL·SQLite에
+동일하게 저장됐다. 원본 메트릭 수신은 `received`였다. 모델 응답 대역은 사용하지 않았다.
+이 실행에서 두 레포 순차 자동 수리 성공은 확보하지 못했다. 정상 편집 대역을 이용한 기존
+backend→main 전환·누적 성공 실측과 별도로 해석한다.
