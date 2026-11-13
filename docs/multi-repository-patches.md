@@ -105,3 +105,59 @@ PR #108은 `qwen2.5-coder` 7B로 동일 Chaos 실패 입력에서 복제본 수�
 실제 Refiner에 일치하게 전달됐음을 확인했다. 응답에는 edits가 비어 있고,
 patch_guidance에 편집 객체가 들어 있었다.
 구조화 출력은 검토한 보완 후보이며 현재 구현된 옵션은 아니다.
+
+## 2026-11-13 기존 모델 재실측과 후속 입력 보완
+
+이번 재실측은 Ollama의 `llama3.1:8b`와 `qwen2.5-coder:7b`를 사용했다.
+OpenAI 호환 호출, temperature 0, 기존 `json_object` 형식을 사용했고,
+CPU 호스트에서 호출 제한은 300초로 설정했다. 과거 PR에는 가중치 digest와 Ollama 버전이
+기록되어 있지 않아 현재 태그·양자화·digest를 별도 파일에 보존했다.
+
+| 실제 요청 | 모델 | 실행 결과 |
+| --- | --- | --- |
+| `a3784f9f-3a37-4d88-94c0-8371b32176ff` | Llama 3.1 8B | 실제 패치 생성·재배포 1회. 모델이 Redis import를 제거해 수정본 업무 baseline 실패 |
+| `4310cf04-49cd-43f3-aae2-fb0636262335` | Qwen 2.5 Coder 7B | 실제 패치 재검증 3회. 후속 소스와 컴파일 오류를 전달했지만 모델의 들여쓰기 수정 실패 |
+| `2f93e4b2-9bed-49ae-b45b-3701eafbb1b4` | Qwen 2.5 Coder 7B | 별도 재연결 대기값 제어 사례. 모델이 복제본 증가만 제안해 편집 없음 |
+| `2d1da9c8-2b96-4b59-b9f9-a7940a1447ff` | Qwen 2.5 Coder 7B | Critic 안내 보완 후 실제 호출 8회·패치 재배포 3회. 1·3회차 Redis Chaos 재실행에서 미복구, 2회차 컴파일 실패 |
+
+마지막 요청은 실제 모델 생성 → 패치 적용 → 그룹 재배포 → Redis 장애 재주입 →
+메트릭 수신 → Backend 결과 조회 → PostgreSQL·SQLite 보존 경로를 확인했다.
+수리 성공 검사 결과는 `patch_verified=false`다. 제출 원본 판정은 FAILED로 유지됐다.
+실측 보고서와 세 회차가 PostgreSQL·SQLite·Backend 조회에서 일치했다.
+최대 실행 회차 뒤의 추가 제안은 검증되지 않은 수정안이므로 `refine_rounds`와 구분해 읽는다.
+
+실행 중 확인해 보완한 전달 문제는 다음과 같다.
+
+- 편집 anchor 재요청에서도 선택된 레포 URL을 유지한다.
+- 외부 Sandbox의 실패 단계 stdout·stderr를 소스 경로 탐색과 모델 입력에 전달한다.
+- LF 고정 clone에 누적 패치를 적용할 때 Windows stdin의 CRLF 변환을 피하도록 UTF-8 바이트를 사용한다.
+- 기존 Refiner의 의존성 장애 구분 안내를 Critic에도 세 줄 추가했다.
+
+실제 Git 한글·LF 패치와 실패 로그·소스 첨부 회귀를 포함한 관련 테스트 121개가 통과했다.
+이 목록은 전체 AI 테스트 스위트와 구분한다. 앞서 기록한 Windows SQLite 잠금 문제는 후속이다.
+LLM 응답을 대체하지 않았으며, 모든 원본 모델 응답과 실패 실행을 로컬 실측 폴더에 보존했다.
+
+## 원격 모델 설정 확인
+
+원격 AI의 기본 브랜치와 현재 모델 관련 브랜치에서 코드 기본값은
+`llm_provider="gemini"`, `llm_model="gemini-flash-latest"`다.
+`feat/local-llm-provider`는 환경변수로 Ollama 등을 연결하는 어댑터를 제공한다.
+현재 README는 운영 호출을 Groq로 안내하고, infra의 `instances/ai/.env.example`도
+Groq 주소와 외부 `LLM_MODEL` 값을 사용한다. 템플릿 모델명은 자리표시자다.
+팀에서 확정한 실제 로컬 모델은 해당 실행 환경의 모델명·태그를 확인해 맞춰야 한다.
+과거 검증용 태그를 최종 운영 모델로 간주해 추가 시험을 진행하지 않는다.
+
+## 제어 검증과 정리 결과
+
+같은 제어 사례의 재연결 대기값을 사람이 86400초에서 1초로 바꿔 실제 Sandbox API·Git·
+Docker·kind·Redis 장애를 재실행했다. `observed`, exitCode 0, recovered true,
+복구 14.91초를 확인했다. 이 실행은 사람이 작성한 양성 제어이며 LLM 자동 수리 성과에 포함하지 않는다.
+
+실패 사례를 포함한 Sandbox resource ID 26개의 namespace·컨테이너·볼륨·호스트/kind 이미지·
+작업 폴더가 남지 않음을 독립 조회했다. 검증을 위해 중지했던 기존 Docker Desktop Litmus
+워크로드 10개는 원래 복제본 수와 Ready 상태로 복원했다.
+검증용 신규 모델 가중치를 정리했고 원래 모델 목록을 유지했다. C 드라이브 여유는 약 6.38GB였다.
+
+AI 소스 수집의 `shutil.rmtree(ignore_errors=True)`는 Windows의 읽기 전용 Git 파일 때문에
+임시 clone을 남겼다. 이번 실측의 16개 폴더는 검증 루트 내부 경로를 확인해 수동 정리했다.
+이 정리 경로의 Windows 보강은 후속으로 남긴다.
