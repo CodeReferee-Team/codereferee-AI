@@ -86,8 +86,26 @@ class SandboxResult(BaseModel):
         return " ".join(parts)
 
     @property
+    def failed_step_log(self) -> str:
+        failed = self.sandbox_report.get('failed_step')
+        steps = self.sandbox_report.get('steps')
+        if not isinstance(failed, str) or not isinstance(steps, list):
+            return ''
+        parts = []
+        for step in steps:
+            if not isinstance(step, dict) or step.get('name') != failed:
+                continue
+            for stream in ('stdout', 'stderr'):
+                value = step.get(stream)
+                if isinstance(value, str) and value.strip():
+                    parts.append(stream + ':\n' + value.strip())
+        return '\n'.join(parts)
+
+    @property
     def log(self) -> str:
-        parts = [
+        step_log = self.failed_step_log
+        parts = [step_log] if step_log else []
+        parts += [
             f"exit_code={self.exit_code}",
             f"timed_out={self.timed_out}",
             f"duration_ms={self.duration_ms}",

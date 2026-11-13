@@ -41,6 +41,31 @@ def state():
 
 
 class RepositorySourceTests(unittest.TestCase):
+    def test_structured_build_error_reaches_context_and_model(self):
+        value = state()
+        value.execution_result.chaos_observation = {}
+        value.execution_result.stderr = 'Repository verification failed.'
+        value.execution_result.sandbox_report = {
+            'failed_repository': 'backend', 'failed_step': 'build',
+            'steps': [{'name': 'build', 'exit_code': 1,
+                       'stdout': "*** Error compiling './app.py'...\nIndentationError: expected an indented block (app.py, line 18)",
+                       'stderr': ''}],
+        }
+        with patch.object(source_context, 'collect', return_value={'app.py': 'patched\n'}) as collect:
+            workflow.attach_source_files(value, repository_patches={
+                'backend': {'commitSha': BACKEND_SHA, 'patchDiff': DIFF}})
+        self.assertIn('app.py', collect.call_args.args[1])
+        self.assertEqual(collect.call_args.kwargs['applied_patch'], DIFF)
+        self.assertIn('IndentationError', build_llm_evidence_packet(value)['failure_log'])
+        self.assertIn('IndentationError', build_refiner_evidence(value)['execution']['log_excerpt'])
+
+    def test_step_log_ignores_success_and_malformed_entries(self):
+        value = SandboxResult(exit_code=1, sandbox_report={'failed_step': 'build', 'steps': [
+            None, {'name': 'install', 'stdout': 'unrelated success'},
+            {'name': 'build', 'stdout': {'invalid': 'shape'}, 'stderr': 'actual build failure'},
+        ]})
+        self.assertEqual(value.failed_step_log, 'stderr:\nactual build failure')
+
     def test_multiple_unrecovered_scenarios_keep_suite_identity(self):
         value = state()
         value.execution_result.chaos_observation = {
