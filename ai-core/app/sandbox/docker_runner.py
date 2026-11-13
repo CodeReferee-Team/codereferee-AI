@@ -91,6 +91,17 @@ class SandboxRunner:
             payload["requestId"] = request_id
         if target_users:
             payload["targetUsers"] = target_users
+        preparation_timeout = getattr(self.settings, 'sandbox_preparation_timeout_seconds', None)
+        if preparation_timeout is not None:
+            payload['preparationTimeoutSeconds'] = preparation_timeout
+        preparation_retries = getattr(self.settings, 'sandbox_preparation_max_retries', 0)
+        if preparation_retries:
+            payload['maxPreparationRetries'] = preparation_retries
+        if getattr(self.settings, 'sandbox_retry_downloads', False):
+            payload['retryDownloads'] = True
+        phase_timeouts = getattr(self.settings, 'sandbox_phase_timeouts', {})
+        if phase_timeouts:
+            payload['phaseTimeouts'] = phase_timeouts
         # Tell the sandbox how long we will wait, so it skips what cannot finish
         # instead of running on after we have given up (and holding its lock).
         payload["deadlineSeconds"] = max(
