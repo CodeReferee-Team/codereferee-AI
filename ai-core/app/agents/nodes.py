@@ -172,7 +172,7 @@ def _retry_rejected_edits(state: AgentState, packet: dict[str, object]) -> None:
         values={
             "reason": reason,
             "anchors": json.dumps(check.get("attempted_anchors") or [], ensure_ascii=False)[:600],
-            "repository_url": state.repository_url,
+            "repository_url": packet["repository_url"],
             "evidence": render_evidence_packet(packet),
         },
         fallback=state.refiner_report or _fallback_refiner(state),

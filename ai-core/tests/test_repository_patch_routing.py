@@ -124,6 +124,22 @@ class RepositorySourceTests(unittest.TestCase):
         self.assertEqual(value.refiner_report['patch_base_commit_sha'], BACKEND_SHA)
         self.assertIn('+new', value.refiner_report['patch_diff'])
 
+    def test_anchor_retry_keeps_selected_repository_url(self):
+        value = state()
+        value.source_files = {'app.py': 'old\n'}
+        url = 'https://github.com/o/backend.git'
+        value.metrics['source_repository'] = {'name': 'backend', 'url': url, 'commitSha': BACKEND_SHA}
+        def response(anchor):
+            return json.dumps({'summary': 'Repair recovery',
+                'edits': [{'path': 'app.py', 'find': [anchor], 'replace': ['new']}],
+                'patch_guidance': ['Reconnect'], 'verification_steps': ['Re-run'], 'risk': 'low'})
+        with patch.object(nodes.llm, 'enabled', True), patch.object(nodes.llm, 'invoke_text',
+                side_effect=[response('absent'), response('old')]) as invoke:
+            nodes.refiner_node(value)
+        self.assertEqual(invoke.call_count, 2)
+        self.assertEqual(invoke.call_args_list[1].args[2]['repository_url'], url)
+        self.assertIn('+new', value.refiner_report['patch_diff'])
+
 
 class RepositoryPatchGraphTests(unittest.TestCase):
     def prepare(self, value, applied=None, repositories=None):
