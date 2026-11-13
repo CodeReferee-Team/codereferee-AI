@@ -41,6 +41,12 @@ def state():
 
 
 class RepositorySourceTests(unittest.TestCase):
+    def test_critic_prompt_distinguishes_shared_dependency_faults(self):
+        from app.agents.prompts import CRITIC_PROMPT
+        self.assertIn('dependency_redis_outage', CRITIC_PROMPT)
+        self.assertIn('dependency_database_outage', CRITIC_PROMPT)
+        self.assertIn('shared dependency', CRITIC_PROMPT)
+
     def test_structured_build_error_reaches_context_and_model(self):
         value = state()
         value.execution_result.chaos_observation = {}
