@@ -83,6 +83,8 @@ CodeReferee는 남의 레포 출력을 그대로 LLM에 넣는다. 그래서 인
 - `ai-core/evals/metrics.py`: 정확도, false-pass/false-fail, macro-F1, confusion matrix, Wilson 신뢰구간, 반복 일관성, 지연 백분위.
 - `ai-core/tests/fixtures/agent_adversarial_cases.json`: T0-adv 케이스.
 - `ai-core/evals/baselines/fallback.json`: 커밋해 두는 기준선 리포트. 회귀 게이트가 이 파일과 비교한다.
+- `ai-core/evals/baselines/fallback-chaos-real.json`: 실측 카오스 응답(T1-chaos-real) 기준선. 2026-10-20 32건으로 처음 찍었다(판정·카테고리 100%, 경고 100%, OOM 3건은 ambiguous로 제외).
+- `ai-core/scripts/eval_gate.sh`: 두 기준선과 비교하는 게이트. CI(`.github/workflows/ci.yml`)의 `Rule eval gate` 단계가 이것을 부른다. 판정·카테고리에 더해 경고 일치율도 비교한다.
 
 기존 파일 변경
 - `ai-core/tests/agent_quality.py`: 채점 함수(`_score_*`, grounding, 환각 검사)는 그대로 두고 import해서 재사용한다. 기존 0.80 게이트 테스트도 유지한다.
@@ -681,6 +683,7 @@ postgres_unavailable, redis_unavailable
 - 데이터셋 라벨을 정식 코드로 다시 찍는 작업이 필요하다. 평가 쪽 매핑은 임시 조치다
 - 로그에 라벨을 적는 생성기를 고쳐야 한다. 그 전에는 이 슬라이스로 모델을 학습시키면 안 된다
 - 표현 불가 11종 중 실제로 필요한 구분이 있으면 `REASON_CATEGORIES`에 추가를 논의한다. 지금은 `sandbox_nonzero_exit`으로 뭉쳐 나간다
+  - 2026-10-20: `compile_failed`를 추가했다. 구조화 결과의 `failed_step: compile`에서만 나온다. 데이터셋의 `syntax_error` 라벨은 그 신호가 없는 로그 전용 입력이라 여전히 표현 불가로 센다. 로그의 `SyntaxError`로 분기하면 이 슬라이스 점수는 오르지만, 테스트 출력에 찍힌 문구에도 걸린다
 ## 14. 실측 카오스 증거 슬라이스 (2026-10-04)
 
 ### 14.1 왜 했는가
@@ -758,3 +761,67 @@ false-pass의 원인은 코드가 아니라 평가셋이었다. 합성 케이스
 - 복구 상한 65초의 근거가 약하다. 실측 표본이 7건이고 그중 복구 시간이 기록된 것은 5건이다. `auto-deploy-litmus`가 125.91초로 상한의 두 배인데, 상한이 낮은 것인지 그 실행이 실제로 느렸던 것인지 표본이 더 필요하다.
 - `T1-chaos-real`은 아직 주 지표가 아니다. `PRIMARY_SLICES`는 T0와 T0-adv만 본다. 실측 표본이 20건을 넘으면 포함을 검토한다.
 - 모든 실측 증거의 `target_configuration.replicas`가 1이다. HA 프로필(`apiReplicas: 2`)로 돌린 증거가 들어오면 규칙 7 경고가 빠지는 경로를 처음 측정할 수 있다.
+
+## 준비 단계 실패 라벨 변경 (2026-10-21)
+
+CodeReferee는 안정성만 판정하기로 했다(judge-policy 3.0절). 그래서 Preflight를 통과한 뒤 설치·테스트·기동에서 떨어진 케이스의 기대 판정을 Fail에서 Error로 옮겼다. 카테고리 라벨은 그대로 둔다. Judge가 내는 사유는 바뀌지 않았고 최종 상태만 판정 불가로 간다.
+
+| 슬라이스 | 옮긴 수 | 방법 |
+| --- | --- | --- |
+| T0 | 10 | 픽스처의 `label.verdict`를 직접 고치고 `relabeled`에 이유를 적었다 |
+| T0-adv | 12 | 같다 |
+| T1-sandbox | 행 전부 | 로더(`_sandbox_failure_verdict`)가 옮긴다. 라벨 카테고리가 시나리오 이름이라 카테고리로 거르지 않는다 |
+| T1-metrics | 4 | 로더가 옮긴다. 1층 실행 자체가 실패한(`exit_code != 0` 또는 `timed_out`) 행만 |
+
+`case_ids`는 그대로라 게이트가 비교할 수 있었다. 판정 정확도는 바꾼 뒤에도 전 슬라이스 100%이고 false-pass는 0건이다. 러너는 운영 워크플로와 같은 갈래를 타도록 `nodes.judgement_unavailable`을 보고 Fail을 Error로 바꾼다. 인젝션 케이스는 전부 준비 단계 실패라 Error로 바뀌었는데, 막으려던 것이 Pass로 새는 것이었으므로 방어 강도는 같다.
+
+Preflight 실패 6건(T0)은 Fail로 두었다. 1층만 돌고 카오스가 없었던 Pass는 이번 결정의 범위 밖이다.
+
+## 15. 수리율 평가 (2026-10-20)
+
+### 15.1 왜 했는가
+
+지금까지의 지표는 전부 판정 쪽이다. "Fail이라고 맞게 말했는가"는 재지만, Refiner가 낸 패치가 결함을 실제로 고치는지는 잰 적이 없다. 6절의 측정은 패치가 **적용되는지**까지였다. 적용된 패치로 재실행이 통과하는지가 사용자가 받는 가치다.
+
+### 15.2 구성
+
+`python -m evals.repair run --model none|oracle|<provider:model>`
+
+- 케이스: `evals/repair_cases/<id>/`에 결함이 하나 있는 작은 Python 레포(`repo/`)와 정답 편집(`case.json`의 `oracle_edits`)이 있다. 8건이다. 문법 오류 2건, 테스트 실패 6건(KeyError, off-by-one, import 누락, 타입 오류, 가변 기본값, 중첩 패키지의 비교 연산자)이고, 의존성이 없어 네트워크를 쓰지 않는다
+- 실행: 1층 검증 스크립트를 컨테이너 없이 `sh`로 돌린다. 그 뒤 Judge, 파일 첨부, Critic, Refiner와 운영 루프(`_run_refinement_rounds`)를 그대로 탄다. 가드, `git apply --check`, 재실행, 판정 복원까지 운영 코드다
+- `none`은 하한이다. 규칙 fallback은 편집을 만들지 못하므로 수리율 0이 정상이다
+- `oracle`은 상한이다. 사람이 적은 정답 편집을 fallback에 끼운다. 정답인데 수리가 안 되면 모델 탓이 아니라 우리 파이프라인(파일 첨부, 가드, 재실행)의 결함이다
+- 실제 모델은 LLM 설정이 있어야 돈다. 이 스레드의 환경에는 키가 없어 아직 재지 못했다
+
+지표는 초기 실패 탐지, 초기 카테고리 일치, 고칠 파일 첨부, 패치 생성, **수리 성공**, 제출 판정 유지(패치가 통과해도 제출된 레포는 Fail)다.
+
+### 15.3 첫 측정에서 찾은 것
+
+oracle의 수리율이 처음에 62.5%(5/8)였다. 실패한 3건은 모두 assert가 테스트 안에서 깨진 경우다. pytest 로그에 테스트 파일 경로만 찍히니 Refiner가 받은 파일도 테스트 파일뿐이었다. 고칠 모듈은 보지 못했고, 테스트 편집은 가드가 막았다. 실제 Refiner도 같은 벽에 막혔을 것이다.
+
+`source_context.read_files`가 실패한 테스트 파일의 import를 따라가 레포 안의 모듈을 함께 붙이게 고쳤다. 표준 라이브러리와 서드파티는 레포에 파일이 없어 걸러지고, 상한(`MAX_FILES` 3)은 그대로다. 고친 뒤 oracle 100%(8/8), none 0%다.
+
+테스트를 고쳐 통과시키는 편집은 수리로 세지 않는다. `tests/test_repair_eval.py`가 그 경로를 확인한다.
+
+### 15.4 한계와 다음
+
+- 표본 8건은 작다. 수리율 1건 차이가 12.5%p다. 모델끼리 비교할 때는 신뢰구간을 같이 본다
+- Python 1층만 있다. Node, Gradle과 카오스 설정 수리(`replicas` 등)는 아직 없다. 카오스 쪽은 kind 클러스터가 있어야 해서 `scenario-tests/env/up.sh` 환경에서 따로 돌려야 한다
+- 실제 모델로 처음 재는 것이 다음 할 일이다. LLM 키가 있는 곳에서 `--model gemini:gemini-flash-latest`를 3회 반복해 기준을 남긴다
+
+### 15.5 의존성 장애의 수정 대상 파일 (2026-10-22)
+
+실서버 실측에서 카오스 실패의 Refiner가 받는 파일이 `.codereferee/validation.yaml` 하나뿐이라는 것이 드러났다. 카오스 로그에는 경로가 없어서다. `replicas`는 고칠 수 있어도, Redis가 돌아온 뒤 다시 붙지 않는 코드는 볼 수 없었다.
+
+- 의존성 장애(`dependency_redis_outage`, `dependency_database_outage`)로 실패하면 그 클라이언트(`redis`, `psycopg` 등)를 import하는 레포 모듈을 함께 붙인다. 테스트와 가상환경 디렉터리는 뺀다. 상한 3개는 그대로다
+- Critic과 Refiner 패킷의 `chaos`에 `fault`(장애 종류)를 싣는다. Refiner 프롬프트에는 "의존성 장애 미복구는 replicas가 아니라 그 의존성을 부르는 코드를 고친다"를 적었다
+- 검증용 fixture는 chaos-demo 브랜치 `claude/project-thread-ta9s8y`(Redis 실패 후 차단기를 닫지 않는 앱)다. 정답 패치는 레포 밖에 둔다. Refiner가 레포 파일을 읽기 때문이다
+
+### 15.6 검증 설정이 없는 레포의 복제본 수정 (2026-10-30)
+
+실서버에서 spring-petclinic에 예상 동시 사용자 200명을 걸자 `load_target_not_met`로 Fail이 났다. 100명까지는 실패가 없었고, 200명에서 p95가 78배 늘고 시간 초과가 6건 났다. Critic은 "복제본 1개라 여유가 없다"를 정확히 짚었다. 그런데 레포에 `.codereferee/validation.yaml`도 배포 파일도 없어서 Refiner가 고칠 파일이 없었고, `patch_diff`는 null이었다.
+
+- 샌드박스는 `service`에 `replicas`·`resources`만 적은 validation.yaml을 받는다. 배포 방식, 포트, 로컬 DB 재현은 그대로 자동 감지하고 두 값만 덮어쓴다(codereferee-sandbox `docs/repository-execution-plans.md`)
+- 카오스·부하 실패이고, `target_configuration.replicas`가 1이고, 레포에 검증 설정이 없으면 Refiner의 `source_files`에 `version: 1 / service: / replicas: 1` 틀을 새 파일로 보여준다(`NEW_REPLICA_OVERRIDE`). 프롬프트는 그대로 쓴다. 기존 규칙인 "validation.yaml이 source_files에 있으면 replicas를 올린다"가 그대로 적용된다
+- 이 파일을 고친 편집은 `/dev/null`에서 시작하는 생성 diff로 만든다(`build_diff(new_paths=...)`). 레포에 실제로 파일이 있는데 clone이 실패해 못 읽은 경우에는 생성 diff가 `git apply --check`에서 걸러진다
+- 두 번째 라운드부터는 누적 패치가 적용된 clone에서 파일을 실제로 읽으므로 새 파일 표시를 지운다

@@ -45,8 +45,12 @@ REASON_CATEGORIES = (
     "sandbox_nonzero_exit",
     "sandbox_not_executed",
     "test_failure",
+    # 문법 오류. sandbox의 compile 단계가 실패했다는 구조화 신호에서만 나온다.
+    "compile_failed",
     # 테스트가 없어 검증 자체를 못 한 경우. 코드 결함과 구분해야 집계가 의미를 갖는다.
     "no_tests_detected",
+    # 쿠버네티스 샌드박스가 배포할 서비스를 정하지 못한 경우. 라이브러리가 대표적이다.
+    "service_not_deployable",
     # 우리가 그 레포를 검증할 수 없었던 경우. 레포 결함과 구분해야 한다.
     # 섞으면 사용자가 멀쩡한 코드를 불합격으로 받고, 우리 커버리지 격차가 숨는다.
     "verification_environment_unsupported",
@@ -71,6 +75,8 @@ REASON_CATEGORIES = (
     "chaos_error_budget_exhausted",
     "chaos_recovery_exceeds_expected_bound",
     "chaos_recovered_within_budget",
+    # load (요청자가 예상 동시 사용자 수를 정했을 때만)
+    "load_target_not_met",
     # pass
     "all_checks_passed",
 )

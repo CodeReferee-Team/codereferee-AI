@@ -1,0 +1,484 @@
+{
+  "schemaVersion": "chaos-v1",
+  "scenario": "service_selector_blackhole",
+  "observationStatus": "observed",
+  "exitCode": 0,
+  "probeTransport": "in_cluster_http",
+  "probes": {
+    "baseline": [
+      {
+        "at": "2026-10-19T07:40:14.906737+00:00",
+        "status_code": 200,
+        "latency_ms": 4.05,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:14.941878+00:00",
+        "status_code": 200,
+        "latency_ms": 4.23,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:14.969701+00:00",
+        "status_code": 200,
+        "latency_ms": 5.4,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:14.998887+00:00",
+        "status_code": 200,
+        "latency_ms": 3.25,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:15.032660+00:00",
+        "status_code": 200,
+        "latency_ms": 3.27,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:15.056900+00:00",
+        "status_code": 200,
+        "latency_ms": 3.29,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:15.081730+00:00",
+        "status_code": 200,
+        "latency_ms": 3.48,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:15.102434+00:00",
+        "status_code": 200,
+        "latency_ms": 2.94,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:15.127512+00:00",
+        "status_code": 200,
+        "latency_ms": 3.3,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:15.155379+00:00",
+        "status_code": 200,
+        "latency_ms": 3.22,
+        "success": true,
+        "error": null
+      }
+    ],
+    "experiment": [
+      {
+        "at": "2026-10-19T07:40:15.294794+00:00",
+        "status_code": null,
+        "latency_ms": 2.39,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:15.824589+00:00",
+        "status_code": null,
+        "latency_ms": 1.86,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:16.346405+00:00",
+        "status_code": null,
+        "latency_ms": 2.07,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:16.871279+00:00",
+        "status_code": null,
+        "latency_ms": 2.3,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:17.403362+00:00",
+        "status_code": null,
+        "latency_ms": 1.92,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:17.929218+00:00",
+        "status_code": null,
+        "latency_ms": 1.88,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:18.458633+00:00",
+        "status_code": null,
+        "latency_ms": 2.0,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:18.988928+00:00",
+        "status_code": null,
+        "latency_ms": 2.0,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:19.524272+00:00",
+        "status_code": null,
+        "latency_ms": 2.07,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:20.050149+00:00",
+        "status_code": null,
+        "latency_ms": 2.32,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:20.575537+00:00",
+        "status_code": null,
+        "latency_ms": 2.27,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:22.125861+00:00",
+        "status_code": null,
+        "latency_ms": 1022.68,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:22.654038+00:00",
+        "status_code": null,
+        "latency_ms": 2.47,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:24.205943+00:00",
+        "status_code": null,
+        "latency_ms": 1026.45,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:24.739702+00:00",
+        "status_code": null,
+        "latency_ms": 1.93,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:26.286012+00:00",
+        "status_code": null,
+        "latency_ms": 1024.1,
+        "success": false,
+        "error": "<urlopen error [Errno 111] Connection refused>"
+      },
+      {
+        "at": "2026-10-19T07:40:26.942465+00:00",
+        "status_code": 200,
+        "latency_ms": 4.21,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:26.970295+00:00",
+        "status_code": 200,
+        "latency_ms": 4.22,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:27.008216+00:00",
+        "status_code": 200,
+        "latency_ms": 4.17,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:27.034983+00:00",
+        "status_code": 200,
+        "latency_ms": 3.43,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T07:40:27.066389+00:00",
+        "status_code": 200,
+        "latency_ms": 4.76,
+        "success": true,
+        "error": null
+      }
+    ]
+  },
+  "target": {
+    "namespace": "codereferee-ingle--s06-route",
+    "deployment": "repository-api",
+    "service": "repository-api",
+    "servicePort": 8000,
+    "labelSelector": "app.kubernetes.io/name=repository-api"
+  },
+  "replicas": 1,
+  "baseline": {
+    "metrics": {
+      "availability": 1.0,
+      "p95_latency_ms": 5.4,
+      "error_rate": 0.0,
+      "probe_count": 10,
+      "success_count": 10,
+      "failure_count": 0,
+      "error_rate_denominator": "all HTTP GET / probes collected during baseline; readiness wait probes are excluded",
+      "cpu_usage_percent": null,
+      "memory_usage_mb": null,
+      "restart_count": 0
+    }
+  },
+  "metrics": {
+    "availability": 0.4838709677419355,
+    "p95_latency_ms": 1022.68,
+    "error_rate": 0.5161290322580645,
+    "probe_count": 31,
+    "success_count": 15,
+    "failure_count": 16,
+    "error_rate_denominator": "all measured in-cluster HTTP requests during baseline, routing fault, and recovery",
+    "cpu_usage_percent": null,
+    "memory_usage_mb": null,
+    "restart_count": 0
+  },
+  "chaos_observation": {
+    "type": "service_selector_blackhole",
+    "kill_method": "kubectl_patch_service_selector",
+    "started_at": "2026-10-19T07:40:11.876811Z",
+    "recovered_at": "2026-10-19T07:40:27.196638Z",
+    "recovered": true,
+    "recovery_seconds": 12.04,
+    "target_pod_uid": "2252e08f-911f-4dac-a2ae-0cc4aa1611a7",
+    "replacement_pod_uid": null,
+    "target_configuration": {
+      "replicas": 1,
+      "readiness_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 2,
+        "timeout_seconds": 2,
+        "failure_threshold": 3,
+        "success_threshold": 1
+      },
+      "liveness_probe": null,
+      "startup_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 2,
+        "timeout_seconds": 2,
+        "failure_threshold": 90,
+        "success_threshold": 1
+      },
+      "termination_grace_period_seconds": 10
+    },
+    "routing_operation": {
+      "original_selector": {
+        "app.kubernetes.io/name": "repository-api"
+      },
+      "blackhole_selector": {
+        "app.kubernetes.io/name": "codereferee-blackhole"
+      }
+    },
+    "observation_window": {
+      "baseline_probe_count": 10,
+      "fault_seconds": 10,
+      "error_rate_denominator": "all measured in-cluster HTTP requests during baseline, routing fault, and recovery"
+    },
+    "abort_condition": {
+      "triggered": false,
+      "reason": null
+    }
+  },
+  "source": {
+    "real_execution_observed": true,
+    "target": "repository-api",
+    "workspace_cleanup": {
+      "removed": true,
+      "error": null
+    },
+    "metrics_observation": {
+      "schema_version": "metrics-observation.v1",
+      "status": "disabled",
+      "request_id": "ingle--s06-route",
+      "cluster": "codereferee",
+      "namespace": "codereferee-ingle--s06-route",
+      "workload": "repository-api",
+      "observation_namespace": "codereferee-metrics-cb7a3212f2403104",
+      "scrape_interval_seconds": 1,
+      "pod_bindings": [],
+      "errors": [],
+      "units": {
+        "cpu": "cores (rate of cumulative CPU seconds)",
+        "memory": "bytes",
+        "restart": "Kubernetes container restartCount snapshots"
+      },
+      "node_metrics_scope": "shared-node diagnostics, not application usage",
+      "cleanup": {
+        "attempted": false,
+        "removed": null
+      }
+    },
+    "artifact_cleanup": {
+      "image": "codereferee/ingle--s06-route:0cff43ba2668",
+      "host_removed": true,
+      "kind_nodes": [
+        {
+          "node": "codereferee-control-plane",
+          "removed": true
+        }
+      ],
+      "errors": [],
+      "namespace_removed": true
+    }
+  },
+  "timedOut": false,
+  "chaosMode": "service_selector_blackhole",
+  "serviceCheckAttempted": true,
+  "browserCheckAttempted": false,
+  "requestId": "ingle--s06-route",
+  "repositoryUrl": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+  "branch": "healthy-fastapi",
+  "commitSha": "0cff43ba266821400a2b55f46e8857db768acc02",
+  "deployment": {
+    "repository": {
+      "url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo",
+      "branch": "healthy-fastapi",
+      "commitSha": "0cff43ba266821400a2b55f46e8857db768acc02"
+    },
+    "target": {
+      "name": "repository-api",
+      "deployment": "repository-api",
+      "service": "repository-api",
+      "servicePort": 8000,
+      "labelSelector": "app.kubernetes.io/name=repository-api",
+      "probePath": "/",
+      "dependencies": {},
+      "namespace": "codereferee-ingle--s06-route"
+    },
+    "image": "codereferee/ingle--s06-route:0cff43ba2668",
+    "deploymentProfile": null,
+    "sandboxReport": {
+      "schema_version": "sandbox-result.v1",
+      "detected_stack": "python",
+      "verification_declared": false,
+      "test_execution": "not_declared",
+      "outcome": "passed",
+      "failed_step": "none",
+      "steps": [
+        {
+          "name": "install",
+          "command": [
+            "python",
+            "-m",
+            "pip",
+            "install",
+            "--user",
+            "--disable-pip-version-check",
+            "-r",
+            "requirements.txt"
+          ],
+          "exit_code": 0,
+          "duration_ms": 4770,
+          "timed_out": false,
+          "stdout": "Collecting fastapi (from -r requirements.txt (line 1))\n  Downloading fastapi-0.146.0-py3-none-any.whl.metadata (26 kB)\nCollecting uvicorn (from -r requirements.txt (line 2))\n  Downloading uvicorn-0.54.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting starlette>=0.46.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading starlette-1.9.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting pydantic>=2.9.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading pydantic-2.14.1-py3-none-any.whl.metadata (133 kB)\nCollecting typing-extensions>=4.8.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)\nCollecting typing-inspection>=0.4.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)\nCollecting annotated-doc>=0.0.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)\nCollecting opentelemetry-api>=1.44.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading opentelemetry_api-1.45.1-py3-none-any.whl.metadata (1.4 kB)\nCollecting click>=7.0 (from uvicorn->-r requirements.txt (line 2))\n  Downloading click-8.5.0-py3-none-any.whl.metadata (2.6 kB)\nCollecting h11>=0.8 (from uvicorn->-r requirements.txt (line 2))\n  Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)\nCollecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)\nCollecting pydantic-core==2.50.1 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.5 kB)\nCollecting anyio<5,>=4.0.0 (from starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)\nCollecting idna>=2.8 (from anyio<5,>=4.0.0->starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)\nDownloading fastapi-0.146.0-py3-none-any.whl (144 kB)\nDownloading uvicorn-0.54.0-py3-none-any.whl (87 kB)\nDownloading annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)\nDownloading click-8.5.0-py3-none-any.whl (125 kB)\nDownloading h11-0.16.0-py3-none-any.whl (37 kB)\nDownloading opentelemetry_api-1.45.1-py3-none-any.whl (60 kB)\nDownloading pydantic-2.14.1-py3-none-any.whl (488 kB)\nDownloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.2 MB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.2/2.2 MB 24.2 MB/s eta 0:00:00\nDownloading starlette-1.9.0-py3-none-any.whl (80 kB)\nDownloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)\nDownloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)\nDownloading annotated_types-0.8.0-py3-none-any.whl (13 kB)\nDownloading anyio-4.15.1-py3-none-any.whl (132 kB)\nDownloading idna-3.20-py3-none-any.whl (69 kB)\nInstalling collected packages: typing-extensions, idna, h11, click, annotated-types, annotated-doc, uvicorn, typing-inspection, pydantic-core, opentelemetry-api, anyio, starlette, pydantic, fastapi\nSuccessfully installed annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.1 click-8.5.0 fastapi-0.146.0 h11-0.16.0 idna-3.20 opentelemetry-api-1.45.1 pydantic-2.14.1 pydantic-core-2.50.1 starlette-1.9.0 typing-extensions-4.16.0 typing-inspection-0.4.4 uvicorn-0.54.0\n",
+          "stderr": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n"
+        },
+        {
+          "name": "build",
+          "command": [
+            "python",
+            "-m",
+            "compileall",
+            "-q",
+            "."
+          ],
+          "exit_code": 0,
+          "duration_ms": 494,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "check_cache_cleanup": {
+        "removed": true,
+        "error": null
+      }
+    },
+    "workspaceCleanup": {
+      "removed": true,
+      "error": null
+    },
+    "executionPlan": {
+      "source": "stack_detection",
+      "dockerfile": "generated",
+      "warnings": [],
+      "servicePort": 8000
+    }
+  },
+  "sandboxReport": {
+    "detected_stack": "python",
+    "verification_declared": false,
+    "test_execution": "not_declared",
+    "steps": [
+      {
+        "name": "install",
+        "command": [
+          "python",
+          "-m",
+          "pip",
+          "install",
+          "--user",
+          "--disable-pip-version-check",
+          "-r",
+          "requirements.txt"
+        ],
+        "exit_code": 0,
+        "duration_ms": 4770,
+        "timed_out": false,
+        "stdout": "Collecting fastapi (from -r requirements.txt (line 1))\n  Downloading fastapi-0.146.0-py3-none-any.whl.metadata (26 kB)\nCollecting uvicorn (from -r requirements.txt (line 2))\n  Downloading uvicorn-0.54.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting starlette>=0.46.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading starlette-1.9.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting pydantic>=2.9.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading pydantic-2.14.1-py3-none-any.whl.metadata (133 kB)\nCollecting typing-extensions>=4.8.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)\nCollecting typing-inspection>=0.4.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)\nCollecting annotated-doc>=0.0.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)\nCollecting opentelemetry-api>=1.44.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading opentelemetry_api-1.45.1-py3-none-any.whl.metadata (1.4 kB)\nCollecting click>=7.0 (from uvicorn->-r requirements.txt (line 2))\n  Downloading click-8.5.0-py3-none-any.whl.metadata (2.6 kB)\nCollecting h11>=0.8 (from uvicorn->-r requirements.txt (line 2))\n  Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)\nCollecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)\nCollecting pydantic-core==2.50.1 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.5 kB)\nCollecting anyio<5,>=4.0.0 (from starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)\nCollecting idna>=2.8 (from anyio<5,>=4.0.0->starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)\nDownloading fastapi-0.146.0-py3-none-any.whl (144 kB)\nDownloading uvicorn-0.54.0-py3-none-any.whl (87 kB)\nDownloading annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)\nDownloading click-8.5.0-py3-none-any.whl (125 kB)\nDownloading h11-0.16.0-py3-none-any.whl (37 kB)\nDownloading opentelemetry_api-1.45.1-py3-none-any.whl (60 kB)\nDownloading pydantic-2.14.1-py3-none-any.whl (488 kB)\nDownloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.2 MB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.2/2.2 MB 24.2 MB/s eta 0:00:00\nDownloading starlette-1.9.0-py3-none-any.whl (80 kB)\nDownloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)\nDownloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)\nDownloading annotated_types-0.8.0-py3-none-any.whl (13 kB)\nDownloading anyio-4.15.1-py3-none-any.whl (132 kB)\nDownloading idna-3.20-py3-none-any.whl (69 kB)\nInstalling collected packages: typing-extensions, idna, h11, click, annotated-types, annotated-doc, uvicorn, typing-inspection, pydantic-core, opentelemetry-api, anyio, starlette, pydantic, fastapi\nSuccessfully installed annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.1 click-8.5.0 fastapi-0.146.0 h11-0.16.0 idna-3.20 opentelemetry-api-1.45.1 pydantic-2.14.1 pydantic-core-2.50.1 starlette-1.9.0 typing-extensions-4.16.0 typing-inspection-0.4.4 uvicorn-0.54.0\n",
+        "stderr": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n"
+      },
+      {
+        "name": "build",
+        "command": [
+          "python",
+          "-m",
+          "compileall",
+          "-q",
+          "."
+        ],
+        "exit_code": 0,
+        "duration_ms": 494,
+        "timed_out": false,
+        "stdout": "",
+        "stderr": ""
+      }
+    ],
+    "check_cache_cleanup": {
+      "removed": true,
+      "error": null
+    },
+    "repository_check_outcome": "passed"
+  },
+  "durationMillis": 67332
+}

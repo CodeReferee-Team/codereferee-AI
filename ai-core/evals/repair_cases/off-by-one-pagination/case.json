@@ -1,0 +1,16 @@
+{
+  "id": "off-by-one-pagination",
+  "defect": "off-by-one slice",
+  "expected_category": "test_failure",
+  "oracle_edits": [
+    {
+      "path": "pager.py",
+      "find": [
+        "    start = number * size"
+      ],
+      "replace": [
+        "    start = (number - 1) * size"
+      ]
+    }
+  ]
+}

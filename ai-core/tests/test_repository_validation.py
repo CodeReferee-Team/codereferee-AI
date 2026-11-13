@@ -21,6 +21,19 @@ from app.workflow.repository_validation import (
 from app.models import RepositoryValidationRequest
 
 
+def _chaos_failure() -> SandboxResult:
+    """카오스에서 복구하지 못한 관측. 안정성 Fail이라 Critic/Refiner와 패치 루프가 돈다.
+
+    준비 단계 실패(테스트 실패 등)는 2026-10-21부터 판정 불가라 루프를 타지 않는다(judge-policy 3.0절).
+    """
+    return SandboxResult(
+        exit_code=0, stderr="pod did not recover", duration_ms=5000, observation_status="observed",
+        metrics={"availability": 0.99, "error_rate": 0.01, "p95_latency_ms": 20.0, "recovery_seconds": 3.42},
+        chaos_observation={"type": "pod_kill", "recovered": False},
+        baseline={"metrics": {"availability": 1.0, "p95_latency_ms": 12.0}},
+    )
+
+
 class RepositoryValidationTests(unittest.TestCase):
     def setUp(self) -> None:
         # attach_source_files가 실제 clone을 시도하면 단위 테스트가 네트워크에 의존한다.
@@ -361,10 +374,8 @@ class RepositoryValidationTests(unittest.TestCase):
         ):
             self.assertIn(key, result)
 
-    def test_user_code_failure_reports_status_fail(self) -> None:
-        _, events = self._run_with_output(
-            self._reachable_preflight(), SandboxResult(exit_code=1, stderr="pytest failed")
-        )
+    def test_stability_failure_reports_status_fail(self) -> None:
+        _, events = self._run_with_output(self._reachable_preflight(), _chaos_failure())
         self.assertEqual(events[-1]["status"], "fail")
         self.assertTrue(events[-1]["critic_feedback"])
 
@@ -464,9 +475,8 @@ class RepositoryValidationTests(unittest.TestCase):
         self.assertEqual(state.critic_feedback, {})
         self.assertEqual(state.refiner_report, {})
 
-    def test_user_code_failure_stays_failed(self) -> None:
-        result = SandboxResult(exit_code=1, stderr="pytest: 3 failed")
-        state = self._run_workflow(self._reachable_preflight(), result)
+    def test_stability_failure_stays_failed(self) -> None:
+        state = self._run_workflow(self._reachable_preflight(), _chaos_failure())
         self.assertEqual(state.status, JobStatus.failed)
         self.assertNotEqual(state.judge_report, {})
 
@@ -715,9 +725,10 @@ class SandboxResultContractTests(unittest.TestCase):
             },
         }
         trimmed = summarize_metrics(metrics)["chaos_observation"]
+        # LLM 패킷에서는 대용량 노이즈를 통째로 뺀다(개수만 남긴다). 7B가 신호를 놓치지 않게.
         self.assertEqual(trimmed["kubernetes_events_total"], 60)
-        self.assertEqual(len(trimmed["kubernetes_events"]), 20)
-        self.assertLess(len(trimmed["replacement_logs"]), 700)
+        self.assertNotIn("kubernetes_events", trimmed)
+        self.assertNotIn("replacement_logs", trimmed)
         # 원본은 건드리지 않는다. Backend로는 전문이 그대로 가야 한다.
         self.assertEqual(len(metrics["chaos_observation"]["kubernetes_events"]), 60)
 
@@ -843,7 +854,7 @@ class RefinementLoopTests(unittest.TestCase):
 
     def test_no_diff_means_no_refinement_round(self) -> None:
         # LLM이 없으면 결정적 fallback이 diff를 만들지 못한다. 기존 동작이 유지돼야 한다.
-        state, queue, calls = self._run([SandboxResult(exit_code=1, stderr="boom")], diff=None)
+        state, queue, calls = self._run([_chaos_failure()], diff=None)
         self.assertEqual(state.status, JobStatus.failed)
         self.assertEqual(state.refine_rounds, [])
         self.assertEqual(len(calls), 1)
@@ -858,7 +869,7 @@ class RefinementLoopTests(unittest.TestCase):
         검증된 패치는 refiner_report에, 통과 사실은 metrics.patch_verified에 남는다.
         """
         state, queue, calls = self._run(
-            [SandboxResult(exit_code=1, stderr="boom"), SandboxResult(exit_code=0, stdout="ok")],
+            [_chaos_failure(), SandboxResult(exit_code=0, stdout="ok")],
             diff="--- a/x\n+++ b/x\n",
         )
         self.assertEqual(state.status, JobStatus.failed)
@@ -875,7 +886,7 @@ class RefinementLoopTests(unittest.TestCase):
 
     def test_refinement_rerun_keeps_chaos_target_contract(self) -> None:
         _, _, calls = self._run(
-            [SandboxResult(exit_code=1, stderr="boom"), SandboxResult(exit_code=0, stdout="ok")],
+            [_chaos_failure(), SandboxResult(exit_code=0, stdout="ok")],
             diff="--- a/x\n+++ b/x\n",
             chaos_mode="litmus_pod_delete",
             deployment_profile="quickbyte-demo",
@@ -887,7 +898,7 @@ class RefinementLoopTests(unittest.TestCase):
 
     def test_refining_progress_carries_round_and_max_rounds(self) -> None:
         _, queue, _ = self._run(
-            [SandboxResult(exit_code=1, stderr="boom"), SandboxResult(exit_code=0, stdout="ok")],
+            [_chaos_failure(), SandboxResult(exit_code=0, stdout="ok")],
             diff="--- a/x\n+++ b/x\n",
         )
         refining = queue.steps("REFINING")
@@ -896,7 +907,7 @@ class RefinementLoopTests(unittest.TestCase):
         self.assertEqual(refining[0]["max_rounds"], 3)
 
     def test_loop_stops_after_max_rounds_when_patch_never_works(self) -> None:
-        failures = [SandboxResult(exit_code=1, stderr="boom") for _ in range(4)]
+        failures = [_chaos_failure() for _ in range(4)]
         state, queue, calls = self._run(failures, diff="--- a/x\n+++ b/x\n")
         self.assertEqual(state.status, JobStatus.failed)
         self.assertEqual(len(state.refine_rounds), 3)
@@ -905,7 +916,7 @@ class RefinementLoopTests(unittest.TestCase):
 
     def test_oversized_diff_is_rejected_before_rerunning(self) -> None:
         huge = "x" * 1_000_001
-        state, queue, calls = self._run([SandboxResult(exit_code=1, stderr="boom")], diff=huge)
+        state, queue, calls = self._run([_chaos_failure()], diff=huge)
         self.assertEqual(state.status, JobStatus.failed)
         self.assertEqual(len(calls), 1)
         self.assertEqual(queue.steps("REFINING"), [])
@@ -919,7 +930,7 @@ class RefinementLoopTests(unittest.TestCase):
         """
         state, _, _ = self._run(
             [
-                SandboxResult(exit_code=1, stderr="boom"),
+                _chaos_failure(),
                 SandboxResult(exit_code=None, infra_error="sandbox_observation_unavailable"),
             ],
             diff="--- a/x\n+++ b/x\n",
@@ -928,6 +939,121 @@ class RefinementLoopTests(unittest.TestCase):
         self.assertFalse(state.metrics["patch_verified"])
         self.assertEqual(state.refine_rounds[-1]["after_judge_status"], None)
         self.assertTrue(any("hit infra error" in event for event in state.events))
+
+
+class CumulativePatchTests(unittest.TestCase):
+    """두 번째 라운드부터 Refiner는 앞 패치가 적용된 파일을 보고 그 위에 얹을 diff를 쓴다.
+
+    샌드박스는 제출된 커밋에 패치를 적용하므로 그 diff만 보내면 맞지 않는다. 실서버에서 겪었다
+    (2026-10-23, 레플리카 1개 레포). 2라운드 패치가 적용되지 않아 patch 단계에서 멈췄고,
+    리포트의 Critic과 Refiner는 레포의 안정성 대신 "CI 패치가 어긋났다"를 설명했다.
+    """
+
+    PREFLIGHT = RefinementLoopTests.PREFLIGHT
+    FIRST = "--- a/v.yaml\n+++ b/v.yaml\n@@ -1 +1 @@\n-replicas: 1\n+replicas: 2\n"
+    SECOND = "--- a/v.yaml\n+++ b/v.yaml\n@@ -1 +1 @@\n-replicas: 2\n+replicas: 3\n"
+
+    def _run(self, sandbox_results, diffs):
+        state = AgentState(job_id="cumulative", request_id="cumulative",
+                           repository_url="https://github.com/example/project")
+        pending = list(sandbox_results)
+        remaining_diffs = list(diffs)
+        calls: list[str | None] = []
+        collected: list[str | None] = []
+
+        def _sandbox(repository_url, branch=None, commit_sha=None, patch_diff=None, **kwargs):
+            calls.append(patch_diff)
+            return pending.pop(0)
+
+        def _refiner(state):
+            state.refiner_report = {
+                "summary": f"round {len(calls)}", "patch_guidance": ["apply"],
+                "verification_steps": ["rerun"], "risk": "low",
+                "patch_diff": remaining_diffs.pop(0) if remaining_diffs else None,
+            }
+            return state
+
+        def _collect(url, paths, **kwargs):
+            collected.append(kwargs.get("applied_patch"))
+            return {"v.yaml": "replicas: 1\n"}
+
+        with patch("app.workflow.repository_validation.repository_preflight_runner.run",
+                   return_value=self.PREFLIGHT), \
+                patch("app.workflow.repository_validation.sandbox_runner.run_repository", side_effect=_sandbox), \
+                patch("app.workflow.repository_validation.refiner_node", side_effect=_refiner), \
+                patch.object(source_context, "collect", side_effect=_collect):
+            state = execute_repository_validation(state, output_queue=RecordingQueue())
+        return state, calls, collected
+
+    def test_the_second_round_sends_both_patches(self) -> None:
+        _, calls, _ = self._run(
+            [_chaos_failure(), _chaos_failure(), SandboxResult(exit_code=0, stdout="ok")],
+            [self.FIRST, self.SECOND],
+        )
+        self.assertEqual(calls[1], self.FIRST)
+        self.assertEqual(calls[2], self.FIRST + self.SECOND)
+
+    def test_source_files_are_read_with_everything_applied_so_far(self) -> None:
+        _, _, collected = self._run(
+            [_chaos_failure(), _chaos_failure(), _chaos_failure(), _chaos_failure()],
+            [self.FIRST, self.SECOND, self.SECOND],
+        )
+        # 최초 실행 뒤에는 아무것도 적용되지 않았고, 그다음부터는 누적이다.
+        self.assertEqual(collected[:3], [None, self.FIRST, self.FIRST + self.SECOND])
+
+    def test_the_cumulative_patch_really_applies_with_git(self) -> None:
+        import subprocess
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as repo:
+            Path(repo, "v.yaml").write_text("replicas: 1\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            applied = subprocess.run(["git", "apply", "--check", "-"], cwd=repo,
+                                     input=self.FIRST + self.SECOND, text=True,
+                                     capture_output=True)
+            self.assertEqual(applied.returncode, 0, applied.stderr)
+            alone = subprocess.run(["git", "apply", "--check", "-"], cwd=repo, input=self.SECOND,
+                                   text=True, capture_output=True)
+            self.assertNotEqual(alone.returncode, 0)
+
+    def test_a_patch_that_does_not_apply_stops_the_loop_and_keeps_the_last_analysis(self) -> None:
+        not_applied = SandboxResult(
+            exit_code=1, stderr="error: patch failed: v.yaml:1",
+            sandbox_report={"schema_version": "sandbox-result.v1", "outcome": "failed", "failed_step": "patch"},
+        )
+        state, calls, _ = self._run(
+            [_chaos_failure(), _chaos_failure(), not_applied],
+            [self.FIRST, self.SECOND, self.SECOND],
+        )
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(state.status, JobStatus.failed)
+        self.assertEqual(state.judge_report["status"], "Fail")
+        # 리포트에 남는 분석은 레포를 실제로 돌려본 마지막 라운드의 것이다. 적용되지 않은 패치를
+        # 수정안으로 내보내지 않고, 샌드박스에서 실제로 적용된 마지막 패치를 남긴다.
+        self.assertEqual(state.refiner_report["summary"], "round 2")
+        self.assertEqual(state.refiner_report["patch_diff"], self.FIRST)
+        self.assertTrue(any("did not apply" in event for event in state.events))
+        self.assertEqual(state.refine_rounds[-1]["failed_step"], "patch")
+
+    def test_the_suggestion_left_after_the_last_round_is_cumulative(self) -> None:
+        # 라운드를 다 쓰면 마지막 Refiner의 diff는 실행되지 않은 채 리포트에 남는다. 그것도
+        # 제출된 커밋에 적용할 수 있어야 한다. 실서버에서 "replicas: 4 → 6"만 남았다(2026-10-23).
+        THIRD = "--- a/v.yaml\n+++ b/v.yaml\n@@ -1 +1 @@\n-replicas: 3\n+replicas: 4\n"
+        FOURTH = "--- a/v.yaml\n+++ b/v.yaml\n@@ -1 +1 @@\n-replicas: 4\n+replicas: 5\n"
+        state, calls, _ = self._run(
+            [_chaos_failure() for _ in range(4)],
+            [self.FIRST, self.SECOND, THIRD, FOURTH],
+        )
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(state.refiner_report["patch_diff"], self.FIRST + self.SECOND + THIRD + FOURTH)
+
+    def test_the_reported_patch_is_cumulative(self) -> None:
+        state, _, _ = self._run(
+            [_chaos_failure(), _chaos_failure(), SandboxResult(exit_code=0, stdout="ok")],
+            [self.FIRST, self.SECOND],
+        )
+        self.assertTrue(state.metrics["patch_verified"])
+        self.assertEqual(state.refiner_report["patch_diff"], self.FIRST + self.SECOND)
 
 
 if __name__ == "__main__":

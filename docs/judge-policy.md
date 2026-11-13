@@ -44,6 +44,7 @@ Judge는 아래 순서로 판단한다.
 | Sandbox | sandbox not executed after cloneable repo | Fail | `sandbox_not_executed` |
 | Sandbox | `timed_out = true` | Fail | `timeout` |
 | Sandbox | `exit_code != 0` | Fail | `sandbox_nonzero_exit` |
+| Sandbox | `failed_step = compile` (Python 문법 오류) | Fail | `compile_failed` |
 | Sandbox | unsupported project stack | Fail | `unsupported_project_stack` |
 | Metrics | missing required metrics | Fail | `missing_metrics` |
 | Metrics | `p95_latency_ms > 300` | Fail | `latency_slo_violation` |
@@ -55,6 +56,35 @@ Judge는 아래 순서로 판단한다.
 | Metrics | `db_connection_errors > 0` | Fail | `database_connection_errors` |
 | Metrics | `redis_connection_errors > 0` | Fail | `redis_connection_errors` |
 | Metrics | `request_count = 0` during runtime validation | Fail | `no_traffic_observed` |
+
+### 3.0 준비 단계가 실패하면 판정 불가다 (2026-10-21)
+
+CodeReferee는 안정성만 판정한다. 코드 결함은 판정 대상이 아니다. 1층 샌드박스의 설치·테스트·기동
+검사는 카오스를 걸기 전에 앱이 정상으로 도는지 보는 준비 단계다. 그래서 Preflight를 통과한 뒤
+아래 카테고리로 떨어지면 Judge는 사유와 카테고리를 그대로 남기되, 워크플로는 최종 상태를 ERROR(판정
+불가)로 보낸다. "장애에 약하다"는 뜻이 아니라 "안정성을 재지 못했다"는 뜻이기 때문이다. 판정 불가, 별도 상태,
+지금대로 세 안 중에서 판정 불가로 정했다. 기존 세 상태 안에서 해결되고 BE 매핑을 바꾸지 않는다.
+
+```text
+timeout, sandbox_nonzero_exit, sandbox_not_executed, test_failure, compile_failed,
+no_tests_detected, dependency_install_failed, docker_build_failed, no_manifest_detected,
+unsupported_project_stack, repository_not_accessible, service_smoke_failed, browser_smoke_failed,
+service_not_deployable
+```
+
+- `verification_environment_unsupported`와 같은 갈래로 간다. Critic과 Refiner를 건너뛴다. 안정성
+  문제가 아닌 것을 고치려 들지 않는다. 패치 루프는 안정성 판정(카오스, 지표)이 Fail일 때만 돈다.
+- 89(`no_tests_detected`)도 여기에 든다. 전에는 "레포의 상태"라며 FAILED로 두었다(sandbox.md). 이제는
+  안정성을 재지 못한 경우라 판정 불가다.
+- 쿠버네티스 샌드박스도 89를 쓰지만 뜻이 다르다. 배포할 HTTP 서비스를 정하지 못했다는 뜻이고(라이브러리,
+  서비스가 여럿인 레포), `sandboxReport.configuration_required`가 함께 온다. 이 표시가 있으면 종료 코드보다
+  먼저 보고 `service_not_deployable`로 분류한다. 2026-10-23 실서버에서 jsoup(테스트 2,631건 통과)이
+  "테스트가 없다"로 나간 것을 보고 나눴다.
+- Preflight 실패(URL, 권한, ref, manifest 없음)는 그대로 Fail이다. 요청 자체가 검증할 수 없는
+  대상을 가리킨 것이고, 이번 결정은 설치·테스트 단계에 대한 것이다.
+- 1층이 통과했지만 카오스가 없었던 경우(Pass)는 이번에 바꾸지 않았다. 안정성을 재지 않았다는 점에서는
+  같은 모양이라 따로 정해야 한다.
+- 인젝션 방어는 그대로다. 준비 단계 실패가 Pass가 되는 경로는 없고, 판정 불가로 바뀔 뿐이다.
 
 ### 3.1 여러 지표가 동시에 깨질 때 — 원인 우선
 
@@ -152,12 +182,17 @@ Sandbox v1이 실제 Kubernetes Pod Kill 실험 결과를 보내기 시작하면
 | 1 | baseline이나 복구 관측값이 없음 | Error | `chaos_evidence_missing` |
 | 2 | 실험이 중단 조건으로 정지됨 | Error | `chaos_experiment_aborted` |
 | 3 | `chaos_observation.recovered = false` | Fail | `chaos_not_recovered` |
-| 4 | 복구 시간 > 기대 복구 상한 | Fail | `chaos_recovery_exceeds_expected_bound` |
+| 4 | 복구 시간 > 기대 복구 상한 | Pass + 경고 (판정은 5, 6이 한다) | `chaos_recovery_slower_than_expected` |
 | 5 | 불가용 시간이 월간 에러 버짓의 100% 이상 | Fail | `chaos_error_budget_exhausted` |
 | 6 | 불가용 시간이 월간 에러 버짓의 20% 이상 | Pass + 경고 | `chaos_error_budget_significant_burn` |
 | 7 | 대상 replica가 1개 | Pass + 경고 | `chaos_single_replica_topology` |
 | 8 | 실험 구간 p95가 baseline p95의 N배 초과 (기본 10배, 우리 관례) | Pass + 경고 | `chaos_latency_degraded` |
-| 9 | 위에 걸리지 않음 | Pass | `chaos_recovered_within_budget` |
+| 9 | 묶음 중 일부 시나리오가 인프라 문제로 돌지 못함 | 돈 시나리오로 판정 + 경고 | `chaos_partial_execution` |
+| 9a | 동시 사용자 부하 중 실패한 요청이 있음 (5xx, 429, 무응답) | 판정 유지 + 경고 | `load_errors_under_concurrency` |
+| 9b | 동시 사용자 부하 중 앱 컨테이너가 재시작함 | 판정 유지 + 경고 | `load_restarted_under_concurrency` |
+| 9d | 동시 사용자 부하 중 어느 단계의 p95가 1초를 넘음 | 판정 유지 + 경고 | `load_slow_under_concurrency` |
+| 9c | 요청자가 정한 예상 동시 사용자 수(`target_users`) 이하에서 실패한 요청이 있음 (`load.target_met == false`) | Fail | `load_target_not_met` |
+| 10 | 위에 걸리지 않음 | Pass | `chaos_recovered_within_budget` |
 
 ### 6.3 규칙의 근거와 주의점
 
@@ -167,6 +202,14 @@ Sandbox v1이 실제 Kubernetes Pod Kill 실험 결과를 보내기 시작하면
 - **PDB 유무는 Pod Kill 판정 근거가 아니다.** Kubernetes 문서는 Deployment나 Pod를 삭제하는 행위가 PDB를 우회한다고 명시한다([Disruptions](https://kubernetes.io/docs/concepts/workloads/pods/disruptions/)). 참고 정보로만 기록한다.
 - **중단된 실험과 실패한 실험을 구분한다.** AWS FIS는 중단된 실험을 재개할 수 없다고 명시한다. 중단은 안전장치가 작동한 것이지 대상 시스템의 결함 판정이 아니다.
 - **지연 배수 10배는 우리 관례다.** Google SRE 문헌은 p95 단일 임계값이 아니라 p50과 p99·p99.9를 함께 보라고 권고한다([Service Level Objectives](https://sre.google/sre-book/service-level-objectives/)). 현재 Sandbox가 p95만 보내므로 임시로 baseline 대비 배수를 쓰고, p99가 들어오면 임계값을 다시 정한다.
+- **묶음 실행은 지연을 시나리오별로 본다.** 여러 시나리오를 한 배포에서 이어 돌린 응답은 최상위 `metrics.p95_latency_ms`를 null로 보내고 `chaos_observation.scenarios[]`에 시나리오마다 baseline과 실험 구간 p95를 따로 싣는다. 규칙 8은 각 시나리오를 그 시나리오의 baseline과 비교해, 하나라도 넘으면 경고를 붙인다. 최상위만 보면 단독으로 돌릴 때 나오던 경고가 묶음에서 사라진다(2026-10-19 실측: 라우팅 차단 1018.93ms / 6.67ms).
+- **경고는 판정 사유 문장에도 쓴다 (2026-10-23).** `metrics.policy_warnings`에만 두면 `judge_report.reason`은 "기준 안에서 복구"라고만 말한다. 레플리카가 1개면 "레플리카가 1개라 장애 중 N초 동안 요청이 실패했다"를 사유와 evidence에 함께 적는다.
+- **복구 상한 초과는 경고다 (2026-10-23, 규칙 4).** 상한은 워크로드 설정에서 계산한 기대값이지 사용자가 겪은 장애가 아니다. 레플리카가 여럿이면 교체 Pod가 늦게 떠도 남은 Pod가 요청을 받고, 하나면 그 시간이 다운타임으로 잡혀 규칙 5, 6에서 버짓과 비교된다. 레플리카 1개도 운영자의 선택이라는 판단(위 항목)과 같은 기준이다. 예전에는 Fail이었고, 실서버에서 Refiner가 레플리카를 6까지 올려도 이 규칙에 계속 걸려 치유 루프가 효과 없는 패치만 반복했다(D02 재실행, 복구 38~42초 대 상한 22초). 평가셋에서 이 카테고리로 라벨된 6건(T1-chaos 1, T1-chaos-real 5)을 Pass로 다시 라벨했고, 이전 라벨은 각 건의 note에 남겼다. `chaos_recovery_exceeds_expected_bound` 코드는 옛 리포트 호환을 위해 목록에 남긴다.
+- **묶음의 에러 버짓은 복구 시간의 합으로 본다 (2026-10-23).** 복구 상한(규칙 4)은 장애 한 번의 길이라 가장 긴 복구와 비교한다. 에러 버짓(규칙 5, 6)은 장애마다 쓴 시간이 쌓이므로 `chaos_observation.total_downtime_seconds`(없으면 시나리오별 `recovery_seconds`의 합)를 쓴다.
+- **일부만 돈 묶음은 돈 것으로 판정한다 (2026-10-23, 규칙 9).** 샌드박스는 인프라 오류가 난 시나리오를 `stopped`에 적고 다음 시나리오로 넘어간다. 하나라도 관측했으면 그 결과로 판정하고, 빠진 시나리오와 이유를 판정 사유에 적어 그 검사까지 통과한 것으로 읽히지 않게 한다. 하나도 관측하지 못했으면 지금처럼 ERROR다. 예전에는 하나만 막혀도 전체가 ERROR였다(M10: ck·cpu 복구, 지연 시나리오는 netem 없음).
+- **부하 중 응답이 1초를 넘으면 경고만 붙인다 (2026-11-02, 규칙 9d).** spring-petclinic은 200명까지 오류가 0이었지만 p95가 24ms에서 1383ms로 58배 늘었고, 그래도 아무 표시 없이 PASSED였다. 사용자 대부분은 p95 목표를 정할 줄 모르므로 입력을 요구하지 않는다. 대신 근거가 있는 1초(닐슨·밀러의 응답 시간 한계: 1초가 넘으면 사용자가 기다림을 느끼고 흐름이 끊긴다)를 넘은 첫 단계를 `load.slow_from_users`로 남기고 "N명부터 20번 중 1번은 X ms 넘게 걸렸다"를 사유에 적는다. 공개 기준 중 서비스 공통 숫자는 없다. 구글 SRE는 목표를 서비스 주인이 정한다고 하고, Web Vitals TTFB 800ms·Lighthouse 600ms는 브라우저에서 잰 웹페이지 기준이라 클러스터 안에서 잰 서버 p95와 같은 값이 아니다. 그래서 이 값으로 Fail을 내지 않는다.
+- **동시 사용자 부하는 몇 명까지 버텼는지를 남기고 판정은 바꾸지 않는다 (2026-10-30, 규칙 9a·9b).** 샌드박스 `load_concurrent_users`는 장애를 넣지 않고 동시 사용자를 10·50·100·200명으로 늘린다. 몇 명을 버텨야 하는지는 서비스마다 다르고 운영자가 정한 목표가 아직 없으므로, 첫 실패 단계가 있어도 Fail로 만들지 않는다. 대신 "N명까지 모두 응답했고 M명에서 요청 X%가 실패했다"를 사유 문장에, `load.max_users_without_errors`·`load.first_users_with_errors`를 evidence에 적는다. 응답 시간에도 임계값을 두지 않고 첫 단계 대비 마지막 응답 단계의 p95 배율(`latency_growth`)만 적는다. 첫 실패 단계가 바로 거절(5xx·429)했는지, 시간 초과로 사용자를 기다리게 했는지, 연결을 받지 않았는지(`overload_behavior.kind`)도 사유에 적는다. 고칠 곳이 다르기 때문이다. 부하가 끝난 뒤 다시 응답하지 않으면 샌드박스가 `recovered: false`를 보내 규칙 3으로 Fail이다. 기획 의도("사용자가 늘었을 때 버티는가")에 대한 측정이고, 요청자가 예상 동시 사용자 수(`target_users`, 1~500)를 적으면 샌드박스가 그 인원을 단계에 꼭 넣어 재고, 그 인원 이하에서 실패가 있으면 규칙 9c로 Fail이다. 기준을 요청자가 정했으므로 근거 없는 임계값이 아니다. Fail이면 다른 카오스 Fail처럼 Critic·Refiner 루프가 돌아 수정안을 만들고 같은 부하로 재검증한다. 적지 않으면 지금처럼 측정값과 경고만 낸다.
+- **ERROR에는 멈춘 곳을 남긴다.** 샌드박스가 `stoppedAt`(`deploy`, `smoke`, `scenario:<모드>`)을 보내면 `metrics.stopped_at`과 마지막 오류 줄(`metrics.stopped_reason`)로 옮긴다.
 - **복구 시간을 DORA 등급으로 표기하지 않는다.** DORA 2025 보고서는 Elite/High/Medium/Low 등급 구분을 없애고 7개 팀 유형으로 대체했다([DORA FAQ](https://dora.dev/faq/)). 등급 대신 필요하면 분포상의 위치로 표현한다.
 - **Chaos v1 결과는 fixture 앱의 복원력이다.** 사용자 레포를 Kubernetes에 배포하지 않으므로, 이 판정은 사용자 레포의 SRE 검증 결과가 아니다. 리포트에 `source.fixture` 값을 그대로 노출해 구분한다.
 
@@ -258,9 +301,32 @@ LLM은 규칙이 할 수 없는 일에만 쓴다. Critic의 원인 서술과 Ref
 `app/agents/schemas.py`의 `REASON_CATEGORIES`가 정규 코드 목록이고, 3절과 6절 기준표에서 왔다.
 
 카테고리는 sandbox가 보낸 구조화 결과를 먼저 본다. 종료 코드(86 manifest 없음, 87 러너 없음)와
-`sandbox_report.failed_step`(prepare/clone/patch/detect/dependencies)이 1차 근거다. 그것이 없는
+`sandbox_report.failed_step`(prepare/clone/patch/detect/compile/dependencies)이 1차 근거다. 그것이 없는
 응답(외부 sandbox)에서만 로그 문구로 내려간다. 로그 전체를 substring으로 뒤지면 준비 과정 출력에
 걸려 모든 실패가 같은 카테고리로 분류된다.
+
+`compile`은 2026-10-20에 smoke에서 떼어냈다. 전에는 Python의 `compileall`이 smoke 단계 안에서
+돌아서, 문법 오류와 테스트 실패가 같은 `failed_step: smoke`로 왔다. 둘을 가르려면 로그에서
+`SyntaxError`를 찾아야 했고, 그마저 전용 코드가 없어 `sandbox_nonzero_exit`으로 나갔다. 단계를
+나누면 로그를 읽지 않고 `compile_failed`를 낸다. 로그로 내려가는 외부 sandbox 경로는 그대로
+`sandbox_nonzero_exit`이다. 테스트 출력에 찍힌 `SyntaxError`(테스트 대상이 일부러 내는 것 포함)를
+컴파일 실패로 부르지 않기 위해서다.
+
+`failed_step: smoke`가 오면 실패한 것은 테스트 명령이다. 이미지 빌드는 스크립트 밖에서 끝났으므로
+이 경우에는 로그에 `docker`가 있다는 이유로 `docker_build_failed`를 내지 않는다. 정상 레포인
+`google/gson`과 `apache/commons-cli`가 이렇게 분류됐다(2026-10-20 실측). 로그에 찍힌 JVM 프록시 설정의
+`host.docker.internal`에 걸린 것이다. 구조화 결과가 없는 응답에서는 이 규칙을 그대로 둔다.
+
+Maven과 Gradle은 실패해도 종료 코드가 1 하나뿐이다. 그래서 `test_report`를 본다. 선언이 없고,
+테스트 명령이 실패했고, 보고서에 테스트가 1건 이상 있는데 실패가 0건이면
+`verification_environment_unsupported`로 보낸다. 테스트는 통과했고 우리가 추측한 명령이 빌드
+순서를 맞추지 못한 것이다. 테스트 실패가 1건이라도 있거나, 보고서가 없거나(테스트 전에 컴파일이
+깨짐), 레포가 명령을 선언했으면 종전대로 Fail이다. 다중 모듈 레포의 두 번째 모듈 소스에 진짜 컴파일
+오류가 있어도 이 규칙에 걸려 판정 불가가 된다. 오판을 Fail 쪽으로 내지 않는다는 원칙에 따라 그쪽을
+택했다.
+
+레포가 검증 명령을 선언했으면 `compile` 단계를 건너뛴다. 선언된 명령만 돌린다는 약속이고,
+`tests/fixtures`에 일부러 깨진 파일을 둔 레포가 이 단계에서 떨어지면 안 된다.
 
 **백엔드 영향**: `judge_report`에 `reason_category` 필드가 새로 들어간다. 서버와 화면이 이 값을
 받는지 확인이 필요하다.
@@ -289,7 +355,7 @@ LLM은 규칙이 할 수 없는 일에만 쓴다. Critic의 원인 서술과 Ref
 | 값 | 쓰이는 곳 | 왜 이 값인가 | 무엇이 있으면 근거가 생기나 |
 | --- | --- | --- | --- |
 | p95 **10배** | 규칙 8, 지연 저하 경고 | Sandbox가 p95만 보내서 임시로 쓰는 배수 | p50과 p99가 오면 임계값을 다시 정한다 |
-| 복구 여유 **30초** | 기대 복구 상한 | 교체 Pod 스케줄링과 이미지 pull 시간. 클러스터마다 다르다 | 같은 클러스터 실측 분포. 지금 표본 5건 |
+| 복구 여유 **10초** | 기대 복구 상한 | 교체 Pod 스케줄링 시간. 이미지를 미리 받아 둔 클러스터 전제(2026-10-08, 30초에서 조임). 평평한 여유를 크게 두면 느린 복구를 정상으로 넘긴다. 콜드 pull 전제면 설정으로 올린다 | 같은 클러스터 실측 분포. 2026-10-19 kind 실측에서 기동이 느린 대상은 복구 35~38초로 상한 22초를 넘었다 |
 | 패치 **1MB** | `inspect_diff` | 이만큼 고쳐야 하면 자동 수정이 아니라 사람이 볼 문제다 | 거절된 패치의 크기 분포 |
 | 삭제 **5% 또는 10줄** | `inspect_rewrite` | 8B 모델이 7,038자 파일을 4,567자로 잘라낸 사고에서 역산 | 훼손 사례가 더 모이면 조정 |
 | 재검증 **3라운드** | 자동 수정 루프 | 파일럿에서 2라운드 안에 끝나거나 안 끝났다 | 라운드별 성공률 분포 |
@@ -344,8 +410,8 @@ LLM은 규칙이 할 수 없는 일에만 쓴다. Critic의 원인 서술과 Ref
 
 | 규칙이 보는 것 | 실제로 오는 것 |
 | --- | --- |
-| `cpu_usage_percent > 80` | null. Prometheus 연동 전이다 |
-| 메모리 사용률 `> 0.8` | null. 같음 |
+| `cpu_usage_percent > 80` | 응답의 1초 시계열에서 채운다(10.4). 2026-10-29 이전에는 null이었다 |
+| 메모리 사용률 `> 0.8` | 같음. 한도는 `pod_bindings`의 limits에서 온다 |
 | `restart_count > 0` | null. 같음 |
 | `p95_latency_ms` | probe 타임아웃 값이 섞인다. 응답 시간이 아니라 "기다리다 포기한 시간"이 들어간다 |
 | `availability` | port-forward가 끊긴 것도 실패로 센다. 앱 가용성이 아니라 관측 경로의 가용성이다 |
@@ -376,6 +442,18 @@ max_over_time(kube_pod_container_status_restarts_total{namespace="$ns", pod=~"$p
 **지연과 가용성은 Prometheus로 옮기지 않는다.** 애플리케이션에 메트릭 엔드포인트가 있다고 가정할 수 없기 때문이다. 사용자 레포는 무엇이든 올 수 있다. 외부에서 보낸 probe 결과가 유일하게 모든 레포에 통하는 측정이다.
 
 다만 probe를 측정 수단으로 쓰는 이상 10.3의 두 가지는 남는다. 타임아웃을 응답 시간으로 세지 않도록 분리해 보내고 관측 경로가 끊긴 것을 앱 실패와 구분해 보내야 한다. Sandbox 쪽 요청이다.
+
+#### 응답에 실린 시계열로 먼저 채운다 (2026-10-29)
+
+Sandbox는 `source.metrics_observation`에 컨테이너별 `cpu_cores`와 `memory_working_set_bytes`를 1초 간격 range 결과 그대로 싣고, 요약값 `cpu_usage_percent`·`memory_usage_mb`는 null로 보낸다. 실서버에서 시계열이 174개 점까지 들어와 있는데도 리포트의 CPU·메모리가 비어 있었다. 10.4의 질의는 바깥 Prometheus 주소가 설정돼야 돌고, `recovered_at`이 없으면(복구 실패) 구간을 잡지 못했다.
+
+`app/metrics/observation.py`가 이 시계열로 먼저 채운다. 위의 바깥 Prometheus 질의는 그래도 비어 있을 때만 돈다.
+
+- 구간: 시나리오마다 `started_at`부터 `recovered_at`까지. 복구하지 못했으면 관측 끝(`metrics_observation.ended_at`)까지다. 구간을 모르면 채우지 않는다. 기동 직후 스파이크가 섞인 전체 최대로 메우면 근거 없는 Fail이 날 수 있다.
+- 단위: 같은 시각의 파드 값을 더한다. CPU는 코어 × 100(1코어 = 100%), 메모리는 바이트 / 1e6(MB). 10.4 질의와 같다.
+- `memory_limit_mb`: 모든 파드의 `limits.memory`가 같을 때만 채운다.
+
+판정은 바뀌지 않는다. 자원 지표는 운영자가 임계값을 정했을 때만 본다(10.2).
 
 ### 10.5 경계
 

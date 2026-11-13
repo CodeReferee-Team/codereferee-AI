@@ -1,0 +1,16 @@
+{
+  "id": "keyerror-missing-default",
+  "defect": "dict key access without default",
+  "expected_category": "test_failure",
+  "oracle_edits": [
+    {
+      "path": "app.py",
+      "find": [
+        "    return plan[\"limit\"]"
+      ],
+      "replace": [
+        "    return plan.get(\"limit\", 10)"
+      ]
+    }
+  ]
+}

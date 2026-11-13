@@ -13,6 +13,12 @@ from docker.errors import DockerException
 from app.config import get_settings
 from app.models import SandboxResult
 
+# The sandbox must answer before urlopen gives up. Keep this much of the HTTP
+# timeout for serialising and sending the response.
+SANDBOX_RESPONSE_MARGIN_SECONDS = 30
+# The sandbox rejects shorter deadlines (deadlineSeconds ge=60).
+SANDBOX_MIN_DEADLINE_SECONDS = 60
+
 
 class SandboxRunner:
     def __init__(self) -> None:
@@ -27,6 +33,7 @@ class SandboxRunner:
         chaos_mode: str | None = None,
         deployment_profile: str | None = None,
         request_id: str | None = None,
+        target_users: int | None = None,
     ) -> SandboxResult:
         """Clone and smoke-test an existing repository.
 
@@ -38,7 +45,16 @@ class SandboxRunner:
         """
         if self.settings.sandbox_base_url:
             return self._run_repository_via_http(
-                repository_url, branch, commit_sha, patch_diff, chaos_mode, deployment_profile, request_id
+                repository_url, branch, commit_sha, patch_diff, chaos_mode, deployment_profile, request_id,
+                target_users,
+            )
+        if not self.settings.local_sandbox_enabled:
+            # layer-1 기능이 layer-2 샌박으로 이관됐다. 로컬 Docker 경로는 기본 비활성화이며
+            # SANDBOX_BASE_URL 없이 조용히 로컬로 떨어지지 않게 명시적으로 막는다.
+            raise RuntimeError(
+                "Local Docker sandbox is disabled (local_sandbox_enabled=false). "
+                "Set SANDBOX_BASE_URL to use the layer-2 sandbox service, or enable "
+                "local_sandbox_enabled for the offline Docker fallback."
             )
         return self._run_repository_via_local_docker(repository_url, branch, commit_sha, patch_diff)
 
@@ -51,6 +67,7 @@ class SandboxRunner:
         chaos_mode: str | None = None,
         deployment_profile: str | None = None,
         request_id: str | None = None,
+        target_users: int | None = None,
     ) -> SandboxResult:
         started_at = time.monotonic()
         endpoint = _join_url(self.settings.sandbox_base_url or "", self.settings.sandbox_repository_path)
@@ -72,6 +89,14 @@ class SandboxRunner:
             payload["deploymentProfile"] = deployment_profile
         if request_id:
             payload["requestId"] = request_id
+        if target_users:
+            payload["targetUsers"] = target_users
+        # Tell the sandbox how long we will wait, so it skips what cannot finish
+        # instead of running on after we have given up (and holding its lock).
+        payload["deadlineSeconds"] = max(
+            SANDBOX_MIN_DEADLINE_SECONDS,
+            int(self.settings.sandbox_http_timeout_seconds) - SANDBOX_RESPONSE_MARGIN_SECONDS,
+        )
         request = Request(
             endpoint,
             data=json.dumps(payload).encode("utf-8"),
@@ -253,6 +278,7 @@ def _sandbox_result_from_response(body: str, started_at: float) -> SandboxResult
         source=_json_object(data.get("source")),
         sandbox_report=_json_object(data.get("sandbox_report", data.get("sandboxReport"))),
         observation_status=str(observation_status) if observation_status else None,
+        stopped_at=str(data["stoppedAt"]) if data.get("stoppedAt") else None,
         infra_error=(
             str(reported_infra_error)
             if reported_infra_error
@@ -274,13 +300,14 @@ OUTCOME="error"
 FAILED_STEP="none"
 EXIT_CODE=1
 STEPS=""
+TEST_REPORT="null"
 
 now_ms() { date +%s%3N 2>/dev/null || echo 0; }
 
 # trap으로 걸어두면 중간에 exit해도 구조화 결과가 반드시 마지막 줄에 남는다.
 emit_result() {
-  printf '\n[CodeReferee:RESULT] {"schema_version":"sandbox-result.v1","detected_stack":"%s","outcome":"%s","failed_step":"%s","exit_code":%s,"verification_declared":%s,"steps":[%s]}\n' \
-    "$STACK" "$OUTCOME" "$FAILED_STEP" "$EXIT_CODE" "$DECLARED" "$STEPS"
+  printf '\n[CodeReferee:RESULT] {"schema_version":"sandbox-result.v1","detected_stack":"%s","outcome":"%s","failed_step":"%s","exit_code":%s,"verification_declared":%s,"test_report":%s,"steps":[%s]}\n' \
+    "$STACK" "$OUTCOME" "$FAILED_STEP" "$EXIT_CODE" "$DECLARED" "$TEST_REPORT" "$STEPS"
 }
 trap emit_result EXIT
 
@@ -314,10 +341,24 @@ prepare_sandbox() {
 clone_repository() {
   git clone --depth 1 $BRANCH_CLAUSE "$REPO_URL" /tmp/repository || return $?
   cd /tmp/repository || return $?
-  [ -n "$COMMIT_SHA" ] || return 0
+  [ -n "$COMMIT_SHA" ] || { fetch_release_tags; return 0; }
   # --depth 1 클론에는 해당 커밋이 없을 수 있어 먼저 받아둔다.
   git fetch --depth 1 origin "$COMMIT_SHA" >/dev/null 2>&1 || true
-  git checkout "$COMMIT_SHA"
+  git checkout "$COMMIT_SHA" || return $?
+  fetch_release_tags
+}
+
+fetch_release_tags() {
+  # 얕은 clone에는 태그가 없어 setuptools-scm·hatch-vcs가 버전을 0.1.dev1로 계산한다.
+  # python-attrs/attrs의 버전 테스트가 그래서 깨졌다. 이 커밋에 붙은 태그만 받는다.
+  _head=$(git rev-parse HEAD)
+  git ls-remote --tags origin 2>/dev/null | while read -r _sha _ref; do
+    [ "$_sha" = "$_head" ] || continue
+    _tag=${_ref#refs/tags/}
+    _tag=${_tag%"^{}"}
+    git fetch --depth 1 origin "+refs/tags/$_tag:refs/tags/$_tag" >/dev/null 2>&1 || true
+  done
+  return 0
 }
 
 apply_patch() {
@@ -355,6 +396,68 @@ read_declaration() {
   return 0
 }
 
+install_conventional_test_dependencies() {
+  # 선언이 없으면 흔한 자리에서 처음 찾은 하나만 설치한다. 정상 레포 30개 중 14개가 테스트 전용
+  # 의존성이 없어 판정 불가였다. 추측한 자리이므로 실패해도 단계를 실패시키지 않는다.
+  for _f in requirements/tests.txt requirements/test.txt requirements-test.txt requirements-tests.txt \
+            test-requirements.txt tests/requirements.txt requirements-dev.txt requirements/dev.txt; do
+    if [ -f "$_f" ]; then
+      echo "test_dependencies=$_f"
+      python -m pip install --disable-pip-version-check --break-system-packages -r "$_f" >/dev/null \
+        || echo "test dependencies from $_f could not be installed"
+      return 0
+    fi
+  done
+  [ -f pyproject.toml ] || return 0
+  _reqs=$(mktemp)
+  python - > "$_reqs" <<'PY' || return 0
+import tomllib
+try:
+    with open("pyproject.toml", "rb") as handle:
+        data = tomllib.load(handle)
+except Exception:
+    raise SystemExit(0)
+names = ("tests", "test", "testing", "dev")
+groups = data.get("dependency-groups") or {}
+
+def expand(name, seen):
+    found = []
+    for item in groups.get(name) or []:
+        if isinstance(item, str):
+            found.append(item)
+        elif isinstance(item, dict) and item.get("include-group") not in seen:
+            found.extend(expand(item["include-group"], seen | {name}))
+    return found
+
+extras = (data.get("project") or {}).get("optional-dependencies") or {}
+for name in names:
+    if name in groups:
+        print("group " + name)
+        print(chr(10).join(expand(name, set())))
+        break
+else:
+    for name in names:
+        if name in extras:
+            print("extra " + name)
+            break
+PY
+  _kind=$(head -1 "$_reqs")
+  case "$_kind" in
+    "group "*)
+      echo "test_dependencies=dependency-groups.${_kind#group }"
+      tail -n +2 "$_reqs" > "$_reqs.txt"
+      python -m pip install --disable-pip-version-check --break-system-packages -r "$_reqs.txt" >/dev/null \
+        || echo "test dependencies from dependency-groups.${_kind#group } could not be installed"
+      ;;
+    "extra "*)
+      echo "test_dependencies=optional-dependencies.${_kind#extra }"
+      python -m pip install --disable-pip-version-check --break-system-packages ".[${_kind#extra }]" >/dev/null \
+        || echo "test dependencies from optional-dependencies.${_kind#extra } could not be installed"
+      ;;
+  esac
+  return 0
+}
+
 install_dependencies() {
   case "$STACK" in
     python)
@@ -370,6 +473,8 @@ install_dependencies() {
       # 레포가 알려주면 그대로 설치한다.
       if [ -n "$DECLARED_TEST_DEPS" ] && [ -f "$DECLARED_TEST_DEPS" ]; then
         python -m pip install --disable-pip-version-check --break-system-packages -r "$DECLARED_TEST_DEPS" >/dev/null || return $?
+      else
+        install_conventional_test_dependencies
       fi
       ;;
     node)
@@ -383,6 +488,47 @@ install_dependencies() {
   esac
 }
 
+compile_sources() {
+  # 문법 오류를 테스트 실패와 다른 단계로 남긴다. 같은 smoke 안에 있으면 판정이 로그에서
+  # SyntaxError를 찾아야 했다. 선언이 있으면 선언된 명령만 돌린다는 약속이라 건너뛴다.
+  [ "$STACK" = "python" ] && [ -z "$DECLARED_TEST" ] || return 0
+  # 테스트 데이터와 템플릿은 일부러 Python이 아닌 파일을 .py로 둔다(psf/black의 tests/data,
+  # cookiecutter의 {{ }} 경로). 테스트 코드의 문법 오류는 pytest 수집에서 드러난다.
+  python -m compileall -q -x '(^|/)(tests?|testing)/|[{][{]' .
+}
+
+summarize_test_reports() {
+  # Maven(surefire)과 Gradle은 같은 JUnit XML을 남긴다. 종료 코드만으로는 "테스트가 0건"과
+  # "테스트는 통과했는데 다른 모듈 빌드가 깨짐"(google/gson)을 가를 수 없다.
+  TEST_REPORT=$(python3 - 2>/dev/null <<'PY'
+import glob, json
+import xml.etree.ElementTree as ET
+files = [f for f in glob.glob("**/TEST-*.xml", recursive=True) if "surefire-reports" in f or "test-results" in f]
+tests = failed = 0
+for path in files:
+    try:
+        root = ET.parse(path).getroot()
+    except (ET.ParseError, OSError):
+        continue
+    for suite in ([root] if root.tag == "testsuite" else root.iter("testsuite")):
+        tests += int(suite.get("tests") or 0)
+        failed += int(suite.get("failures") or 0) + int(suite.get("errors") or 0)
+print(json.dumps({"files": len(files), "tests": tests, "failed": failed}, separators=(",", ":")))
+PY
+  )
+  [ -n "$TEST_REPORT" ] || TEST_REPORT="null"
+}
+
+finish_jvm_tests() {
+  _build_rc=$1
+  summarize_test_reports
+  [ "$_build_rc" -eq 0 ] || return "$_build_rc"
+  case "$TEST_REPORT" in
+    *'"tests":0,'*) echo "No tests to verify: the build ran no tests"; return 89 ;;
+  esac
+  return 0
+}
+
 run_smoke_test() {
   # 선언이 있으면 추측하지 않는다. 멀티모듈 순서나 브라우저 제외처럼 우리가 알 수 없는
   # 것을 레포가 알려줄 수 있는 유일한 자리다.
@@ -392,27 +538,48 @@ run_smoke_test() {
   fi
   case "$STACK" in
     python)
-      python -m compileall -q . || return $?
       # 컴파일이 되는 것과 동작이 검증된 것은 다르다. 테스트가 없으면 통과로 끝내지 않는다.
-      [ -d tests ] || { echo "No tests directory to verify"; return 89; }
+      # 테스트 위치는 pytest가 레포 설정까지 읽어 찾는다. tqdm처럼 패키지 안에 두는 레포가 있다.
       python -m pip install --disable-pip-version-check --break-system-packages pytest >/dev/null || return $?
       python -m pytest -q
+      _pytest_rc=$?
+      # pytest의 5는 "모은 테스트가 없음"이다. tests 디렉터리만 있고 테스트가 없는 경우라 89와 같다.
+      [ "$_pytest_rc" -eq 5 ] || return "$_pytest_rc"
+      # pytest 기본 규칙(test_*.py)은 unittest 형식의 tests/test.py를 못 모은다(micheles/decorator).
+      # unittest도 아무것도 돌리지 못하면 5로 끝낸다.
+      for _dir in tests test; do
+        [ -d "$_dir" ] || continue
+        echo "pytest collected none; trying unittest in $_dir"
+        python -m unittest discover -s "$_dir" -p 'test*.py'
+        _unittest_rc=$?
+        [ "$_unittest_rc" -eq 5 ] || return "$_unittest_rc"
+      done
+      echo "No tests to verify: pytest collected none"
+      return 89
       ;;
     gradle)
       [ -x ./gradlew ] || { echo "Repository has no Gradle wrapper (./gradlew)"; return 87; }
       ./gradlew test --no-daemon
+      finish_jvm_tests $?
       ;;
     maven)
       if [ -x ./mvnw ]; then ./mvnw -B test
       elif command -v mvn >/dev/null 2>&1; then mvn -B test
       else echo "No Maven wrapper and no system mvn"; return 87; fi
+      finish_jvm_tests $?
       ;;
     node)
       # --if-present는 test 스크립트가 없으면 아무것도 하지 않고 성공으로 끝낸다.
       # 테스트가 하나도 없는 레포가 합격으로 나오므로 먼저 존재를 확인한다.
       node -e 'const s=(require("./package.json").scripts||{});process.exit(s.test?0:1)' \
         || { echo "package.json has no test script to verify"; return 89; }
-      npm test
+      # test가 브라우저 테스트와 lint까지 잇는 레포가 있다(debug-js/debug). Node 전용 테스트를
+      # 따로 이름 붙여 두었으면 그것이 샌드박스에서 검증할 수 있는 범위다.
+      if node -e 'process.exit((require("./package.json").scripts||{})["test:node"]?0:1)'; then
+        npm run test:node
+      else
+        npm test
+      fi
       ;;
   esac
 }
@@ -427,6 +594,8 @@ echo "[CodeReferee] detecting project stack"
 run_step detect detect_stack
 echo "[CodeReferee] reading validation declaration"
 run_step declaration read_declaration
+echo "[CodeReferee] compiling sources"
+run_step compile compile_sources
 echo "[CodeReferee] installing dependencies"
 run_step dependencies install_dependencies
 echo "[CodeReferee] running smoke validation"

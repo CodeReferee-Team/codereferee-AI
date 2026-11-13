@@ -22,6 +22,8 @@ class RepositoryValidationRequest(BaseModel):
     request_id: str | None = None
     chaos_mode: str | None = None
     deployment_profile: str | None = None
+    # 요청자가 예상하는 동시 사용자 수. 부하 결과를 Fail로 올릴 수 있는 유일한 기준이다.
+    target_users: int | None = Field(default=None, ge=1, le=500)
     max_retries: int | None = Field(default=None, ge=0, le=10)
 
 
@@ -55,6 +57,8 @@ class SandboxResult(BaseModel):
     # Sandbox가 관측에 성공했는지 스스로 밝히는 값 (observed | infrastructure_error).
     # exitCode만으로는 "복구 실패"와 "관측 불가"를 구분할 수 없어 2026-09 합의로 추가됐다.
     observation_status: str | None = None
+    # 인프라 오류로 끝났을 때 샌드박스가 밝힌 멈춘 곳 (deploy | smoke | scenario:<chaosMode>).
+    stopped_at: str | None = None
 
     @property
     def sandbox_summary(self) -> str:
@@ -191,6 +195,7 @@ class AgentState(BaseModel):
     requested_commit_sha: str | None = None
     chaos_mode: str | None = None
     deployment_profile: str | None = None
+    target_users: int | None = None
     resolved_commit_sha: str | None = None
     validation_plan: dict[str, Any] = Field(default_factory=dict)
     preflight_report: RepositoryPreflightReport | None = None
@@ -208,6 +213,8 @@ class AgentState(BaseModel):
     refine_rounds: list[dict[str, Any]] = Field(default_factory=list)
     status: JobStatus = JobStatus.queued
     events: list[str] = Field(default_factory=list)
+    # 검증마다 생성하는 사람용 PDF 추천 리포트 경로. 메일 첨부 등에서 서버가 읽는다.
+    report_pdf_path: str | None = None
 
 
 class RepositoryValidationResponse(BaseModel):
@@ -226,6 +233,7 @@ class RepositoryValidationResponse(BaseModel):
     metrics: dict[str, Any]
     sre_metrics: SREMetrics = Field(default_factory=SREMetrics)
     events: list[str]
+    report_pdf_path: str | None = None
 
 
 class JobResponse(RepositoryValidationResponse):

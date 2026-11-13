@@ -165,6 +165,16 @@ class CompareTests(unittest.TestCase):
         self.assertEqual(outcome["exit_code"], 1)
         self.assertIn("인젝션", outcome["reason"])
 
+    def test_policy_warning_drop_is_a_regression(self) -> None:
+        # 경고는 판정을 바꾸지 않지만 리포트에 나간다. 묶음 실행에서 지연 경고가 사라진 것을
+        # 판정 지표만 보는 게이트는 잡지 못했다(2026-10-20).
+        a, b = _report(), _report()
+        a["primary"]["warnings"] = eval_metrics.metric(24, 24)
+        b["primary"]["warnings"] = eval_metrics.metric(21, 24)
+        outcome = eval_compare.compare(a, b)
+        self.assertEqual(outcome["exit_code"], 1)
+        self.assertTrue(any(row["metric"] == "경고 일치" and row["regression"] for row in outcome["rows"]))
+
 
 if __name__ == "__main__":
     unittest.main()

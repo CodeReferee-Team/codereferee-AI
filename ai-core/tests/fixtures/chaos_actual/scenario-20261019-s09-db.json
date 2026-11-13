@@ -1,0 +1,600 @@
+{
+  "schemaVersion": "chaos-v1",
+  "scenario": "dependency_database_outage",
+  "observationStatus": "infrastructure_error",
+  "exitCode": null,
+  "infraError": "dependency_fault_injection_failed",
+  "timedOut": false,
+  "chaosResult": {
+    "name": "codereferee-dependency-database-1792399709-pod-network-loss",
+    "verdict": "Error",
+    "phase": "Error",
+    "raw": {
+      "experimentStatus": {
+        "errorOutput": {
+          "errorCode": "HELPER_ERROR",
+          "reason": "{\"source\":\"pod-network-loss-helper-sa6fna\",\"errorCode\":\"HELPER_ERROR\",\"phase\":\"ChaosInject\",\"reason\":\"failed to create tc rules: Error: Specified qdisc kind is unknown.\\n :\"}"
+        },
+        "phase": "Error",
+        "probeSuccessPercentage": "0",
+        "verdict": "Error"
+      },
+      "history": {
+        "failedRuns": 0,
+        "passedRuns": 0,
+        "stoppedRuns": 0
+      }
+    }
+  },
+  "probeTransport": "in_cluster_business_http",
+  "baseline": {
+    "metrics": {
+      "availability": 1.0,
+      "p95_latency_ms": 15.8,
+      "error_rate": 0.0,
+      "probe_count": 5,
+      "success_count": 5,
+      "failure_count": 0,
+      "error_rate_denominator": "all HTTP GET / probes collected during baseline, recovery, and replacement verification; readiness wait probes are excluded",
+      "cpu_usage_percent": null,
+      "memory_usage_mb": null,
+      "restart_count": 0
+    }
+  },
+  "metrics": {
+    "availability": 1.0,
+    "p95_latency_ms": 17.36,
+    "error_rate": 0.0,
+    "probe_count": 43,
+    "success_count": 43,
+    "failure_count": 0,
+    "error_rate_denominator": "all measured business HTTP workflow attempts; setup and readiness excluded",
+    "cpu_usage_percent": null,
+    "memory_usage_mb": null,
+    "restart_count": 0
+  },
+  "probes": {
+    "baseline": [
+      {
+        "at": "2026-10-19T08:48:33.749897+00:00",
+        "status_code": 200,
+        "latency_ms": 15.8,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:33.783601+00:00",
+        "status_code": 200,
+        "latency_ms": 11.0,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:33.818513+00:00",
+        "status_code": 200,
+        "latency_ms": 10.7,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:33.853400+00:00",
+        "status_code": 200,
+        "latency_ms": 12.83,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:33.883651+00:00",
+        "status_code": 200,
+        "latency_ms": 10.07,
+        "success": true,
+        "error": null
+      }
+    ],
+    "experiment": [
+      {
+        "at": "2026-10-19T08:48:34.193117+00:00",
+        "status_code": 200,
+        "latency_ms": 12.18,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:36.287692+00:00",
+        "status_code": 200,
+        "latency_ms": 14.78,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:38.412572+00:00",
+        "status_code": 200,
+        "latency_ms": 17.36,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:40.514286+00:00",
+        "status_code": 200,
+        "latency_ms": 19.38,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:42.628701+00:00",
+        "status_code": 200,
+        "latency_ms": 13.2,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:44.726525+00:00",
+        "status_code": 200,
+        "latency_ms": 13.89,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:46.839175+00:00",
+        "status_code": 200,
+        "latency_ms": 16.38,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:48.944906+00:00",
+        "status_code": 200,
+        "latency_ms": 14.95,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:51.041039+00:00",
+        "status_code": 200,
+        "latency_ms": 13.46,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:53.137536+00:00",
+        "status_code": 200,
+        "latency_ms": 12.11,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:55.228885+00:00",
+        "status_code": 200,
+        "latency_ms": 13.29,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:57.314657+00:00",
+        "status_code": 200,
+        "latency_ms": 13.39,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:48:59.407620+00:00",
+        "status_code": 200,
+        "latency_ms": 13.89,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:01.507397+00:00",
+        "status_code": 200,
+        "latency_ms": 12.94,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:03.610990+00:00",
+        "status_code": 200,
+        "latency_ms": 13.32,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:05.705426+00:00",
+        "status_code": 200,
+        "latency_ms": 11.86,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:07.797381+00:00",
+        "status_code": 200,
+        "latency_ms": 17.3,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:09.898227+00:00",
+        "status_code": 200,
+        "latency_ms": 13.61,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:11.992612+00:00",
+        "status_code": 200,
+        "latency_ms": 13.06,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:14.092648+00:00",
+        "status_code": 200,
+        "latency_ms": 11.44,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:16.188310+00:00",
+        "status_code": 200,
+        "latency_ms": 11.84,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:18.275970+00:00",
+        "status_code": 200,
+        "latency_ms": 15.78,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:20.373831+00:00",
+        "status_code": 200,
+        "latency_ms": 13.09,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:22.472726+00:00",
+        "status_code": 200,
+        "latency_ms": 13.75,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:24.566028+00:00",
+        "status_code": 200,
+        "latency_ms": 12.98,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:26.692743+00:00",
+        "status_code": 200,
+        "latency_ms": 20.08,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:28.811238+00:00",
+        "status_code": 200,
+        "latency_ms": 13.42,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:30.905347+00:00",
+        "status_code": 200,
+        "latency_ms": 12.83,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:32.994256+00:00",
+        "status_code": 200,
+        "latency_ms": 13.6,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:35.086997+00:00",
+        "status_code": 200,
+        "latency_ms": 13.22,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:37.178924+00:00",
+        "status_code": 200,
+        "latency_ms": 11.65,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:39.273120+00:00",
+        "status_code": 200,
+        "latency_ms": 15.82,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:41.372113+00:00",
+        "status_code": 200,
+        "latency_ms": 16.32,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:41.479190+00:00",
+        "status_code": 200,
+        "latency_ms": 13.83,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:42.011249+00:00",
+        "status_code": 200,
+        "latency_ms": 12.03,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:42.545349+00:00",
+        "status_code": 200,
+        "latency_ms": 13.0,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:43.088291+00:00",
+        "status_code": 200,
+        "latency_ms": 14.63,
+        "success": true,
+        "error": null
+      },
+      {
+        "at": "2026-10-19T08:49:43.632142+00:00",
+        "status_code": 200,
+        "latency_ms": 15.02,
+        "success": true,
+        "error": null
+      }
+    ]
+  },
+  "chaos_observation": {
+    "type": "dependency_database_outage",
+    "kill_method": "litmus_dependency_network_loss",
+    "target_pod_uid": "6b10968c-772a-44e3-b0cd-6cb1ca3bcf05",
+    "target_configuration": {
+      "replicas": 1,
+      "readiness_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 2,
+        "timeout_seconds": 2,
+        "failure_threshold": 3,
+        "success_threshold": 1
+      },
+      "liveness_probe": null,
+      "startup_probe": {
+        "type": "http_get",
+        "initial_delay_seconds": null,
+        "period_seconds": 2,
+        "timeout_seconds": 2,
+        "failure_threshold": 90,
+        "success_threshold": 1
+      },
+      "termination_grace_period_seconds": 10
+    },
+    "dependency": {
+      "deployment": "orders-db",
+      "container": "postgres",
+      "fault_parameters": {
+        "packet_loss_percent": 100,
+        "duration_seconds": 15
+      }
+    },
+    "started_at": "2026-10-19T08:48:33.884500+00:00",
+    "fault_reverted_at": "2026-10-19T08:49:41.441522+00:00",
+    "recovered_at": "2026-10-19T08:49:44.133631+00:00",
+    "recovered": true,
+    "recovery_seconds": 0.0,
+    "business_probe": {
+      "path": "/api/orders",
+      "steps": []
+    },
+    "observation_window": {
+      "fault_seconds": 15,
+      "recovery_timeout_seconds": 120
+    },
+    "abort_condition": {
+      "triggered": false,
+      "reason": null
+    }
+  },
+  "source": {
+    "real_execution_observed": true,
+    "workspace_cleanup": {
+      "removed": true,
+      "error": null
+    },
+    "metrics_observation": {
+      "schema_version": "metrics-observation.v1",
+      "status": "disabled",
+      "request_id": "t99654-s09-db",
+      "cluster": "codereferee",
+      "namespace": "codereferee-t99654-s09-db",
+      "workload": "repository-api",
+      "observation_namespace": "codereferee-metrics-cf02642eef34890c",
+      "scrape_interval_seconds": 1,
+      "pod_bindings": [],
+      "errors": [],
+      "units": {
+        "cpu": "cores (rate of cumulative CPU seconds)",
+        "memory": "bytes",
+        "restart": "Kubernetes container restartCount snapshots"
+      },
+      "node_metrics_scope": "shared-node diagnostics, not application usage",
+      "cleanup": {
+        "attempted": false,
+        "removed": null
+      }
+    },
+    "artifact_cleanup": {
+      "image": "codereferee/t99654-s09-db:e08beb74bd88",
+      "host_removed": true,
+      "kind_nodes": [
+        {
+          "node": "codereferee-control-plane",
+          "removed": true
+        }
+      ],
+      "errors": [],
+      "namespace_removed": true
+    }
+  },
+  "stderr": "Chaos v1 experiment failed.",
+  "chaosMode": "dependency_database_outage",
+  "serviceCheckAttempted": false,
+  "browserCheckAttempted": false,
+  "requestId": "t99654-s09-db",
+  "repositoryUrl": "https://github.com/CodeReferee-Team/codereferee-chaos-demo-deps",
+  "branch": "claude/project-thread-mh41vn",
+  "commitSha": "e08beb74bd88ed24ec5728e18b76106dea39e1ad",
+  "deployment": {
+    "repository": {
+      "url": "https://github.com/CodeReferee-Team/codereferee-chaos-demo-deps",
+      "branch": "claude/project-thread-mh41vn",
+      "commitSha": "e08beb74bd88ed24ec5728e18b76106dea39e1ad"
+    },
+    "target": {
+      "name": "repository-api",
+      "deployment": "repository-api",
+      "service": "repository-api",
+      "servicePort": 8000,
+      "labelSelector": "app.kubernetes.io/name=repository-api",
+      "probePath": "/health",
+      "dependencies": {
+        "database": {
+          "type": "postgres",
+          "probePath": "/api/orders",
+          "deployment": "orders-db",
+          "container": "postgres",
+          "labelSelector": "app.kubernetes.io/name=orders-db"
+        },
+        "redis": {
+          "type": "redis",
+          "probePath": "/api/session",
+          "deployment": "session-cache",
+          "container": "redis",
+          "labelSelector": "app.kubernetes.io/name=session-cache"
+        }
+      },
+      "namespace": "codereferee-t99654-s09-db"
+    },
+    "image": "codereferee/t99654-s09-db:e08beb74bd88",
+    "deploymentProfile": null,
+    "sandboxReport": {
+      "schema_version": "sandbox-result.v1",
+      "detected_stack": "python",
+      "verification_declared": false,
+      "test_execution": "not_declared",
+      "outcome": "passed",
+      "failed_step": "none",
+      "steps": [
+        {
+          "name": "install",
+          "command": [
+            "python",
+            "-m",
+            "pip",
+            "install",
+            "--user",
+            "--disable-pip-version-check",
+            "-r",
+            "requirements.txt"
+          ],
+          "exit_code": 0,
+          "duration_ms": 19523,
+          "timed_out": false,
+          "stdout": "wnloading redis-8.1.0-py3-none-any.whl.metadata (16 kB)\nCollecting psycopg[binary] (from -r requirements.txt (line 3))\n  Downloading psycopg-3.3.6-py3-none-any.whl.metadata (4.4 kB)\nCollecting starlette>=0.46.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading starlette-1.9.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting pydantic>=2.9.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading pydantic-2.14.1-py3-none-any.whl.metadata (133 kB)\nCollecting typing-extensions>=4.8.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)\nCollecting typing-inspection>=0.4.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)\nCollecting annotated-doc>=0.0.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)\nCollecting opentelemetry-api>=1.44.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading opentelemetry_api-1.45.1-py3-none-any.whl.metadata (1.4 kB)\nCollecting click>=7.0 (from uvicorn->-r requirements.txt (line 2))\n  Downloading click-8.5.0-py3-none-any.whl.metadata (2.6 kB)\nCollecting h11>=0.8 (from uvicorn->-r requirements.txt (line 2))\n  Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)\nCollecting psycopg-binary==3.3.6 (from psycopg[binary]->-r requirements.txt (line 3))\n  Downloading psycopg_binary-3.3.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.7 kB)\nCollecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)\nCollecting pydantic-core==2.50.1 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.5 kB)\nCollecting anyio<5,>=4.0.0 (from starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)\nCollecting idna>=2.8 (from anyio<5,>=4.0.0->starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)\nDownloading fastapi-0.146.0-py3-none-any.whl (144 kB)\nDownloading uvicorn-0.54.0-py3-none-any.whl (87 kB)\nDownloading psycopg_binary-3.3.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (5.2 MB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.2/5.2 MB 3.7 MB/s eta 0:00:00\nDownloading redis-8.1.0-py3-none-any.whl (560 kB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 560.6/560.6 kB 5.0 MB/s eta 0:00:00\nDownloading annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)\nDownloading click-8.5.0-py3-none-any.whl (125 kB)\nDownloading h11-0.16.0-py3-none-any.whl (37 kB)\nDownloading opentelemetry_api-1.45.1-py3-none-any.whl (60 kB)\nDownloading pydantic-2.14.1-py3-none-any.whl (488 kB)\nDownloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.2 MB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.2/2.2 MB 7.9 MB/s eta 0:00:00\nDownloading starlette-1.9.0-py3-none-any.whl (80 kB)\nDownloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)\nDownloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)\nDownloading psycopg-3.3.6-py3-none-any.whl (215 kB)\nDownloading annotated_types-0.8.0-py3-none-any.whl (13 kB)\nDownloading anyio-4.15.1-py3-none-any.whl (132 kB)\nDownloading idna-3.20-py3-none-any.whl (69 kB)\nInstalling collected packages: typing-extensions, redis, psycopg-binary, idna, h11, click, annotated-types, annotated-doc, uvicorn, typing-inspection, pydantic-core, psycopg, opentelemetry-api, anyio, starlette, pydantic, fastapi\nSuccessfully installed annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.1 click-8.5.0 fastapi-0.146.0 h11-0.16.0 idna-3.20 opentelemetry-api-1.45.1 psycopg-3.3.6 psycopg-binary-3.3.6 pydantic-2.14.1 pydantic-core-2.50.1 redis-8.1.0 starlette-1.9.0 typing-extensions-4.16.0 typing-inspection-0.4.4 uvicorn-0.54.0\n",
+          "stderr": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n"
+        },
+        {
+          "name": "build",
+          "command": [
+            "python",
+            "-m",
+            "compileall",
+            "-q",
+            "."
+          ],
+          "exit_code": 0,
+          "duration_ms": 549,
+          "timed_out": false,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "check_cache_cleanup": {
+        "removed": true,
+        "error": null
+      }
+    },
+    "workspaceCleanup": {
+      "removed": true,
+      "error": null
+    },
+    "executionPlan": {
+      "source": "repository_configuration",
+      "dockerfile": "generated",
+      "warnings": [],
+      "servicePort": 8000
+    }
+  },
+  "sandboxReport": {
+    "detected_stack": "python",
+    "verification_declared": false,
+    "test_execution": "not_declared",
+    "steps": [
+      {
+        "name": "install",
+        "command": [
+          "python",
+          "-m",
+          "pip",
+          "install",
+          "--user",
+          "--disable-pip-version-check",
+          "-r",
+          "requirements.txt"
+        ],
+        "exit_code": 0,
+        "duration_ms": 19523,
+        "timed_out": false,
+        "stdout": "wnloading redis-8.1.0-py3-none-any.whl.metadata (16 kB)\nCollecting psycopg[binary] (from -r requirements.txt (line 3))\n  Downloading psycopg-3.3.6-py3-none-any.whl.metadata (4.4 kB)\nCollecting starlette>=0.46.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading starlette-1.9.0-py3-none-any.whl.metadata (6.6 kB)\nCollecting pydantic>=2.9.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading pydantic-2.14.1-py3-none-any.whl.metadata (133 kB)\nCollecting typing-extensions>=4.8.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)\nCollecting typing-inspection>=0.4.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading typing_inspection-0.4.4-py3-none-any.whl.metadata (2.6 kB)\nCollecting annotated-doc>=0.0.2 (from fastapi->-r requirements.txt (line 1))\n  Downloading annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)\nCollecting opentelemetry-api>=1.44.0 (from fastapi->-r requirements.txt (line 1))\n  Downloading opentelemetry_api-1.45.1-py3-none-any.whl.metadata (1.4 kB)\nCollecting click>=7.0 (from uvicorn->-r requirements.txt (line 2))\n  Downloading click-8.5.0-py3-none-any.whl.metadata (2.6 kB)\nCollecting h11>=0.8 (from uvicorn->-r requirements.txt (line 2))\n  Downloading h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)\nCollecting psycopg-binary==3.3.6 (from psycopg[binary]->-r requirements.txt (line 3))\n  Downloading psycopg_binary-3.3.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.7 kB)\nCollecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)\nCollecting pydantic-core==2.50.1 (from pydantic>=2.9.0->fastapi->-r requirements.txt (line 1))\n  Downloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.5 kB)\nCollecting anyio<5,>=4.0.0 (from starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading anyio-4.15.1-py3-none-any.whl.metadata (4.7 kB)\nCollecting idna>=2.8 (from anyio<5,>=4.0.0->starlette>=0.46.0->fastapi->-r requirements.txt (line 1))\n  Downloading idna-3.20-py3-none-any.whl.metadata (7.2 kB)\nDownloading fastapi-0.146.0-py3-none-any.whl (144 kB)\nDownloading uvicorn-0.54.0-py3-none-any.whl (87 kB)\nDownloading psycopg_binary-3.3.6-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (5.2 MB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.2/5.2 MB 3.7 MB/s eta 0:00:00\nDownloading redis-8.1.0-py3-none-any.whl (560 kB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 560.6/560.6 kB 5.0 MB/s eta 0:00:00\nDownloading annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)\nDownloading click-8.5.0-py3-none-any.whl (125 kB)\nDownloading h11-0.16.0-py3-none-any.whl (37 kB)\nDownloading opentelemetry_api-1.45.1-py3-none-any.whl (60 kB)\nDownloading pydantic-2.14.1-py3-none-any.whl (488 kB)\nDownloading pydantic_core-2.50.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.2 MB)\n   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 2.2/2.2 MB 7.9 MB/s eta 0:00:00\nDownloading starlette-1.9.0-py3-none-any.whl (80 kB)\nDownloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)\nDownloading typing_inspection-0.4.4-py3-none-any.whl (14 kB)\nDownloading psycopg-3.3.6-py3-none-any.whl (215 kB)\nDownloading annotated_types-0.8.0-py3-none-any.whl (13 kB)\nDownloading anyio-4.15.1-py3-none-any.whl (132 kB)\nDownloading idna-3.20-py3-none-any.whl (69 kB)\nInstalling collected packages: typing-extensions, redis, psycopg-binary, idna, h11, click, annotated-types, annotated-doc, uvicorn, typing-inspection, pydantic-core, psycopg, opentelemetry-api, anyio, starlette, pydantic, fastapi\nSuccessfully installed annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.15.1 click-8.5.0 fastapi-0.146.0 h11-0.16.0 idna-3.20 opentelemetry-api-1.45.1 psycopg-3.3.6 psycopg-binary-3.3.6 pydantic-2.14.1 pydantic-core-2.50.1 redis-8.1.0 starlette-1.9.0 typing-extensions-4.16.0 typing-inspection-0.4.4 uvicorn-0.54.0\n",
+        "stderr": "WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.\n"
+      },
+      {
+        "name": "build",
+        "command": [
+          "python",
+          "-m",
+          "compileall",
+          "-q",
+          "."
+        ],
+        "exit_code": 0,
+        "duration_ms": 549,
+        "timed_out": false,
+        "stdout": "",
+        "stderr": ""
+      }
+    ],
+    "check_cache_cleanup": {
+      "removed": true,
+      "error": null
+    },
+    "repository_check_outcome": "passed"
+  },
+  "durationMillis": 178251
+}

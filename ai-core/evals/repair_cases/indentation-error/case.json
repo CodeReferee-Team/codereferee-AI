@@ -1,0 +1,16 @@
+{
+  "id": "indentation-error",
+  "defect": "inconsistent indentation",
+  "expected_category": "compile_failed",
+  "oracle_edits": [
+    {
+      "path": "greet.py",
+      "find": [
+        "      return f\"hello {name}\""
+      ],
+      "replace": [
+        "    return f\"hello {name}\""
+      ]
+    }
+  ]
+}

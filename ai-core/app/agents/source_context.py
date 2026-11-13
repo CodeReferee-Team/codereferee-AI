@@ -11,12 +11,15 @@ diff를 쓰는 것은 구조적으로 불가능하다. 코퍼스 파일럿에서
 
 from __future__ import annotations
 
+import ast
 import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from pathlib import Path as pathlib_Path
+
+from app.agents.patching import is_test_path
 
 MAX_FILES = 3
 # 의존성 실패 로그에는 파일 경로가 없다. pip은 패키지 이름만 말한다. 고칠 파일은 매니페스트다.
@@ -27,6 +30,16 @@ MANIFEST_CANDIDATES = (
     "package.json",
     "Pipfile",
 )
+# 카오스 실패는 로그에 경로가 없다. 복원력 수정(replicas, probe, resources)은 검증 설정에 모여 있다.
+CHAOS_CONFIG_CANDIDATES = (".codereferee/validation.yaml", ".codereferee/validation.yml")
+# 의존성 장애 시나리오마다 그 의존성을 부르는 클라이언트 모듈. 장애가 걷힌 뒤 다시 붙지
+# 못하는 결함은 이 모듈을 import한 코드에 있다. 로그에는 경로가 찍히지 않는다.
+DEPENDENCY_CLIENTS = {
+    "dependency_redis_outage": ("redis", "aioredis"),
+    "dependency_database_outage": ("psycopg", "psycopg2", "asyncpg", "sqlalchemy", "pymysql"),
+}
+# 사용자 코드가 아닌 디렉터리. 가상환경을 레포에 커밋한 경우가 있다.
+_VENDORED_PARTS = {".git", ".venv", "venv", "node_modules", "site-packages", "__pycache__"}
 # 이보다 큰 파일은 주지 않는다. 자르면 적용 불가능한 diff가 나온다.
 MAX_FILE_CHARS = 20_000
 # sandbox 컨테이너 안의 clone 위치. 로그에 절대 경로로 찍힌다.
@@ -99,8 +112,13 @@ def _is_caret_line(line: str) -> bool:
     return bool(stripped) and set(stripped) == {"^"}
 
 
-def read_files(repo_path: Path, paths: list[str]) -> dict[str, str]:
-    """레포에서 파일 내용을 읽는다. 없거나 상한을 넘으면 건너뛴다."""
+def read_files(
+    repo_path: Path, paths: list[str], dependency_clients: tuple[str, ...] = ()
+) -> dict[str, str]:
+    """레포에서 파일 내용을 읽는다. 없거나 상한을 넘으면 건너뛴다.
+
+    dependency_clients가 있으면 그 모듈을 import하는 레포 코드도 붙인다.
+    """
     collected: dict[str, str] = {}
     root = repo_path.resolve()
     for path in paths:
@@ -118,7 +136,72 @@ def read_files(repo_path: Path, paths: list[str]) -> dict[str, str]:
         if len(content) > MAX_FILE_CHARS:
             continue
         collected[path] = content
+    return _with_dependency_users(root, _with_tested_modules(root, collected), dependency_clients)
+
+
+def _with_dependency_users(
+    root: Path, collected: dict[str, str], clients: tuple[str, ...]
+) -> dict[str, str]:
+    """의존성 클라이언트를 import하는 레포 모듈을 붙인다. 테스트와 가상환경은 뺀다."""
+    if not clients:
+        return collected
+    for file in sorted(root.rglob("*.py")):
+        if len(collected) >= MAX_FILES:
+            break
+        relative = file.relative_to(root)
+        path = relative.as_posix()
+        if path in collected or _VENDORED_PARTS.intersection(relative.parts) or is_test_path(path):
+            continue
+        try:
+            body = file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if len(body) > MAX_FILE_CHARS:
+            continue
+        if any(module.split(".")[0] in clients for module in _imported_modules(body)):
+            collected[path] = body
     return collected
+
+
+def _with_tested_modules(root: Path, collected: dict[str, str]) -> dict[str, str]:
+    """실패한 테스트가 부르는 레포 모듈을 붙인다.
+
+    assert가 테스트 안에서 실패하면 로그에는 테스트 파일만 찍힌다. 고칠 곳은 테스트가 부르는
+    모듈인데, 테스트 파일만 주면 Refiner는 그것을 보지 못하고 테스트 편집은 가드가 막는다.
+    레포 안에 실제로 있는 모듈만 붙인다. 표준 라이브러리와 서드파티는 파일이 없어 걸러진다.
+    """
+    for path, content in list(collected.items()):
+        if not path.endswith(".py") or not is_test_path(path):
+            continue
+        for module in _imported_modules(content):
+            if len(collected) >= MAX_FILES:
+                return collected
+            for candidate in (f"{module.replace('.', '/')}.py", f"{module.replace('.', '/')}/__init__.py"):
+                file = root / candidate
+                if candidate in collected or not file.is_file():
+                    continue
+                try:
+                    body = file.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    break
+                if len(body) <= MAX_FILE_CHARS and body.strip():
+                    collected[candidate] = body
+                break
+    return collected
+
+
+def _imported_modules(content: str) -> list[str]:
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return []
+    modules: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            modules.append(node.module)
+        elif isinstance(node, ast.Import):
+            modules.extend(alias.name for alias in node.names)
+    return list(dict.fromkeys(modules))
 
 
 def _resolve_basename(root: pathlib_Path, path: str) -> pathlib_Path | None:
@@ -137,6 +220,7 @@ def collect(
     branch: str | None = None,
     applied_patch: str | None = None,
     clone_timeout_seconds: int = 60,
+    dependency_clients: tuple[str, ...] = (),
 ) -> dict[str, str]:
     """레포를 얕게 clone해 파일을 읽는다. 작업 디렉터리는 항상 지운다.
 
@@ -169,7 +253,7 @@ def collect(
             if applied.returncode != 0:
                 # 적용 전 내용을 주면 Refiner가 어긋난 context로 패치를 쓴다. 아무것도 주지 않는다.
                 return {}
-        return read_files(repo, paths)
+        return read_files(repo, paths, dependency_clients)
     except (subprocess.TimeoutExpired, OSError):
         return {}
     finally:

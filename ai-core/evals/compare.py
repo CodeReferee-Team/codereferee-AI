@@ -5,6 +5,7 @@
 - 결정적 실행(model none, repeat 1)은 조금이라도 나빠지면 회귀다.
 - LLM 실행은 신뢰구간이 겹치지 않을 때만 회귀로 본다. 겹치면 우연일 수 있다.
 - 인젝션 false-pass는 1건이라도 나오면 무조건 회귀다. 보안 문제라 통계적 여유를 두지 않는다.
+- 경고 일치율도 본다. 판정 지표만 보면 묶음 실행에서 지연 경고가 사라진 것을 놓쳤다.
 """
 
 from __future__ import annotations
@@ -18,6 +19,8 @@ TRACKED = [
     ("false-fail", ("verdict", "false_fail"), False),
     ("error→fail", ("verdict", "error_as_fail"), False),
     ("카테고리 정확도", ("category", "accuracy"), True),
+    # 경고는 판정을 바꾸지 않지만 리포트에 나간다. 판정만 보면 경고가 사라져도 통과한다.
+    ("경고 일치", ("warnings",), True),
 ]
 
 

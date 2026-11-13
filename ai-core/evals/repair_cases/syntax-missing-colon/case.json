@@ -1,0 +1,16 @@
+{
+  "id": "syntax-missing-colon",
+  "defect": "missing colon in def",
+  "expected_category": "compile_failed",
+  "oracle_edits": [
+    {
+      "path": "calc.py",
+      "find": [
+        "def add(a, b)"
+      ],
+      "replace": [
+        "def add(a, b):"
+      ]
+    }
+  ]
+}

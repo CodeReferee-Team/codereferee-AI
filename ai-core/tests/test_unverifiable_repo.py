@@ -13,11 +13,11 @@ class ScriptContractTests(unittest.TestCase):
             "https://github.com/o/r", None, None, patch_file=""
         )
 
-    def test_python_without_a_tests_directory_does_not_pass(self) -> None:
-        self.assertIn(
-            f'[ -d tests ] || {{ echo "No tests directory to verify"; return {docker_runner.NOTHING_TO_VERIFY_EXIT_CODE}; }}',
-            self.script,
-        )
+    def test_python_without_tests_does_not_pass(self) -> None:
+        # 위치는 pytest가 찾고, 모은 테스트가 없을 때(5) 89로 바꾼다. 실행 검증은 test_failure_steps.
+        # unittest로 한 번 더 찾은 뒤에도 없으면 89다(test_healthy_repo_false_fails).
+        self.assertIn('[ "$_pytest_rc" -eq 5 ] || return "$_pytest_rc"', self.script)
+        self.assertIn(f'echo "No tests to verify: pytest collected none"\n      return {docker_runner.NOTHING_TO_VERIFY_EXIT_CODE}', self.script)
 
     def test_node_checks_for_a_test_script_before_running_it(self) -> None:
         # npm run test --if-present는 test 스크립트가 없으면 성공으로 끝낸다.
@@ -56,6 +56,49 @@ class FailureReasonTests(unittest.TestCase):
         report = nodes._fallback_judge(state)
         self.assertEqual(report["status"], "Fail")
         self.assertIn("no tests", report["reason"])
+
+
+class ServiceNotDeployableTests(unittest.TestCase):
+    """쿠버네티스 샌드박스의 89는 "테스트가 없다"가 아니라 "배포할 서비스를 정하지 못했다"다.
+
+    실서버에서 jsoup(테스트 2,631건 통과)과 commander(1,373건 통과)가 "테스트가 없어 검증할 수
+    없었다"로 나갔다(2026-10-23). 둘 다 라이브러리라 카오스를 걸 서비스가 없었던 것이다.
+    샌드박스는 이 경우를 sandboxReport.configuration_required로 알려준다.
+    """
+
+    MESSAGE = ("No unambiguous executable HTTP service found. Add .codereferee/validation.yaml; "
+               "libraries and ambiguous multi-service projects are not auto-deployed.")
+
+    def _state(self) -> AgentState:
+        state = AgentState(job_id="t", repository_url="https://github.com/o/r", status=JobStatus.running)
+        state.preflight_report = RepositoryPreflightReport(
+            repository_url="https://github.com/o/r", cloneable=True, executable=True
+        )
+        state.execution_result = SandboxResult(
+            exit_code=docker_runner.NOTHING_TO_VERIFY_EXIT_CODE, stderr=self.MESSAGE,
+            sandbox_report={"schema_version": "sandbox-result.v1", "outcome": "failed",
+                            "failed_step": "detect", "configuration_required": True},
+        )
+        return state
+
+    def test_it_is_not_reported_as_missing_tests(self) -> None:
+        report = nodes._fallback_judge(self._state())
+        self.assertEqual(report["reason_category"], "service_not_deployable")
+        self.assertNotIn("no tests", report["reason"])
+        self.assertIn("validation.yaml", report["reason"])
+
+    def test_it_is_judgement_unavailable(self) -> None:
+        state = self._state()
+        state.judge_report = nodes._fallback_judge(state)
+        self.assertEqual(nodes.judgement_unavailable(state), nodes.BASELINE_NOT_ESTABLISHED)
+
+    def test_the_local_runner_meaning_is_unchanged(self) -> None:
+        state = self._state()
+        state.execution_result = SandboxResult(
+            exit_code=docker_runner.NOTHING_TO_VERIFY_EXIT_CODE,
+            sandbox_report={"detected_stack": "python", "failed_step": "test"},
+        )
+        self.assertEqual(nodes._fallback_judge(state)["reason_category"], "no_tests_detected")
 
 
 if __name__ == "__main__":

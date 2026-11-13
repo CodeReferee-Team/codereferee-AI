@@ -81,7 +81,7 @@ LLM 호출을 담당한다.
 
 ### ai-core/app/workflow/repository_validation.py
 
-전체 Agent workflow를 연결한다.
+전체 Agent workflow를 LangGraph `StateGraph`로 연결한다. 노드와 간선은 `docs/architecture.md` 2-1절.
 
 ### ai-core/app/models.py
 

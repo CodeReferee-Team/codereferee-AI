@@ -91,6 +91,48 @@ flowchart TD
     OUT --> DB[("SQLite<br/>job store")]
 ```
 
+### 2-1. LangGraph 그래프
+
+위 흐름은 `ai-core/app/workflow/repository_validation.py`에서 LangGraph `StateGraph`로 돈다(2026-10-27 전환). 노드 하나가 파이프라인의 한 단계이고, 어느 간선을 탈지는 전부 결정적 규칙이 정한다. LLM은 `planner`, `critic`, `refiner` 노드 안에서 서술과 편집만 만들고 분기에는 관여하지 않는다. 전환 전후로 판정, 이벤트, 라운드 기록, 큐로 나가는 메시지가 같다는 것을 시나리오 10개(통과, preflight 실패, 준비 단계 실패, 인프라 오류, 2라운드 통과, 라운드 소진, 패치 미적용, 라운드 중 인프라 오류, diff 없음, 1MB 초과)로 대조했다. 타임스탬프 말고는 바이트 단위로 같았다.
+
+```mermaid
+flowchart TD
+    S((START)) --> preflight --> planner
+    planner -->|preflight 통과| sandbox
+    planner -->|실패| skip_sandbox
+    sandbox --> infra_gate
+    skip_sandbox --> infra_gate
+    infra_gate -->|인프라 오류| finalize
+    infra_gate --> judge
+    judge -->|판정 불가| finalize
+    judge --> critic --> refiner --> refine
+    refine --> finalize --> E((END))
+
+    subgraph refine[refine 서브그래프 · 재검증 루프]
+        refine_start --> refine_prepare --> refine_rerun --> refine_judge --> refine_regenerate
+        refine_regenerate -->|라운드 남음| refine_prepare
+        refine_regenerate -->|라운드 소진| refine_exhausted --> refine_restore
+        refine_prepare -.->|멈출 사유| refine_restore
+        refine_rerun -.->|패치 미적용 · 인프라 오류| refine_restore
+        refine_judge -.->|Pass| refine_restore
+    end
+```
+
+| 노드 | 하는 일 |
+| --- | --- |
+| `preflight` | 상태를 running으로 바꾸고 URL·ref를 확인한다. `PREFLIGHT` progress |
+| `planner` | 검증 계획 |
+| `sandbox` / `skip_sandbox` | 샌드박스 실행(heartbeat 포함)과 메트릭 정리. preflight가 실패하면 건너뛴다 |
+| `infra_gate` | `_infra_error_reason`. 사유가 있으면 ERROR로 두고 `finalize`로 간다 |
+| `judge` | 규칙 판정. 판정 불가(준비 단계 실패 등)면 ERROR로 두고 `finalize`로 간다 |
+| `critic`, `refiner` | 고칠 파일을 붙이고 원인 설명과 수정 편집을 만든다 |
+| `refine` | 재검증 루프 서브그래프. 3-12절 |
+| `finalize` | 카운터, PDF, SQLite, job store 저장, 결과 이벤트 한 번 |
+
+그래프 상태(`ValidationGraphState`)는 `AgentState` 하나와 루프 장부(라운드 번호, 누적 패치, 제출 시점 판정)로 이뤄진다. progress를 보내는 함수와 결과 큐는 상태가 아니라 실행 설정(`configurable`)으로 넘긴다. 라운드 하나가 노드 다섯 개를 지나므로 `recursion_limit`을 `max_self_healing_retries`에 맞춰 늘린다. 기본값 25로 두면 라운드를 늘린 설정에서 예외로 끝나 결과 이벤트가 나가지 않는다.
+
+노드는 `judge_node`, `sandbox_runner` 같은 이름을 모듈 전역에서 찾는다. 테스트가 모듈 속성을 바꿔 끼우면 그래프도 바뀐 것을 부른다.
+
 진행 상황은 `codereferee:workflow:output`으로 단계마다 흘려보낸다. `PREFLIGHT`, `BASELINE`, `CHAOS`, `JUDGING`, `REFINING` 다섯 가지이고 종료 이벤트는 정확히 한 번 나간다. `request_id`가 없는 로컬 동기 호출에서는 보내지 않는다.
 
 ---
@@ -208,7 +250,7 @@ preflight 통과 여부와 무관하게 돌린다. 실패한 경우에도 "무�
 
 입력은 증거 묶음이다. preflight 결과, 샌드박스 구조화 리포트(`detected_stack`, `outcome`, `failed_step`, `steps[]`), 종료 코드, SRE 메트릭, 카오스 관측값. 로그는 1200자로 자르고 카오스 이벤트는 20건까지만 넣는다.
 
-출력은 `status`, `reason_category`(32종), `reason`, `evidence`다.
+출력은 `status`, `reason_category`(35종), `reason`, `evidence`다.
 
 카오스 분기는 일반 smoke 검사보다 앞에 둔다. 카오스 실행은 별도 서버 프로세스를 띄우지 않고 Kubernetes Service probe로 관측하므로 `server_started=false`와 `http_status=null`이 실패가 아니라 "그 검사를 하지 않았다"는 뜻이기 때문이다. 순서를 잘못 두면 모든 카오스 실행이 smoke 실패로 판정된다. 실제로 그렇게 오판했고 그것이 이 분기를 만든 계기다.
 
@@ -252,17 +294,21 @@ Refiner에게는 증거에서 뽑은 원본 파일을 함께 준다. 이것이 �
 
 ### 3-12. 재검증 루프
 
-`_run_refinement_rounds`
+`refinement_graph()` 서브그래프. 본 그래프에서는 `refine` 노드로 붙고, `evals/repair.py`는 같은 서브그래프를 `_run_refinement_rounds`로 따로 돌린다.
 
 ```
 Fail 판정
-  → Refiner의 누적 diff 확인 (없으면 중단)
+  → Refiner의 diff 확인 (없으면 중단)
+  → 앞 라운드까지 적용한 패치 뒤에 이어 붙여 누적 패치를 만든다
   → 1MB 검사
   → 샌드박스 재실행 (patchDiff 전달)
+  → 패치 단계에서 멈췄으면 중단 (Critic·Refiner를 다시 돌리지 않는다)
   → 인프라 오류 게이트
   → Judge 재판정
   → Pass면 중단, Fail이면 Critic·Refiner 다시
 ```
+
+두 번째 라운드부터 Refiner는 앞 패치가 적용된 파일을 보고 diff를 쓴다. 그 diff는 제출된 커밋에 단독으로 적용되지 않으므로, 샌드박스로는 앞 패치와 이어 붙인 누적 패치를 보낸다. `git apply`는 한 입력 안의 diff를 순서대로 적용한다. 2026-10-23 실서버에서 이 처리가 없어 2라운드 패치가 patch 단계에서 거부됐고, 그 실패를 Critic이 다시 분석해 리포트가 "CI 패치가 어긋났다"를 설명했다. 이제 패치가 적용되지 않으면 루프를 멈추고, 리포트에는 마지막으로 실제 실행된 라운드의 분석과 실제로 적용된 마지막 패치를 남긴다.
 
 최대 3라운드다. 라운드마다 남기는 기록은 라운드 번호, 패치 바이트, 이전과 이후 판정, 샌드박스 종료 코드, `failed_step`이다.
 
@@ -329,6 +375,7 @@ chaosMode, chaosTarget, deploymentProfile, patchDiff
 | Critic | 동작 |
 | Refiner 편집 생성 | 동작. 수율 75% |
 | 재검증 루프 | 동작. 최대 3라운드 |
+| 오케스트레이션 | LangGraph `StateGraph`. 본 그래프와 재검증 서브그래프 |
 | 평가 체계 | T0 20건, T0-adv 14건, T1-chaos 10건, 회귀 게이트 |
 
 AI 쪽 변경은 브랜치 6개에 나뉘어 있고 전부 미머지다. 머지 순서는 `nodes.py`와 `config.py` 충돌 때문에 정해져 있다.

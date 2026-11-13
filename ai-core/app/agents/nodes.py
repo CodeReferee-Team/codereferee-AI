@@ -1,10 +1,12 @@
 import json
+import re
 from typing import Any
 
 from pydantic import ValidationError
 
 from app.agents.evidence import (
     build_evidence_packet,
+    build_llm_evidence_packet,
     build_refiner_evidence,
     classify_failure_category,
     render_evidence_packet,
@@ -22,11 +24,7 @@ from app.sandbox.docker_runner import (
     PATCH_MISSING_EXIT_CODE,
     UNSUPPORTED_STACK_EXIT_CODE,
 )
-from app.config import get_settings
 
-
-# 카오스 구간 p95가 baseline의 몇 배를 넘으면 경고할지. 출처 있는 값이 아니라 우리 관례다
-# (docs/judge-policy.md 6.3). Sandbox가 p99를 보내기 시작하면 임계값을 다시 정한다.
 # 우리가 정한 값이다. 출처가 없다. Sandbox가 p95만 보내서 임시로 쓰는 배수이고,
 # SRE Book은 p95 단일 임계값이 아니라 p50과 p99를 함께 보라고 권고한다.
 # docs/judge-policy.md 9.2·9.3. p50·p99가 들어오면 이 값을 다시 정한다.
@@ -85,7 +83,7 @@ def judge_node(state: AgentState) -> AgentState:
 
 def critic_node(state: AgentState) -> AgentState:
     state.events.append("Critic: repository reliability gap analyzed")
-    packet = build_evidence_packet(state)
+    packet = build_llm_evidence_packet(state)
     fallback = _fallback_critic(state)
     if llm.enabled:
         state.critic_feedback = _invoke_validated_report(
@@ -127,6 +125,10 @@ def refiner_node(state: AgentState) -> AgentState:
     _diff_from_edits(state)
     if llm.enabled:
         _retry_rejected_edits(state, packet)
+    # 하이브리드: 규칙 스켈레톤이 유형별 수정부위를 보장 주입한다. LLM이 health endpoint·
+    # manifest 같은 surface를 빠뜨려도 규칙(_refiner_guidance — fallback에서 T0 100%)이 메운다.
+    # retry가 refiner_report를 교체할 수 있으므로 그 뒤에서 마지막으로 보강한다.
+    _ensure_remediation_surface(state)
     _record_patch_inspection(state)
     return state
 
@@ -204,7 +206,7 @@ def _diff_from_edits(state: AgentState) -> None:
             "attempted_anchors": [str(edit.get("find")) [:200] for edit in edits if isinstance(edit, dict)],
         }
         return
-    diff = build_diff(state.source_files, outcome.patched)
+    diff = build_diff(state.source_files, outcome.patched, state.metrics.get("new_source_files") or ())
     state.refiner_report["patched_paths"] = sorted(outcome.patched)
     if diff:
         rewrite = inspect_rewrite(diff, state.source_files)
@@ -314,11 +316,13 @@ def _fallback_judge(state: AgentState) -> dict[str, object]:
             state.events.append(f"Judge: warning {warning}")
         if failure:
             category, _, detail = failure.partition(": ")
-            return {"status": "Fail", "reason_category": category, "reason": detail or failure,
-                    "evidence": _sandbox_evidence(result)}
+            return {"status": "Fail", "reason_category": category,
+                    "reason": _chaos_reason(detail or failure, result.chaos_observation, warnings),
+                    "evidence": _chaos_evidence(result, warnings)}
         return {"status": "Pass", "reason_category": "chaos_recovered_within_budget",
-                "reason": "Chaos experiment recovered within the configured budget.",
-                "evidence": _sandbox_evidence(result)}
+                "reason": _chaos_reason("Chaos experiment recovered within the configured budget.",
+                                        result.chaos_observation, warnings),
+                "evidence": _chaos_evidence(result, warnings)}
 
     if result.timed_out:
         return {"status": "Fail", "reason_category": "timeout", "reason": "Sandbox execution timed out.", "evidence": _sandbox_evidence(result)}
@@ -374,6 +378,7 @@ _FAILED_STEP_CATEGORIES = {
     "clone": "repository_not_accessible",
     "patch": "sandbox_nonzero_exit",
     "detect": "no_manifest_detected",
+    "compile": "compile_failed",
     "dependencies": "dependency_install_failed",
 }
 # 스크립트가 약속한 종료 코드. 사유 문장(_EXIT_CODE_REASONS)과 짝을 맞춘다.
@@ -399,6 +404,43 @@ _PYTEST_USAGE_ERROR = 4
 # 137은 SIGKILL이다. 우리가 건 sandbox_memory_limit에 걸린 것이라 스택과 무관하다.
 _OOM_KILLED = 137
 ENVIRONMENT_LIMIT_CATEGORY = "verification_environment_unsupported"
+# 쿠버네티스 샌드박스는 배포할 서비스를 정하지 못하면 89로 끝내고 configuration_required를 붙인다.
+# 로컬 Docker 경로의 89(테스트 없음)와 숫자가 같으므로 종료 코드보다 먼저 본다.
+SERVICE_NOT_DEPLOYABLE = "service_not_deployable"
+
+
+# 준비 단계(설치·테스트·기동)에서 나는 카테고리. CodeReferee는 안정성만 판정하므로 여기서
+# 떨어지면 "장애에 약하다"가 아니라 "안정성을 재지 못했다"다(judge-policy 3.0절).
+BASELINE_FAILURE_CATEGORIES = frozenset({
+    "timeout", "sandbox_nonzero_exit", "sandbox_not_executed", "test_failure", "compile_failed",
+    "no_tests_detected", "dependency_install_failed", "docker_build_failed", "no_manifest_detected",
+    "unsupported_project_stack", "repository_not_accessible", "service_smoke_failed", "browser_smoke_failed",
+    SERVICE_NOT_DEPLOYABLE,
+})
+BASELINE_NOT_ESTABLISHED = "baseline_not_established"
+
+
+def judgement_unavailable(state: AgentState) -> str | None:
+    """판정을 내지 못한 이유. 내렸으면 None.
+
+    Judge의 사유와 카테고리는 그대로 두고 최종 상태만 ERROR로 보낸다. 리포트에는 무엇이
+    실패했는지가 남아야 사용자가 다시 제출할 수 있다. Preflight 실패는 요청이 검증할 수 없는
+    대상을 가리킨 것이라 여기에 넣지 않는다.
+    """
+    report = state.judge_report or {}
+    if str(report.get("status", "")).lower() == "pass":
+        return None
+    category = report.get("reason_category")
+    if category == ENVIRONMENT_LIMIT_CATEGORY:
+        return ENVIRONMENT_LIMIT_CATEGORY
+    preflight = state.preflight_report
+    if not (preflight and preflight.cloneable and preflight.executable):
+        return None
+    if state.execution_result and is_real_chaos_observation(state.execution_result):
+        return None
+    if category in BASELINE_FAILURE_CATEGORIES:
+        return BASELINE_NOT_ESTABLISHED
+    return None
 
 
 def _verification_was_declared(result: SandboxResult) -> bool:
@@ -415,11 +457,28 @@ def _environment_limit_category(result: SandboxResult) -> str | None:
         return ENVIRONMENT_LIMIT_CATEGORY
 
     report = result.sandbox_report or {}
-    if report.get("detected_stack") != "python" or report.get("failed_step") != "smoke":
+    if report.get("failed_step") != "smoke":
+        return None
+    if report.get("detected_stack") in ("maven", "gradle"):
+        return _jvm_build_limit_category(result)
+    if report.get("detected_stack") != "python":
         return None
     if result.exit_code == _PYTEST_USAGE_ERROR:
         return ENVIRONMENT_LIMIT_CATEGORY
     if result.exit_code == _PYTEST_COLLECTION_ERROR and not _verification_was_declared(result):
+        return ENVIRONMENT_LIMIT_CATEGORY
+    return None
+
+
+def _jvm_build_limit_category(result: SandboxResult) -> str | None:
+    """테스트는 전부 통과했는데 추측한 빌드 명령이 깨졌다(google/gson의 다중 모듈 JPMS 빌드).
+
+    보고서가 없으면 테스트 전에 컴파일이 깨진 것이라 레포 결함으로 둔다.
+    """
+    if _verification_was_declared(result):
+        return None
+    tests = (result.sandbox_report or {}).get("test_report")
+    if isinstance(tests, dict) and int(tests.get("tests") or 0) > 0 and int(tests.get("failed") or 0) == 0:
         return ENVIRONMENT_LIMIT_CATEGORY
     return None
 
@@ -435,7 +494,8 @@ _DEPENDENCY_SIGNS = (
 _TEST_SIGNS = ("failures ===", "short test summary", "assertionerror", "[test]")
 _TEST_TOKENS = ("test", "pytest", "spec")
 _FAILURE_TOKENS = ("fail", "error")
-# 컴파일 실패 전용 카테고리는 없다. 원인을 단정하지 않고 일반 실패로 남긴다.
+# 로그만 있을 때는 컴파일 실패를 단정하지 않고 일반 실패로 남긴다. 테스트 출력에도 SyntaxError가
+# 찍힐 수 있다. compile_failed는 sandbox가 compile 단계 실패를 알려줄 때만 낸다.
 _COMPILE_SIGNS = ("error compiling", "syntaxerror", "indentationerror")
 
 
@@ -445,6 +505,8 @@ def _nonzero_exit_category(result: SandboxResult) -> str:
     sandbox가 보낸 구조화 결과(exit code, failed_step)를 먼저 본다. 그것이 없을 때만
     로그 문구로 내려간다. 로그 전체를 substring으로 뒤지면 준비 과정 출력에 걸린다.
     """
+    if (result.sandbox_report or {}).get("configuration_required"):
+        return SERVICE_NOT_DEPLOYABLE
     if category := _EXIT_CODE_CATEGORIES.get(result.exit_code):
         return category
     # 우리가 검증할 수 없었던 것을 레포 결함으로 보고하지 않는다.
@@ -456,13 +518,15 @@ def _nonzero_exit_category(result: SandboxResult) -> str:
     if category := _FAILED_STEP_CATEGORIES.get(failed_step):
         return category
     if failed_step == "smoke":
-        return _smoke_category(result)
+        return _smoke_category(result, image_built=True)
     return _smoke_category(result)
 
 
-def _smoke_category(result: SandboxResult) -> str:
+def _smoke_category(result: SandboxResult, image_built: bool = False) -> str:
     text = f"{result.stderr} {result.stdout}".lower()
-    if "docker" in text:
+    # smoke 단계에 왔다면 이미지는 이미 떴다. 로그의 host.docker.internal(JVM 프록시 설정)에 걸려
+    # 정상 Java 레포가 docker_build_failed로 나갔다(2026-10-20 실측).
+    if "docker" in text and not image_built:
         return "docker_build_failed"
     if any(sign in text for sign in _DEPENDENCY_SIGNS):
         return "dependency_install_failed"
@@ -512,6 +576,17 @@ def chaos_target_configuration(observation: dict[str, object]) -> dict[str, obje
     return config if isinstance(config, dict) else {}
 
 
+def _latency_degraded(baseline: dict[str, Any], measured: dict[str, Any]) -> bool:
+    """실험 구간 p95가 같은 구간의 baseline p95보다 LATENCY_DEGRADATION_FACTOR배 넘게 느린가.
+
+    묶음 응답은 최상위 p95를 null로 보내고 시나리오마다 baseline과 p95를 따로 싣는다.
+    시나리오마다 baseline이 다르므로 다른 시나리오의 baseline과 섞어 비교하지 않는다.
+    """
+    baseline_p95 = _as_float((baseline.get("metrics") or {}).get("p95_latency_ms"))
+    observed_p95 = _as_float(measured.get("p95_latency_ms"))
+    return bool(baseline_p95 and observed_p95 and observed_p95 > baseline_p95 * LATENCY_DEGRADATION_FACTOR)
+
+
 def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple[str | None, list[str]]:
     """docs/judge-policy.md 6절 기준으로 실측 지표를 판정한다.
 
@@ -533,37 +608,61 @@ def _measured_policy_findings(state: AgentState, result: SandboxResult) -> tuple
         if chaos_recovered(observation) is False:
             return "chaos_not_recovered: chaos experiment never recovered to a serving state.", warnings
 
+        # replica가 1개면 그 자체로 복원력 신호다. 복구 상한 초과로 아래에서 early return
+        # 하더라도 이 경고가 먼저 담겨야 Critic/Refiner가 "단일 replica"를 원인으로 집는다.
+        # 토폴로지는 복구 판정과 무관한 구성 속성이므로 항상 기록한다(판정은 warning일 뿐).
+        if _as_float(chaos_target_configuration(observation).get("replicas")) == 1:
+            warnings.append("chaos_single_replica_topology")
+        # 묶음 일부가 인프라 문제로 돌지 못했다. 판정은 돈 시나리오로만 했다는 표시라
+        # Fail로 일찍 끝나도 남아야 한다.
+        if observation.get("partial"):
+            warnings.append("chaos_partial_execution")
+
         # 복구 시간은 chaos_observation에도 metrics에도 올 수 있다. 실측은 전자에 담아 보낸다.
         recovery = _as_float(observation.get("recovery_seconds"))
         if recovery is None:
             recovery = _as_float(measured.get("recovery_seconds"))
 
+        # 상한은 워크로드 설정에서 계산한 기대값이다. 넘으면 경고만 붙이고 판정은 다운타임과
+        # 버짓으로 한다(2026-10-23). 레플리카가 여럿이면 교체가 느려도 남은 Pod가 받고, 하나면
+        # 그 시간이 다운타임으로 버짓에 잡힌다. 실서버에서 레플리카를 6까지 올려도 이 규칙에
+        # 계속 걸려 치유 루프가 효과 없는 패치만 반복했다.
         bound = _expected_recovery_bound(observation)
         if recovery is not None and bound is not None and recovery > bound:
-            return (
-                f"chaos_recovery_exceeds_expected_bound: recovery {recovery}s exceeds the bound "
-                f"{round(bound, 3)}s implied by the workload configuration.",
-                warnings,
-            )
+            warnings.append(SLOWER_THAN_EXPECTED)
 
-        if _as_float(chaos_target_configuration(observation).get("replicas")) == 1:
-            # replica가 1개면 다운타임은 문서화된 정상 동작이다. 구성 경고로만 남긴다.
-            warnings.append("chaos_single_replica_topology")
-
+        # 묶음은 장애마다 버짓을 쓴다. 복구 상한은 가장 긴 한 번, 버짓은 합으로 본다.
+        downtime = chaos_downtime_seconds(observation)
+        if downtime is None:
+            downtime = recovery
         allowance = _monthly_unavailability_budget_seconds(slo.availability_percent_min)
-        if recovery is not None and allowance:
-            if recovery >= allowance:
+        if downtime is not None and allowance:
+            if downtime >= allowance:
                 return (
-                    f"chaos_error_budget_exhausted: recovery {recovery}s consumed the monthly "
+                    f"chaos_error_budget_exhausted: downtime {downtime}s consumed the monthly "
                     f"error budget of {allowance}s.",
                     warnings,
                 )
-            if recovery >= allowance * 0.2:
+            if downtime >= allowance * 0.2:
                 warnings.append("chaos_error_budget_significant_burn")
 
-        baseline_p95 = _as_float((result.baseline.get("metrics") or {}).get("p95_latency_ms"))
-        observed_p95 = _as_float(measured.get("p95_latency_ms"))
-        if baseline_p95 and observed_p95 and observed_p95 > baseline_p95 * LATENCY_DEGRADATION_FACTOR:
+        load = chaos_load(observation)
+        if load.get("first_users_with_errors") is not None:
+            warnings.append(LOAD_ERRORS)
+        if (_as_float(load.get("restart_count_delta")) or 0) > 0:
+            warnings.append(LOAD_RESTARTED)
+        if load_slow_from(load) is not None:
+            warnings.append(LOAD_SLOW)
+        # 요청자가 예상 사용자 수를 정했을 때만 Fail이다. 기준을 우리가 정하지 않는다(6.3).
+        if load.get("target_met") is False:
+            return (f"{LOAD_TARGET_NOT_MET}: requests failed at or below the expected "
+                    f"{load.get('target_users')} concurrent users set by the requester.", warnings)
+
+        if _latency_degraded(result.baseline, measured) or any(
+            _latency_degraded(scenario.get("baseline") or {}, scenario.get("metrics") or {})
+            for scenario in observation.get("scenarios") or []
+            if isinstance(scenario, dict)
+        ):
             warnings.append("chaos_latency_degraded")
         return None, warnings
 
@@ -664,6 +763,182 @@ def _memory_usage_ratio(measured: dict[str, object]) -> float | None:
         return None
     return used / limit
 
+
+
+LOAD_ERRORS = "load_errors_under_concurrency"
+LOAD_RESTARTED = "load_restarted_under_concurrency"
+LOAD_TARGET_NOT_MET = "load_target_not_met"
+LOAD_SLOW = "load_slow_under_concurrency"
+# 사람이 기다림을 느끼고 흐름이 끊기는 한계(Nielsen 1993, Miller 1968). 경고에만 쓰고 판정은 바꾸지 않는다.
+# 우리 측정은 클러스터 안에서 잰 서버 응답 p95라 브라우저에서 잰 화면 표시 시간보다 짧다.
+SLOW_RESPONSE_MS = 1000.0
+
+
+def load_slow_from(load: dict[str, object]) -> dict[str, object] | None:
+    """p95가 처음으로 1초를 넘은 부하 단계. 없으면 None."""
+    for item in load.get("stages") or []:
+        if not isinstance(item, dict):
+            continue
+        p95 = _as_float(item.get("p95_latency_ms"))
+        if p95 is not None and p95 > SLOW_RESPONSE_MS:
+            return {"users": item.get("users"), "p95_latency_ms": item.get("p95_latency_ms")}
+    return None
+
+
+def chaos_load(observation: dict[str, object]) -> dict[str, object]:
+    """동시 사용자 부하 결과. 없으면 빈 dict.
+
+    단독 실행이면 observation 자체가, 묶음이면 시나리오 중 하나가 load_concurrent_users다.
+    재시작 수는 load 밖(chaos_observation)에 있어 함께 담아 돌려준다.
+    """
+    candidates = [observation] + [
+        s.get("chaos_observation") or {} for s in observation.get("scenarios") or [] if isinstance(s, dict)
+    ]
+    for item in candidates:
+        if isinstance(item, dict) and item.get("type") == "load_concurrent_users" and isinstance(item.get("load"), dict):
+            return {**item["load"], "restart_count_delta": item.get("restart_count_delta")}
+    return {}
+
+
+# 첫 실패 단계가 어떻게 무너졌는지. 고칠 곳이 다르다.
+_OVERLOAD_SENTENCE = {
+    "rejected": "When overloaded it turned requests away quickly (5xx/429) instead of making users wait.",
+    "timed_out": "When overloaded it held requests until they timed out, so users waited instead of being turned away.",
+    "connection_failed": "When overloaded it stopped accepting connections.",
+}
+
+
+def _load_sentence(load: dict[str, object]) -> str | None:
+    """몇 명까지 버텼는지. 응답 시간에는 임계값을 두지 않고 값만 적는다."""
+    stages = [s for s in load.get("stages") or [] if isinstance(s, dict)]
+    if not stages:
+        return None
+    by_users = {s.get("users"): s for s in stages}
+    ok = load.get("max_users_without_errors")
+    first = load.get("first_users_with_errors")
+    if first is None:
+        top = stages[-1]
+        sentence = (f"Under load it answered every request up to {top.get('users')} concurrent users "
+                    f"(p95 {top.get('p95_latency_ms')}ms at {top.get('users')} users).")
+    else:
+        failing = by_users.get(first) or {}
+        rate = _as_float(failing.get("error_rate"))
+        share = f"{round(rate * 100, 1)}% of requests failed" if rate is not None else "requests failed"
+        sentence = (f"Under load it answered everyone up to {ok} concurrent users; at {first} users {share}."
+                    if ok is not None else f"Under load requests already failed at {first} concurrent users ({share}).")
+    growth = load.get("latency_growth")
+    if isinstance(growth, dict) and growth.get("ratio") is not None:
+        sentence += (f" p95 went from {growth.get('from_p95_ms')}ms at {growth.get('from_users')} users "
+                     f"to {growth.get('to_p95_ms')}ms at {growth.get('to_users')} users ({growth.get('ratio')}x).")
+    target = load.get("target_users")
+    if target and load.get("target_met") is not None:
+        sentence += (f" The requester expects {target} concurrent users; "
+                     + ("every request up to that many was answered." if load["target_met"]
+                        else "requests failed at or below that many."))
+    if (slow := load_slow_from(load)) is not None:
+        sentence += (f" From {slow['users']} concurrent users, 1 in 20 requests took {slow['p95_latency_ms']}ms or "
+                     f"longer; people notice waits over one second.")
+    overload = load.get("overload_behavior")
+    if isinstance(overload, dict) and overload.get("kind") in _OVERLOAD_SENTENCE:
+        sentence += " " + _OVERLOAD_SENTENCE[overload["kind"]]
+    if (_as_float(load.get("restart_count_delta")) or 0) > 0:
+        sentence += f" The app container restarted {int(load['restart_count_delta'])} time(s) during the load."
+    return sentence
+
+
+def chaos_downtime_seconds(observation: dict[str, object]) -> float | None:
+    """실험 전체에서 서비스가 끊긴 시간. 모르면 None.
+
+    묶음은 total_downtime_seconds를 보낸다. 없으면 시나리오별 복구 시간을 더한다.
+    단일 실험은 recovery_seconds가 곧 다운타임이다.
+    """
+    if (total := _as_float(observation.get("total_downtime_seconds"))) is not None:
+        return total
+    scenarios = [s for s in observation.get("scenarios") or [] if isinstance(s, dict)]
+    if scenarios:
+        values = [_as_float((s.get("chaos_observation") or {}).get("recovery_seconds")) for s in scenarios]
+        values = [v for v in values if v is not None]
+        if values:
+            return round(sum(values), 2)
+    return _as_float(observation.get("recovery_seconds"))
+
+
+def _chaos_reason(head: str, observation: dict[str, object], warnings: list[str]) -> str:
+    """판정 문장 뒤에 경고와 빠진 검사를 붙인다.
+
+    경고를 metrics에만 두면 사유는 "기준 안에서 복구"라고만 말한다. 레플리카가 1개라 요청이
+    끊긴 시간, 돌지 못한 시나리오는 사유를 읽는 사람이 알아야 하는 사실이다.
+    """
+    sentences = [head.rstrip(".") + "."]
+    downtime = chaos_downtime_seconds(observation)
+    if "chaos_single_replica_topology" in warnings and downtime:
+        sentences.append(f"The workload runs 1 replica, so requests failed for {downtime}s in total during the faults.")
+    elif "chaos_single_replica_topology" in warnings:
+        sentences.append("The workload runs 1 replica, so it has no spare Pod during a fault.")
+    if SLOWER_THAN_EXPECTED in warnings:
+        recovery = _as_float(observation.get("recovery_seconds"))
+        bound = _expected_recovery_bound(observation)
+        if recovery is not None and bound is not None:
+            sentences.append(f"Recovery took {recovery}s, longer than the {round(bound, 3)}s the workload "
+                             "configuration implies.")
+        else:
+            sentences.append("Recovery took longer than the workload configuration implies.")
+    if "chaos_error_budget_significant_burn" in warnings and downtime:
+        sentences.append(f"The {downtime}s of downtime used at least 20% of the monthly error budget.")
+    if "chaos_latency_degraded" in warnings:
+        sentences.append("Latency during a fault exceeded 10x the baseline p95.")
+    if (load_sentence := _load_sentence(chaos_load(observation))) is not None:
+        sentences.append(load_sentence)
+    if observation.get("partial"):
+        sentences.append(_partial_sentence(observation))
+    return " ".join(sentences)
+
+
+def _partial_sentence(observation: dict[str, object]) -> str:
+    requested = list(observation.get("requested") or [])
+    executed = list(observation.get("executed") or [])
+    missing = [
+        f"{item.get('chaosMode')} ({item.get('reason') or item.get('infraError')})"
+        for item in observation.get("stopped") or [] if isinstance(item, dict)
+    ]
+    missing += [f"{mode} (not run)" for mode in observation.get("not_executed") or []]
+    return (f"Only {len(executed)} of {len(requested)} requested scenarios ran; this verdict does not cover "
+            f"{'; '.join(missing)}.")
+
+
+def _not_checked(observation: dict[str, object]) -> list[str]:
+    stopped = [str(item.get("chaosMode")) for item in observation.get("stopped") or [] if isinstance(item, dict)]
+    return stopped + [str(mode) for mode in observation.get("not_executed") or []]
+
+
+def _chaos_evidence(result: SandboxResult, warnings: list[str]) -> list[str]:
+    items = _sandbox_evidence(result)
+    observation = result.chaos_observation
+    items += [f"policy_warnings={warning}" for warning in warnings]
+    if "chaos_single_replica_topology" in warnings:
+        items.append("chaos.replicas=1")
+    if (downtime := chaos_downtime_seconds(observation)) is not None:
+        items.append(f"chaos.downtime_seconds={downtime}")
+    load = chaos_load(observation)
+    if load:
+        items.append(f"load.max_users_without_errors={load.get('max_users_without_errors')}")
+        items.append(f"load.first_users_with_errors={load.get('first_users_with_errors')}")
+        if load.get("target_users"):
+            items.append(f"load.target_users={load.get('target_users')}")
+            items.append(f"load.target_met={load.get('target_met')}")
+        if isinstance(load.get("latency_growth"), dict):
+            items.append(f"load.latency_growth.ratio={load['latency_growth'].get('ratio')}")
+        if isinstance(load.get("overload_behavior"), dict):
+            items.append(f"load.overload_behavior.kind={load['overload_behavior'].get('kind')}")
+        if (slow := load_slow_from(load)) is not None:
+            items.append(f"load.slow_from_users={slow['users']}")
+    if observation.get("partial"):
+        items.append(f"executed={','.join(observation.get('executed') or [])}")
+        items.append(f"not_checked={','.join(_not_checked(observation))}")
+    return items
+
+
+SLOWER_THAN_EXPECTED = "chaos_recovery_slower_than_expected"
 
 
 def _expected_recovery_bound(observation: dict[str, object]) -> float | None:
@@ -786,15 +1061,24 @@ _EXIT_CODE_REASONS = {
     ),
 }
 
+# 샌드박스의 설정 오류 문구는 여러 가지라 그대로 옮기지 않는다. 원문은 evidence에 남는다.
+_SERVICE_NOT_DEPLOYABLE_REASON = (
+    "The sandbox could not decide which HTTP service to deploy, so there was nothing to put under chaos. "
+    "Libraries and multi-service projects are not deployed automatically; declare the service in "
+    ".codereferee/validation.yaml."
+)
+
 
 def _sandbox_failure_reason(result: SandboxResult) -> str:
     """실패 이유를 한 문장으로. 로그 원문은 evidence 쪽에 따로 들어간다.
 
     스택을 모를 때 "unknown"을 문장에 넣으면 진단이 모호해지므로 생략한다.
     """
+    report = result.sandbox_report or {}
+    if report.get("configuration_required"):
+        return _SERVICE_NOT_DEPLOYABLE_REASON
     if known := _EXIT_CODE_REASONS.get(result.exit_code):
         return known
-    report = result.sandbox_report or {}
     stack = report.get("detected_stack")
     suffix = f" in the {stack} build" if stack and stack != "unknown" else ""
     failed_step = report.get("failed_step")
@@ -861,6 +1145,60 @@ def _non_empty_evidence(value: object, *fallbacks: object) -> list[str]:
         if isinstance(fallback, str) and fallback.strip():
             evidence.append(fallback)
     return evidence or ["evidence=missing"]
+
+
+def _ensure_remediation_surface(state: AgentState) -> None:
+    """하이브리드 refiner: 규칙 스켈레톤의 수정부위 문장을 LLM 출력에 보장 주입한다.
+
+    판정·원인은 규칙이 정하고 서술만 LLM이 맡는 설계(docs/evaluation-design.md 8.1)의 일부다.
+    규칙(_refiner_guidance)은 실패 유형별 수정부위(health endpoint·manifest·exit_code=0·clone
+    visibility)를 이미 안다 — 그래서 fallback refiner가 T0 개념 커버리지 100%다. LLM이 그 surface를
+    빠뜨리면 이 함수가 patch_guidance에 메워, 표현은 LLM·정확성은 규칙으로 보장한다.
+    """
+    report = state.refiner_report
+    if not report:
+        return
+    skeleton = _refiner_guidance(
+        str(state.critic_feedback.get("issue", "")),
+        str(state.critic_feedback.get("root_cause", "")),
+        str(state.critic_feedback.get("recommended_action", "")),
+    )
+    # 판정 reason_category로 수정부위를 항상 보강한다. reason_category는 규칙이 정한 결정적·권위
+    # 신호라, LLM critic의 표현에 휘둘려 텍스트 라우팅이 엉뚱한 surface로 가도 바로잡는다.
+    surface = _category_surface(str((state.judge_report or {}).get("reason_category", "")))
+    if surface:
+        skeleton = [*skeleton, surface]
+    guidance = list(report.get("patch_guidance") or [])
+    covered = " ".join([str(report.get("summary", ""))] + guidance).casefold()
+    for line in skeleton:
+        if line and line.casefold() not in covered:
+            guidance.append(line)
+            covered += " " + line.casefold()
+    if guidance:
+        report["patch_guidance"] = guidance
+
+
+def _category_surface(category: str) -> str:
+    """판정 reason_category로 수정부위 문장을 고른다(텍스트 라우팅이 비었을 때의 백스톱).
+
+    문구는 _refiner_guidance와 같은 surface를 쓴다 — 개념 커버리지 기준이 동일하기 때문.
+    """
+    # 토큰 단위로 본다. 부분문자열이면 "supported"의 'port'가 service로 오매칭된다(실측 버그).
+    tokens = set(re.split(r"[^a-z0-9]+", category.casefold()))
+    if tokens & {"install", "nonzero", "exit", "build", "compile", "dependency", "pytest", "test"}:
+        return "Fix the failing command from the logs and verify it exits with exit_code=0 in the sandbox."
+    if tokens & {"entrypoint", "manifest"}:
+        return "Add a deterministic supported manifest or validation command and commit it before re-running."
+    if tokens & {"service", "http", "port", "browser", "endpoint"}:
+        return "Fix the service health endpoint/start command and verify HTTP plus browser smoke checks pass."
+    if tokens & {"clone", "reachable", "repository", "intake", "private", "auth"}:
+        return "Verify the repository URL, branch/ref, visibility, and network access before re-running validation."
+    if tokens & {"load"}:
+        return ("Raise capacity for the expected concurrent users (more replicas or worker processes, "
+                "larger connection pools, request timeouts) and re-run the same load.")
+    if tokens & {"timeout", "recovery"}:
+        return "Make startup/tests timeout-safe and re-run validation to confirm the sandbox no longer times out."
+    return ""
 
 
 def _refiner_guidance(issue: str, root_cause: str, action: str) -> list[str]:
