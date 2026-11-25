@@ -47,6 +47,7 @@ def create_validation_state(request: RepositoryValidationRequest, job_id: str | 
         requested_commit_sha=request.commit_sha,
         chaos_mode=request.chaos_mode,
         deployment_profile=request.deployment_profile,
+        validation_yaml=request.validation_yaml,
         target_users=request.target_users,
         status=JobStatus.queued,
     )
@@ -173,6 +174,7 @@ def _queue_payload(state: AgentState) -> dict[str, str | int | None]:
         "commitSha": state.requested_commit_sha,
         "chaosMode": state.chaos_mode,
         "deploymentProfile": state.deployment_profile,
+        **({'validationYaml': state.validation_yaml} if state.validation_yaml is not None else {}),
         "targetUsers": state.target_users,
         "submittedAt": None,
     }
@@ -186,6 +188,7 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
         commit_sha = payload.get("commitSha")
         chaos_mode = payload.get("chaosMode")
         deployment_profile = payload.get("deploymentProfile")
+        validation_yaml = payload.get('validationYaml')
         target_users = payload.get("targetUsers")
         request_id = payload.get("taskId")
         source = "server"
@@ -196,6 +199,7 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
         commit_sha = payload.get("commit_sha")
         chaos_mode = payload.get("chaos_mode")
         deployment_profile = payload.get("deployment_profile")
+        validation_yaml = payload.get('validation_yaml')
         target_users = payload.get("target_users")
         request_id = payload.get("request_id") or payload.get("job_id")
         source = "ai"
@@ -212,6 +216,7 @@ def _state_from_queue_payload(payload: dict) -> AgentState:
         request_id=request_id,
         chaos_mode=chaos_mode,
         deployment_profile=deployment_profile,
+        validation_yaml=validation_yaml,
         target_users=target_users,
     )
     state = create_validation_state(request, job_id=job_id)
@@ -285,6 +290,8 @@ def attach_source_files(state: AgentState, applied_patch: str | None = None,
     elif _primary_commit(state):
         options['commit_sha'] = _primary_commit(state)
     selected_patch = applied_patch or state.metrics.get('applied_patch')
+    if state.validation_yaml is not None and repository_name in (None, 'main'):
+        options['validation_yaml'] = state.validation_yaml
     if repository_name and repository_name != 'main':
         selected_patch = (repository_patches or {}).get(repository_name, {}).get('patchDiff')
     paths = source_context.extract_paths(result.log)
@@ -319,6 +326,8 @@ def _offer_replica_override(state: AgentState) -> None:
     그때 만든 생성 diff는 git apply --check에서 걸러진다.
     """
     state.metrics.pop("new_source_files", None)
+    if state.validation_yaml is not None:
+        return  # The upload already supplies this file, even when context collection failed or exceeded its limit.
     observation = state.execution_result.chaos_observation if state.execution_result else None
     if not observation or any(path in state.source_files for path in source_context.CHAOS_CONFIG_CANDIDATES):
         return
@@ -336,6 +345,8 @@ def _sandbox_contract_options(state: AgentState) -> dict[str, str | int]:
         options["chaos_mode"] = state.chaos_mode
     if state.deployment_profile:
         options["deployment_profile"] = state.deployment_profile
+    if state.validation_yaml is not None:
+        options['validation_yaml'] = state.validation_yaml
     if state.target_users:
         options["target_users"] = state.target_users
     # requestId is the cross-service correlation key.  It must accompany

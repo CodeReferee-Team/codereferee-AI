@@ -220,6 +220,7 @@ def collect(
     branch: str | None = None,
     commit_sha: str | None = None,
     applied_patch: str | None = None,
+    validation_yaml: str | None = None,
     clone_timeout_seconds: int = 60,
     dependency_clients: tuple[str, ...] = (),
 ) -> dict[str, str]:
@@ -249,6 +250,9 @@ def collect(
                                          timeout=clone_timeout_seconds)
                 if checked.returncode != 0:
                     return {}
+        if validation_yaml is not None:
+            from app.repository.validation_configuration import overlay_configuration
+            overlay_configuration(repo, validation_yaml)
         if applied_patch:
             applied = subprocess.run(
                 ["git", "apply", "--whitespace=nowarn", "-"],
@@ -260,8 +264,12 @@ def collect(
             if applied.returncode != 0:
                 # 적용 전 내용을 주면 Refiner가 어긋난 context로 패치를 쓴다. 아무것도 주지 않는다.
                 return {}
-        return read_files(repo, paths, dependency_clients)
-    except (subprocess.TimeoutExpired, OSError):
+        effective_paths = paths
+        if validation_yaml is not None:
+            from app.repository.validation_configuration import CONFIG_PATH
+            effective_paths = [CONFIG_PATH, *[path for path in paths if path != CONFIG_PATH]]
+        return read_files(repo, effective_paths, dependency_clients)
+    except (subprocess.TimeoutExpired, OSError, ValueError):
         return {}
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
