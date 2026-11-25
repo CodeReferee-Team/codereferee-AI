@@ -3,7 +3,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, field_validator
+from app.repository.validation_configuration import configuration_text
 
 
 class JobStatus(StrEnum):
@@ -22,6 +23,9 @@ class RepositoryValidationRequest(BaseModel):
     request_id: str | None = None
     chaos_mode: str | None = None
     deployment_profile: str | None = None
+    validation_yaml: str | None = Field(default=None, max_length=65536)
+
+    _validation_yaml_text = field_validator('validation_yaml')(configuration_text)
     # 요청자가 예상하는 동시 사용자 수. 부하 결과를 Fail로 올릴 수 있는 유일한 기준이다.
     target_users: int | None = Field(default=None, ge=1, le=500)
     max_retries: int | None = Field(default=None, ge=0, le=10)
@@ -213,6 +217,9 @@ class AgentState(BaseModel):
     requested_commit_sha: str | None = None
     chaos_mode: str | None = None
     deployment_profile: str | None = None
+    validation_yaml: str | None = Field(default=None, max_length=65536)
+
+    _validation_yaml_text = field_validator('validation_yaml')(configuration_text)
     target_users: int | None = None
     resolved_commit_sha: str | None = None
     validation_plan: dict[str, Any] = Field(default_factory=dict)

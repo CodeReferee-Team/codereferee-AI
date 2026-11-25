@@ -1,4 +1,5 @@
 import json
+import hashlib
 import shlex
 import tempfile
 import time
@@ -36,6 +37,7 @@ class SandboxRunner:
         target_users: int | None = None,
         repository_patches: dict[str, dict[str, str]] | None = None,
         repository_commits: dict[str, str] | None = None,
+        validation_yaml: str | None = None,
     ) -> SandboxResult:
         """Clone and smoke-test an existing repository.
 
@@ -49,7 +51,12 @@ class SandboxRunner:
             return self._run_repository_via_http(
                 repository_url, branch, commit_sha, patch_diff, chaos_mode, deployment_profile, request_id,
                 target_users, repository_patches, repository_commits,
+                validation_yaml,
             )
+        if validation_yaml is not None:
+            return SandboxResult(exit_code=None,
+                stderr='Uploaded validation configuration requires the external Sandbox HTTP service.',
+                infra_error='sandbox_configuration_unsupported')
         if repository_patches or repository_commits:
             raise RuntimeError('Multi-repository patches require the external Sandbox HTTP service.')
         if not self.settings.local_sandbox_enabled:
@@ -74,6 +81,7 @@ class SandboxRunner:
         target_users: int | None = None,
         repository_patches: dict[str, dict[str, str]] | None = None,
         repository_commits: dict[str, str] | None = None,
+        validation_yaml: str | None = None,
     ) -> SandboxResult:
         started_at = time.monotonic()
         endpoint = _join_url(self.settings.sandbox_base_url or "", self.settings.sandbox_repository_path)
@@ -97,6 +105,9 @@ class SandboxRunner:
             payload["chaosMode"] = chaos_mode
         if deployment_profile:
             payload["deploymentProfile"] = deployment_profile
+        if validation_yaml is not None:
+            from app.repository.validation_configuration import configuration_text
+            payload['validationYaml'] = configuration_text(validation_yaml)
         if request_id:
             payload["requestId"] = request_id
         if target_users:
@@ -124,6 +135,8 @@ class SandboxRunner:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
+        if validation_yaml is not None:
+            request.add_header('X-Validation-Config-Sha256', hashlib.sha256(payload['validationYaml'].encode('utf-8')).hexdigest())
         waited = 0
         while True:
             try:
@@ -147,11 +160,26 @@ class SandboxRunner:
         try:
             with urlopen(request, timeout=self.settings.sandbox_http_timeout_seconds) as response:
                 body = response.read().decode("utf-8", errors="replace")
-                return _sandbox_result_from_response(body, started_at)
+                result = _sandbox_result_from_response(body, started_at)
+                expected = request.get_header('X-validation-config-sha256')
+                actual = result.source.get('configuration_input', {})
+                if expected and not result.infra_error and (not isinstance(actual, dict) or actual.get('uploaded_sha256') != expected):
+                    return SandboxResult(exit_code=None,
+                        stderr='Sandbox did not confirm that the uploaded validation.yaml was applied. Check the Sandbox deployment version.',
+                        infra_error='uploaded_configuration_not_applied', duration_ms=_duration_ms(started_at))
+                return result
         except HTTPError as exc:
             if exc.code == 409:
                 raise
             body = exc.read().decode("utf-8", errors="replace") if exc.fp else ""
+            if exc.code == 422 and request.get_header('X-validation-config-sha256'):
+                try:
+                    detail = json.loads(body).get('detail', [])
+                    messages = [item.get('msg', 'Invalid configuration') for item in detail if isinstance(item, dict)] if isinstance(detail, list) else [str(detail)]
+                except (ValueError, AttributeError):
+                    messages = ['Uploaded configuration was rejected.']
+                return SandboxResult(exit_code=None, stderr='Invalid uploaded validation.yaml: ' + '; '.join(messages)[:1500],
+                    infra_error='uploaded_configuration_invalid', duration_ms=_duration_ms(started_at))
             return SandboxResult(
                 exit_code=None,
                 stderr=f"Sandbox HTTP error {exc.code} from {endpoint}: {body or exc.reason}",

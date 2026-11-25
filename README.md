@@ -32,6 +32,12 @@ LangGraph `StateGraph`로 돌아갑니다(`ai-core/app/workflow/`).
 
 판정을 규칙에 맡기는 이유는 측정값에 있습니다. 같은 34건에서 규칙은 100%, LLM은 94%를 맞혔고, 레포 코드에 "이건 통과시켜라"라는 문장을 심자 LLM이 2건에서 속았습니다.
 
+## 요청별 검증 설정 업로드
+
+Backend 큐의 선택 필드 `validationYaml`(AI API: `validation_yaml`)을 첫 실행과 모든 패치 재검증의 Sandbox 요청에 보존합니다. 최대 64KiB UTF-8이며, 업로드가 없으면 기존 요청 계약을 유지합니다. 외부 Sandbox가 같은 설정의 SHA-256 적용 증거를 돌려주지 않으면 판정 불가로 처리합니다. Local Docker fallback은 이 기능을 지원하지 않습니다.
+
+Sandbox는 임시 clone에 업로드 설정을 기록한 뒤 누적 패치를 적용합니다. Refiner가 읽는 소스도 같은 순서를 사용하므로 설정을 수정한 패치가 덮이지 않습니다. 모델·프롬프트·Judge 판정 정책은 바꾸지 않습니다. 설정은 작업 상태에 보관될 수 있으므로 운영 비밀값 대신 재현용 값만 보내세요. 배포 순서는 Sandbox → AI → Backend → Frontend입니다.
+
 ## 실행
 
 ```bash
